@@ -146,6 +146,33 @@ def plot_component_traces(cnm, idx=None, param='F_dff'):
     # trace_fig.tight_layout()
     plt.show()
 
+
+def reject_component(cnm, idx):
+    """
+    Re-assigns component from the good to the bad component array
+
+    :param cnm: cnm object that stores the estimates object
+    :param idx: index this component has in the idx_components list
+    """
+    # add component to the rejected list
+    cnm.estimates.idx_components_bad = np.append(cnm2.estimates.idx_components_bad, cnm2.estimates.idx_components[idx])
+    # remove component from the accepted list
+    cnm.estimates.idx_components = np.delete(cnm.estimates.idx_components, idx)
+    return cnm
+
+def accept_component(cnm, idx):
+    """
+    Re-assigns component from the bad to the good component array
+
+    :param cnm: cnm object that stores the estimates object
+    :param idx: index this component has in the idx_components_bad list
+    """
+    # add component to the accepted list
+    cnm.estimates.idx_components = np.append(cnm.estimates.idx_components, cnm.estimates.idx_components_bad[idx])
+    # remove component from the rejected list
+    cnm.estimates.idx_components_bad = np.delete(cnm.estimates.idx_components_bad, idx)
+    return cnm
+
 #%% CORRELATION FUNCTIONS
 
 

@@ -81,7 +81,7 @@ def main():
               r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00021.tif',
               r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00022.tif']
 
-    fnames = [r'C:\Users\hheise\caiman_data\PhD data\CA1\Maus 3 13.08.2019\file_00022.tif']
+    fnames = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif']
     #fnames = ['Sue_2x_3000_40_-46.tif']  # filename to be processed
     if fnames[0] in ['Sue_2x_3000_40_-46.tif', 'demoMovie.tif']:
         fnames = [download_demo(fnames[0])]
@@ -142,17 +142,6 @@ def main():
     mc = MotionCorrect(fnames, dview=dview, **opts.get_group('motion'))
     # note that the file is not loaded in memory
 
-#%% Multiple motion correction
-
-    for file in fname_list:
-        mc = MotionCorrect([file], dview=dview, **opts.get_group('motion'))
-        print(f'Starting motion correction of {file}!')
-        mc.motion_correct(save_movie=True)
-        border_to_0 = 0 if mc.border_nan == 'copy' else mc.border_to_0
-        fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C',
-                                   border_to_0=border_to_0)  # exclude borders
-        print(f'Finished motion correction of {file}!\n')
-
 #%% Run (piecewise-rigid motion) correction using NoRMCorre
     mc.motion_correct(save_movie=True)
 
@@ -171,7 +160,7 @@ def main():
     # during motion correction, although be careful about the components near
     # the boundaries
 
-    fname_new = r'C:\Users\hheise\caiman_data\PhD data\CA1\Maus 3 13.08.2019\file_00012_d1_512_d2_512_d3_1_order_C_frames_1801_.mmap'
+    fname_new = r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00014_d1_512_d2_512_d3_1_order_C_frames_2397_.mmap'
 
     # memory map the file in order 'C'
     fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C',
@@ -306,7 +295,7 @@ def main():
     #### -> will delete rejected components!
     cnm2.estimates.select_components(use_object=True)
 #%% Extract DF/F values
-    cnm.estimates.detrend_df_f(quantileMin=8, frames_window=250)
+    cnm2.estimates.detrend_df_f(quantileMin=8, frames_window=250)
 
 #%% Show final traces
     cnm2.estimates.view_components(img=Cn)

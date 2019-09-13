@@ -9,6 +9,8 @@ import caiman as cm
 from caiman.motion_correction import MotionCorrect
 from caiman.source_extraction.cnmf import cnmf as cnmf
 from caiman.source_extraction.cnmf import params as params
+
+sys.path.append(r'C:\Users\hheise\PycharmProjects\Caiman\custom scripts')
 import post_analysis as post
 import imageio
 import contextlib
@@ -27,7 +29,6 @@ try:
 except NameError:
     pass
 
-sys.path.append(r'C:\Users\hheise\PycharmProjects\Caiman\custom scripts')
 
 @contextlib.contextmanager
 def suppress_stdout(suppress=True):
@@ -40,7 +41,7 @@ def suppress_stdout(suppress=True):
 
 #%% set (or load?) parameters
 
-root = r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019'
+root = r'E:\PhD\Data\CA1\Maus 3 13.08.2019'
 manual_files = True
 
 if manual_files:
@@ -153,6 +154,14 @@ for file in file_list:
     opts.change_params({'p': 0, 'fnames': file})
     cnm = cnmf.CNMF(n_processes, params=opts, dview=dview)
     cnm = cnm.fit(images)
+
+    Cn = cm.local_correlations(images, swap_dim=False)
+    Cn[np.isnan(Cn)] = 0
+    cnm.estimates.plot_contours(img=Cn)
+    plt.title('Contour plots of found components')
+    plt.savefig(root+f'\{file_name}_detection.png')
+    plt.close()
+
     print('Done! \n')
 
     print(f'Starting to re-fit file {file_name}')
@@ -166,9 +175,16 @@ for file in file_list:
     dirname = root + '\\' + file_name + "_results.hdf5"
 
     print(f'Saving file: {file_name + "_results.hdf5"}...')
-    cnm2.estimates.Cn = cm.local_correlations(images, swap_dim=False)
+    cnm2.estimates.Cn = Cn
 
     cnm2.save(dirname)
     print(f'Done! ({count}/{len(file_list)})\n')
     count += 1
 
+#%% Component alignment and re-registration
+
+file_list = glob.glob(root+r'\*.hdf5')
+
+cnm_list = []
+for file in file_list:
+    cnm_list.append(cnmf.load_CNMF(file))
