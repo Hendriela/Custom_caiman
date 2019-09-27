@@ -59,7 +59,7 @@ from caiman.utils.utils import download_demo
 logging.basicConfig(format=
                     "%(relativeCreated)12d [%(filename)s:%(funcName)20s():%(lineno)s]"\
                     "[%(process)d] %(message)s",
-                    level=logging.WARNING)
+                    level=logging.ERROR)
 
 #%%
 def main():

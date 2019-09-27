@@ -1,19 +1,20 @@
+import warnings
 import cv2
 import glob
 import logging
 import matplotlib.pyplot as plt
+warnings.filterwarnings("ignore", category=FutureWarning)
 import numpy as np
 import os
 import sys
 import caiman as cm
 from caiman.motion_correction import MotionCorrect
+
 from caiman.source_extraction.cnmf import cnmf as cnmf
 from caiman.source_extraction.cnmf import params as params
-
 sys.path.append(r'C:\Users\hheise\PycharmProjects\Caiman\custom scripts')
 import post_analysis as post
 import imageio
-import contextlib
 
 try:
     cv2.setNumThreads(0)
@@ -28,40 +29,58 @@ try:
         get_ipython().magic('autoreload 2')
 except NameError:
     pass
+#%% load parameters from a previous analysis
+root = r'E:\PhD\Data\CA1\Maus 3 13.08.2019'
+file_name = r'file_00011'
 
+opts = load_params(root, file_name)
 
-@contextlib.contextmanager
-def suppress_stdout(suppress=True):
-    """ Suppresses console output for spammy caiman functions."""
-    std_ref = sys.stdout
-    if suppress:
-        sys.stdout = open('/dev/null', 'w')
-        yield
-    sys.stdout = std_ref
+manual_files = True
 
-#%% set (or load?) parameters
+if manual_files:
+    fnames = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00011.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00013.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00014.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00015.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00016.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00017.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00018.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00019.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00020.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00021.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00022.tif']
+else:
+    fnames = glob.glob(root+r'\*.tif')
+
+# set up cluster for parallel processing
+c, dview, n_processes = cm.cluster.setup_cluster(
+    backend='local', n_processes=None, single_thread=False)
+opts.change_params({'n_processes': n_processes, 'fnames': fnames})
+
+#%% manually set parameters
 
 root = r'E:\PhD\Data\CA1\Maus 3 13.08.2019'
 manual_files = True
 
 if manual_files:
-    fnames = [r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00011.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00012.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00013.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00014.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00015.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00016.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00017.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00018.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00019.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00020.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00021.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00022.tif']
+    movie_list = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00011.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00013.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00014.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00015.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00016.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00017.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00018.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00019.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00020.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00021.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00022.tif']
 else:
-    fnames = glob.glob(root+r'\*.tif')
+    movie_list = glob.glob(root+r'\*.tif')
 
 fr = 30                         # imaging rate in frames per second
-decay_time = 0.4                # length of a typical transient in seconds
+decay_time = 3                # length of a typical transient in seconds
 dxy = (1, 1)                    # spatial resolution in x and y in (um per pixel)
 max_shift_um = (12., 12.)       # maximum shift in um
 patch_motion_um = (25., 25.)    # patch size for non-rigid correction in um
@@ -77,23 +96,23 @@ max_deviation_rigid = 3         # maximum deviation allowed for patch with respe
 
 # CNMF parameters
 p = 1                       # order of the autoregressive system
-gnb = 2                     # number of global background components
-merge_thr = 0.85            # merging threshold, max correlation allowed
+gnb = 3                     # number of global background components
+merge_thr = 0.86            # merging threshold, max correlation allowed
 rf = 50                     # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
-stride_cnmf = 10            # amount of overlap between the patches in pixels
-K = 3                       # number of components per patch
-gSig = [20, 20]             # expected half size of neurons in pixels
+stride_cnmf = 20            # amount of overlap between the patches in pixels
+K = 10                       # number of components per patch
+gSig = [13, 11]             # expected half size of neurons in pixels
 method_init = 'greedy_roi'  # initialization method
 ssub = 2                    # spatial subsampling during initialization
 tsub = 2                    # temporal subsampling during intialization
 
 # Evaluation parameters
 # signal to noise ratio for accepting a component (default 0.5 and 2)
-SNR_lowest = 0.5
-min_SNR = 2.5
+SNR_lowest = 3
+min_SNR = 6
 # space correlation threshold for accepting a component (default -1 and 0.85)
 rval_lowest = -1
-rval_thr = 0.7
+rval_thr = 0.75
 # threshold for CNN based classifier (default 0.1 and 0.99)
 cnn_lowest = 0.1
 cnn_thr = 0.99
@@ -104,14 +123,13 @@ c, dview, n_processes = cm.cluster.setup_cluster(
     backend='local', n_processes=None, single_thread=False)
 
 # enter parameters in the dictionary
-with suppress_stdout():
-    opts_dict = {'fnames': fnames, 'fr': fr,  'decay_time': decay_time, 'dxy': dxy, 'pw_rigid': pw_rigid,
-                 'max_shifts': max_shifts, 'strides': strides_mc, 'overlaps': overlaps,
-                 'max_deviation_rigid': max_deviation_rigid, 'border_nan': 'copy', 'nb': gnb, 'rf': rf, 'K': K, 'gSig': gSig,
-                 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True, 'merge_thr': merge_thr,
-                 'n_processes': n_processes,  'only_init': True, 'ssub': ssub, 'tsub': tsub, 'min_SNR': min_SNR,
-                 'rval_thr': rval_thr, 'min_cnn_thr': cnn_thr, 'cnn_lowest': cnn_lowest, 'use_cnn': True}
-    opts = params.CNMFParams(params_dict=opts_dict)
+opts_dict = {'fnames': movie_list[0], 'fr': fr,  'decay_time': decay_time, 'dxy': dxy, 'pw_rigid': pw_rigid,
+             'max_shifts': max_shifts, 'strides': strides_mc, 'overlaps': overlaps,
+             'max_deviation_rigid': max_deviation_rigid, 'border_nan': 'copy', 'nb': gnb, 'rf': rf, 'K': K, 'gSig': gSig,
+             'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True, 'merge_thr': merge_thr,
+             'n_processes': n_processes,  'only_init': True, 'ssub': ssub, 'tsub': tsub, 'min_SNR': min_SNR,
+             'rval_thr': rval_thr, 'min_cnn_thr': cnn_thr, 'cnn_lowest': cnn_lowest, 'use_cnn': True}
+
 
 
 #%% Motion correction
@@ -119,7 +137,8 @@ with suppress_stdout():
 # perform batch motion correction
 count = 1
 mc_files = []
-for file in fnames:
+for file in movie_list:
+    opts = params.CNMFParams(params_dict=opts_dict)
     file_name = file.split('\\')[-1].split('.')[0]
     mc = MotionCorrect([file], dview=dview, **opts.get_group('motion'))
     print(f'Starting motion correction of {file_name}!')
@@ -133,9 +152,11 @@ for file in fnames:
 
 #%% Component detection and evaluation
 
-use_mc_files = False
-if use_mc_files:
-    file_list = use_mc_files
+use_custom_files = True
+save_eval_graph = True
+
+if use_custom_files:
+    file_list = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012_d1_512_d2_512_d3_1_order_C_frames_1801_.mmap']
 else:
     file_list = glob.glob(root+r'\*.mmap')
     print(f'Processing all .mmap files in directory {root}')
@@ -143,6 +164,11 @@ else:
 count = 1
 for file in file_list:
     file_name = file.split('\\')[-1].split('.')[0][:10]
+    print(f'Starting to process file {file_name}...')
+
+    opts_dict['fnames'] = movie_list[1]
+    opts = params.CNMFParams(params_dict=opts_dict)
+
     Yr, dims, T = cm.load_memmap(file)
     images = np.reshape(Yr.T, [T] + list(dims), order='F')
 
@@ -150,8 +176,8 @@ for file in file_list:
     c, dview, n_processes = cm.cluster.setup_cluster(
         backend='local', n_processes=None, single_thread=False)
 
-    print(f'Starting to fit file {file_name}')
-    opts.change_params({'p': 0, 'fnames': file})
+    print(f'\tStarting to fit file {file_name}...')
+    opts.change_params({'p': 0})
     cnm = cnmf.CNMF(n_processes, params=opts, dview=dview)
     cnm = cnm.fit(images)
 
@@ -162,24 +188,33 @@ for file in file_list:
     plt.savefig(root+f'\{file_name}_detection.png')
     plt.close()
 
-    print('Done! \n')
+    print('\tDone! \n')
 
-    print(f'Starting to re-fit file {file_name}')
+    print(f'\tStarting to re-fit file {file_name}...')
     cnm.params.change_params({'p': p})
     cnm2 = cnm.refit(images, dview=dview)
-    print('Done! \n')
+    print('\tDone! \n')
 
     cnm2.estimates.evaluate_components(images, params=cnm2.params, dview=dview)
     cnm2.estimates.detrend_df_f(quantileMin=8, frames_window=250)
 
-    dirname = root + '\\' + file_name + "_results.hdf5"
+    if save_eval_graph:
+        cnm2.estimates.plot_contours(img=Cn, idx=cnm2.estimates.idx_components)
+        plt.savefig(root+f'\{file_name}_evaluation.png')
+        plt.close()
 
-    print(f'Saving file: {file_name + "_results.hdf5"}...')
+    dirname = root + r'\\' + file_name + "_results.hdf5"
+
+    print(f'\tSaving file: {file_name + "_results.hdf5"}...')
     cnm2.estimates.Cn = Cn
 
     cnm2.save(dirname)
-    print(f'Done! ({count}/{len(file_list)})\n')
+    print(f'Done with file {file_name}! ({count}/{len(file_list)})\n')
     count += 1
+
+    del cnm
+    #del cnm2
+    del opts
 
 #%% Component alignment and re-registration
 
@@ -188,3 +223,12 @@ file_list = glob.glob(root+r'\*.hdf5')
 cnm_list = []
 for file in file_list:
     cnm_list.append(cnmf.load_CNMF(file))
+
+
+#%% helper function that loads previously performed parameters for batch analysis
+
+def load_params(root, file_name):
+    dir = root+r'\\'+file_name+r'_results.hdf5'
+    cnm = cnmf.load_CNMF(dir)
+
+    return cnm.params
