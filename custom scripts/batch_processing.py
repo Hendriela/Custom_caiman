@@ -156,7 +156,7 @@ use_custom_files = True
 save_eval_graph = True
 
 if use_custom_files:
-    file_list = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012_d1_512_d2_512_d3_1_order_C_frames_1801_.mmap']
+    file_list = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00019_d1_512_d2_512_d3_1_order_C_frames_903_.mmap']
 else:
     file_list = glob.glob(root+r'\*.mmap')
     print(f'Processing all .mmap files in directory {root}')
@@ -166,7 +166,7 @@ for file in file_list:
     file_name = file.split('\\')[-1].split('.')[0][:10]
     print(f'Starting to process file {file_name}...')
 
-    opts_dict['fnames'] = movie_list[1]
+    opts_dict['fnames'] = movie_list[8]
     opts = params.CNMFParams(params_dict=opts_dict)
 
     Yr, dims, T = cm.load_memmap(file)
@@ -181,9 +181,9 @@ for file in file_list:
     cnm = cnmf.CNMF(n_processes, params=opts, dview=dview)
     cnm = cnm.fit(images)
 
-    Cn = cm.local_correlations(images, swap_dim=False)
-    Cn[np.isnan(Cn)] = 0
-    cnm.estimates.plot_contours(img=Cn)
+    Cn2 = cm.local_correlations(images, swap_dim=False)
+    Cn2[np.isnan(Cn2)] = 0
+    cnm_corr_seed.estimates.plot_contours(img=Cn)
     plt.title('Contour plots of found components')
     plt.savefig(root+f'\{file_name}_detection.png')
     plt.close()
@@ -192,7 +192,7 @@ for file in file_list:
 
     print(f'\tStarting to re-fit file {file_name}...')
     cnm.params.change_params({'p': p})
-    cnm2 = cnm.refit(images, dview=dview)
+    cnm2 = cnm_corr_seed.refit(images, dview=dview)
     print('\tDone! \n')
 
     cnm2.estimates.evaluate_components(images, params=cnm2.params, dview=dview)
@@ -232,3 +232,43 @@ def load_params(root, file_name):
     cnm = cnmf.load_CNMF(dir)
 
     return cnm.params
+
+#%% seeded
+opts.change_params({'rf': None, 'only_init': False})
+
+# run CNMF seeded with this mask
+cnm_corr_seed = cnmf.CNMF(n_processes, params=opts, dview=dview, Ain=Ain)
+cnm_corr_seed = cnm_corr_seed.fit(images)
+
+
+#%% reshaping
+
+temp_array = np.zeros((512,512,template.shape[1]))
+for i in range(template.shape[1]):
+    test = np.reshape(template[:,i],(512,512), order='F')
+    temp_array[:,:,i] = test.toarray()
+
+template_bool = temp_array.astype('bool')
+
+#%% plotting
+
+fig, ax1 = plt.subplots()
+
+color = 'tab:red'
+ax1.set_xlabel('Frames')
+ax1.set_ylabel('raw', color=color)
+ax1.plot(cnm.estimates.C[300], color=color)
+ax1.tick_params(axis='y', labelcolor=color)
+
+ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+
+color = 'tab:blue'
+ax2.set_ylabel('dF/F', color=color)  # we already handled the x-label with ax1
+ax2.plot(cnm.estimates.F_dff[300], color=color)
+ax2.tick_params(axis='y', labelcolor=color)
+
+fig.tight_layout()  # otherwise the right y-label is slightly clipped
+plt.show()
+
+#%%
+
