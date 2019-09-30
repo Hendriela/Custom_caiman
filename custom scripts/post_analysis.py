@@ -516,3 +516,39 @@ def plot_cross_correlation(thresh):
 
     corr_fig.show()
 
+
+def plot_neuron_trials(traces):
+    """
+    Plots the traces for all trials of this neuron. Traces are not normalized against track position,
+    and will have different length dependent on the time of the trial
+    :param traces: list of trial data (trial data in 1D array with n_frames length)
+    :return: plot
+    """
+    n_trials = len(traces)
+    fig, ax = plt.subplots(nrows=n_trials)
+    for i in range(n_trials):
+        ax[i].plot(traces[i])
+    plt.tight_layout()
+
+def plot_activity_track(traces):
+    """
+    Plots traces of a neuron normalized against track position
+    :param traces: 2D array containing bin-averaged activity of (n_trials X n_bins)
+    :return:
+    """
+    n_trials = traces.shape[0]
+    fig, ax = plt.subplots(nrows=n_trials, ncols=2)
+    for i in range(n_trials):
+        ax[i,0].plot(traces[i])
+        ax[i,1].pcolormesh(traces[i,np.newaxis])
+        if i == ax[:, 0].size - 1:
+            ax[i, 0].spines['top'].set_visible(False)
+            ax[i, 0].spines['right'].set_visible(False)
+            ax[i, 0].set_yticks([])
+            ax[i, 1].spines['top'].set_visible(False)
+            ax[i, 1].spines['right'].set_visible(False)
+            ax[i, 1].set_xticks(list(np.linspace(0,100,13)),[np.linspace(-10,110,13)])
+        else:
+            ax[i, 0].axis('off')
+            ax[i, 1].axis('off')
+    plt.tight_layout()
