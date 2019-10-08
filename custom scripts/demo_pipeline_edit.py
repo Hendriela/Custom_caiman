@@ -68,20 +68,19 @@ def main():
 #%% Select file(s) to be processed (download if not present)
     root = '/Users/hheiser/Desktop/testing data/chronic_M2N3/0d_baseline/channel1'
 
-    fname_list = [r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00011.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00012.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00013.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00014.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00015.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00016.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00017.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00018.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00019.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00020.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00021.tif',
-              r'C:\Users\hheise\caiman_data\PhD data\Maus 3 13.08.2019\file_00022.tif']
+    fnames = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00011.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00013.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00014.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00015.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00016.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00017.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00018.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00019.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00020.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00021.tif',
+              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00022.tif']
 
-    fnames = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif']
     #fnames = ['Sue_2x_3000_40_-46.tif']  # filename to be processed
     if fnames[0] in ['Sue_2x_3000_40_-46.tif', 'demoMovie.tif']:
         fnames = [download_demo(fnames[0])]
@@ -93,8 +92,8 @@ def main():
     decay_time = 3    # length of a typical transient in seconds (0.4)
     dxy = (1, 1)      # spatial resolution in x and y in (um per pixel)
     # note the lower than usual spatial resolution here
-    max_shift_um = (12., 12.)       # maximum shift in um
-    patch_motion_um = (25., 25.)  # patch size for non-rigid correction in um
+    max_shift_um = (20., 20.)       # maximum shift in um
+    patch_motion_um = (40., 40.)  # patch size for non-rigid correction in um
 
     # motion correction parameters
     pw_rigid = True       # flag to select rigid vs pw_rigid motion correction
@@ -241,7 +240,7 @@ def main():
     opts.change_params({'rf': None, 'only_init': False})
 
     # run CNMF seeded with this mask
-    cnm_corr_seed = cnmf.CNMF(n_processes, params=opts, dview=dview, Ain=Ain)
+    cnm_corr = cnmf.CNMF(n_processes, params=opts, dview=dview, Ain=Ain)
     cnm_corr_seed = cnm_corr_seed.fit(images)
     #cnm_seed = cnm_seed.fit_file(motion_correct=False)
 
@@ -282,20 +281,20 @@ def main():
     cnm2.estimates.evaluate_components(images, params=cnm2.params, dview=dview)
 
 #%% PLOT COMPONENTS
-    cnm2.estimates.plot_contours(img=Cn, idx=cnm2.estimates.idx_components)
+    cnm.estimates.plot_contours(img=Cn, idx=cnm.estimates.idx_components)
 
 #%% VIEW TRACES (accepted and rejected)
 
     if display_images:
-        cnm2.estimates.view_components(images, img=Cn,
-                                      idx=cnm2.estimates.idx_components)
+        cnm.estimates.view_components(images, img=cnm.estimates.Cn,
+                                      idx=cnm.estimates.idx_components)
         cnm2.estimates.view_components(images, img=Cn,
                                       idx=cnm2.estimates.idx_components_bad)
 #%% update object with selected components
     #### -> will delete rejected components!
     cnm2.estimates.select_components(use_object=True)
 #%% Extract DF/F values
-    cnm2.estimates.detrend_df_f(quantileMin=8, frames_window=250)
+    cnm.estimates.detrend_df_f(quantileMin=8, frames_window=500)
 
 #%% Show final traces
     cnm2.estimates.view_components(img=Cn)

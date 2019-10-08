@@ -160,6 +160,7 @@ def reject_component(cnm, idx):
     cnm.estimates.idx_components = np.delete(cnm.estimates.idx_components, idx)
     return cnm
 
+
 def accept_component(cnm, idx):
     """
     Re-assigns component from the bad to the good component array
@@ -172,6 +173,30 @@ def accept_component(cnm, idx):
     # remove component from the rejected list
     cnm.estimates.idx_components_bad = np.delete(cnm.estimates.idx_components_bad, idx)
     return cnm
+
+
+def get_noise_fwhm(data):
+    """
+    Returns noise level as standard deviation (sigma) from a dataset using full-width-half-maximum (Koay et al. 2019)
+    :param data: 1D array of data that you need the noise level from
+    :return: noise: float, sigma of given dataset
+    """
+    if np.all(data == 0): # catch trials without data
+        sigma = 0
+    else:
+        x_data, y_data = sns.distplot(data).get_lines()[0].get_data()
+        plt.close()
+        y_max = y_data.argmax()  # get idx of half maximum
+        # get points above/below y_max that is closest to max_y/2 by subtracting it from the data and
+        # looking for the minimum absolute value
+        nearest_above = (np.abs(y_data[y_max:] - max(y_data) / 2)).argmin()
+        nearest_below = (np.abs(y_data[:y_max] - max(y_data) / 2)).argmin()
+        # get FWHM by subtracting the x-values of the two points
+        FWHM = x_data[nearest_above + y_max] - x_data[nearest_below]
+        # return noise level as FWHM/2.3548
+        sigma = FWHM/2.3548
+    return sigma
+
 
 #%% CORRELATION FUNCTIONS
 
@@ -521,7 +546,8 @@ def plot_neuron_trials(traces):
     """
     Plots the traces for all trials of this neuron. Traces are not normalized against track position,
     and will have different length dependent on the time of the trial
-    :param traces: list of trial data (trial data in 1D array with n_frames length)
+    :param traces: list of trial data (trial data in 1D array with n_frames length,
+    use session[n_neuron] for all trials of one neuron or bin_avg_activity[n_neuron] for averaged trials across neurons)
     :return: plot
     """
     n_trials = len(traces)
@@ -533,7 +559,7 @@ def plot_neuron_trials(traces):
 def plot_activity_track(traces):
     """
     Plots traces of a neuron normalized against track position
-    :param traces: 2D array containing bin-averaged activity of (n_trials X n_bins)
+    :param traces: 2D array containing bin-averaged activity of (n_trials X n_bins; bin_activity[n_neuron])
     :return:
     """
     n_trials = traces.shape[0]
