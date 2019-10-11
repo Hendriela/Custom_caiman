@@ -174,6 +174,7 @@ def accept_component(cnm, idx):
     cnm.estimates.idx_components_bad = np.delete(cnm.estimates.idx_components_bad, idx)
     return cnm
 
+#%% place cell analysis
 
 def get_noise_fwhm(data):
     """
@@ -184,8 +185,8 @@ def get_noise_fwhm(data):
     if np.all(data == 0): # catch trials without data
         sigma = 0
     else:
+        plt.figure()
         x_data, y_data = sns.distplot(data).get_lines()[0].get_data()
-        plt.close()
         y_max = y_data.argmax()  # get idx of half maximum
         # get points above/below y_max that is closest to max_y/2 by subtracting it from the data and
         # looking for the minimum absolute value
@@ -195,8 +196,11 @@ def get_noise_fwhm(data):
         FWHM = x_data[nearest_above + y_max] - x_data[nearest_below]
         # return noise level as FWHM/2.3548
         sigma = FWHM/2.3548
+        plt.close()
     return sigma
 
+
+def find_place_field()
 
 #%% CORRELATION FUNCTIONS
 

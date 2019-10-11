@@ -7,6 +7,7 @@ import os
 import logging
 import copy
 import matplotlib.pyplot as plt
+import random
 
 try:
     if __IPYTHON__:
@@ -139,12 +140,11 @@ for neuron in range(n_neuron):
     session[neuron] = curr_neur                # save data from this neuron to the big session list
 
 # transform session traces into significant-transient-only traces for later place cell screening
-# TODO HIGH PRIORITY finish this
 session_trans = copy.deepcopy(session)
 for neuron in range(len(session)):
     curr_neuron = session[neuron]
     for i in range(len(curr_neuron)):
-        trial = curr_neur[i]
+        trial = curr_neuron[i]
         # get noise level of the data via FWHM
         sigma = post.get_noise_fwhm(trial)
         # get time points where the signal is more than 4x sigma (Koay et al., 2019)
@@ -292,20 +292,52 @@ min_bin_size = 10  # minimum size in bins a place field should have to be consid
 fluo_infield = 7   # factor above which the mean DF/F in the place field should lie compared to outside the field
 trans_time = 0.2   # relative fraction of the (unbinned!) signal during the time the mouse is spending in the
                    # place field that should be comprised of significant transients
+n_splits = 10      # segments the binned DF/F should be split into for bootstrapping. Has to be a divisor of n_bins
+# Todo: maybe randomise n_splits? Is it smart to have different split lengths
 
-crit_bin_size = False
-crit_infield = False
-crit_trans = False
+true_place_fields = []
 
 for pot_place in pot_place_blocks:
+
+    crit_bin_size = False
+    crit_infield = False
+    crit_trans = False
+
     pot_place_idx = np.in1d(range(smooth_trace.shape[0]), pot_place)  # get an idx mask for the potential place field
+    # check if the place field is at least X bins wide
     if pot_place.size >= min_bin_size:
         crit_bin_size = True
-    if np.mean(smooth_trace[pot_place_idx]) >= 7*np.mean(smooth_trace[~pot_place_idx]):
+    # check if the mean DF/F inside the field is at least Y times larger than the DF/F outside the field
+    if np.mean(smooth_trace[pot_place_idx]) >= fluo_infield*np.mean(smooth_trace[~pot_place_idx]):
         crit_infield = True
 
-    raw_place_trace = session[test_neuron]
+    place_frames_trace = []     # stores the trace of all trials when the mouse was in a place field as one data row
+    for trial in range(bin_frame_count.shape[1]):
+        # get the start and end frame for the current place field from the bin_frame_count array that stores how many
+        # frames were pooled for each bin
+        curr_place_frames = (np.sum(bin_frame_count[:pot_place[0], trial]),
+                             np.sum(bin_frame_count[:pot_place[-1]+1, trial]))
+        # attach the transient-only trace in the place field during this trial to the array
+        # TODO: not working with the current behavior data, make it work for behavior&frame-trigger data
+        place_frames_trace.append(session_trans[test_neuron][trial][curr_place_frames[0]:curr_place_frames[1]+1])
+    # one big 1D array that includes all frames where the mouse was located in the place field
+    # as this is the transient-only trace, we make it boolean, with False = no transient and True = transient
+    place_frames_trace = np.hstack(place_frames_trace).astype('bool')
+    # check if at least X percent of the frames are part of a significant transient
+    if np.sum(place_frames_trace) >= trans_time*place_frames_trace.shape[0]:
+        crit_trans = True
 
+    # if all criteria have been passed, perform boot strapping on the binned DF/F-position trace (see Dombeck2010)
+    if crit_bin_size and crit_infield and crit_trans:
+        split_trace = np.split(test_trace, n_splits)
+        p_counter = 0
+        for i in range(1000):
+            curr_shuffle = random.sample(split_trace, len(split_trace))
+            # TODO implement place-cell finding function
+            if place_cell:
+                p_counter += 1
+        if p_counter/1000 < 0.05:
+            true_place_fields.append(pot_place)
 
 
 
