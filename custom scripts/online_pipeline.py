@@ -114,10 +114,18 @@ cnm = cnmf.cnmf.load_CNMF(r'E:\PhD\Data\CA1\Maus 3 13.08.2019\online_motioncorr_
 # post analysis parameters
 # lengths in frames of every trial in this session
 frame_list = [5625, 1801, 855, 2397, 9295, 476, 3713, 1816, 903, 4747, 1500, 5024]  # TODO: make it automatic
-transient_length = 0.5      # minimum length in seconds of a significant transient
+trans_length = 0.5      # minimum length in seconds of a significant transient
 trans_thresh = 4            # factor of sigma above which a signal is considered part of a significant transient
 trial_list = np.linspace(11,22,12,dtype='int')  # trial numbers of files that are used for analysis TODO: eliminate hard coded variable
-n_bins = 100                # number of bins in which the calcium traces to put
+n_bins = 100                # number of bins in which the calcium traces to collect
+# place field finding parameters
+bin_window_avg = 3  # window of bins (to each side) over which the trace should be averaged
+bin_base = 0.25  # fraction of lowest bins that should be averaged for baseline calculation
+place_thresh = 0.25  # threshold of being considered for place fields, from difference between max and baseline DF/F
+
+params = {'frame_list': frame_list, 'trans_length': trans_length, 'trans_thresh':trans_thresh, 'trial_list': trial_list,
+          'n_bins': n_bins, 'bin_window_avg': bin_window_avg, 'bin_base': bin_base, 'place_thresh': place_thresh}
+
 
 # split traces of neurons into trials
 n_trials = len(frame_list)
@@ -154,7 +162,7 @@ for neuron in range(len(session)):
             idx = np.where(trial >= trans_thresh*sigma)[0]
         # find blocks of >500 ms length
         blocks = np.split(idx, np.where(np.diff(idx) != 1)[0]+1)
-        duration = int(transient_length/(1/cnm.params.data['fr']))
+        duration = int(trans_length/(1/cnm.params.data['fr']))
         try:
             transient_idx = np.concatenate([x for x in blocks if x.size >= duration])
         except ValueError:
@@ -169,9 +177,9 @@ for neuron in range(len(session)):
 
 #%% import VR data (track position)
 
-data = []
+data1 = []
 for trial in trial_list:
-    data.append(np.loadtxt(f'E:\PhD\Data\CA1\Maus 3 13.03.2019 behavior\{trial}\merged_vr_licks.txt')) #TODO remove hard coding
+    data1.append(np.loadtxt(f'E:\PhD\Data\CA1\Maus 3 13.03.2019 behavior\{trial}\merged_vr_licks.txt')) #TODO remove hard coding
 
 bin_frame_count = np.zeros((n_bins, n_trials), 'int')
 for trial in range(len(data)):  # go through vr data of every trial and prepare it for analysis
@@ -185,7 +193,7 @@ for trial in range(len(data)):  # go through vr data of every trial and prepare 
     bin_borders = np.linspace(-10, 110, n_bins+1)
     idx = np.digitize(data[trial][:, 2], bin_borders)  # get indices of bins
 
-    # create estimate time stamps for frames
+    # create estimate time stamps for frames (only necessary for behavior data without frame trigger)
     last_stamp = 0
     for i in range(data[trial].shape[0]):
         if last_stamp+(1/fr) < data[trial][i, 1] or i == 0:
@@ -222,21 +230,6 @@ for neuron in range(n_neuron):
 bin_avg_activity = np.zeros((n_neuron, n_bins))
 for neuron in range(n_neuron):
     bin_avg_activity[neuron] = np.mean(bin_activity[neuron], axis=0)
-
-# place field identification
-
-#%%
-plt.figure()
-for i in range(test.shape[0]):
-    plt.plot(test[i])
-
-# plot single neurons for all trials
-
-
-# class which contains data for each session. TODO: bring data structure in order (still useful?)
-class Session(object):
-    def __init__(self):
-        t = 0
 
 #%% baseline reduction (should happen in CaImAn dF/F function already)
 

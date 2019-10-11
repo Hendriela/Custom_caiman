@@ -200,7 +200,7 @@ def get_noise_fwhm(data):
     return sigma
 
 
-def find_place_field()
+def find_place_field(trace, params, bin_frame_count)
 
 #%% CORRELATION FUNCTIONS
 
