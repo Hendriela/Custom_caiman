@@ -199,9 +199,6 @@ def get_noise_fwhm(data):
         plt.close()
     return sigma
 
-
-def find_place_field(trace, params, bin_frame_count)
-
 #%% CORRELATION FUNCTIONS
 
 

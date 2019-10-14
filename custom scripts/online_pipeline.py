@@ -4,18 +4,9 @@
 import glob
 import numpy as np
 import os
-import logging
 import copy
 import matplotlib.pyplot as plt
 import random
-
-try:
-    if __IPYTHON__:
-        # this is used for debugging purposes only.
-        get_ipython().magic('load_ext autoreload')
-        get_ipython().magic('autoreload 2')
-except NameError:
-    pass
 
 import caiman as cm
 from caiman.source_extraction import cnmf as cnmf
@@ -23,6 +14,7 @@ from caiman.source_extraction import cnmf as cnmf
 import sys
 sys.path.append(r'C:\Users\hheise\PycharmProjects\Caiman\custom scripts')
 import post_analysis as post
+import place_cell_class as pc
 
 #%% Set up parameters
 
@@ -154,7 +146,7 @@ for neuron in range(len(session)):
     for i in range(len(curr_neuron)):
         trial = curr_neuron[i]
         # get noise level of the data via FWHM
-        sigma = post.get_noise_fwhm(trial)
+        sigma = get_noise_fwhm(trial)
         # get time points where the signal is more than 4x sigma (Koay et al., 2019)
         if sigma == 0:
             idx = []
@@ -177,9 +169,9 @@ for neuron in range(len(session)):
 
 #%% import VR data (track position)
 
-data1 = []
+data = []
 for trial in trial_list:
-    data1.append(np.loadtxt(f'E:\PhD\Data\CA1\Maus 3 13.03.2019 behavior\{trial}\merged_vr_licks.txt')) #TODO remove hard coding
+    data.append(np.loadtxt(f'E:\PhD\Data\CA1\Maus 3 13.03.2019 behavior\{trial}\merged_vr_licks.txt')) #TODO remove hard coding
 
 bin_frame_count = np.zeros((n_bins, n_trials), 'int')
 for trial in range(len(data)):  # go through vr data of every trial and prepare it for analysis
@@ -333,5 +325,56 @@ for pot_place in pot_place_blocks:
             true_place_fields.append(pot_place)
 
 
+#%% PCF object pipeline
+
+# load CNMF object
+cnm = cnmf.cnmf.load_CNMF(r'E:\PhD\Data\CA1\Maus 3 13.08.2019\online_motioncorr_results.hdf5')
+
+# set parameters
+frame_list = [5625, 1801, 855, 2397, 9295, 476, 3713, 1816, 903, 4747, 1500, 5024]
+trial_list = np.linspace(11,22,12,dtype='int')
+params = {'frame_list': frame_list,      # list of number of frames in every trial in this session
+          'trial_list': trial_list,      # trial number of files that should be included in the analysis #TODO somehow get it to work automatically, change save organisation?
+          'trans_length': 0.5,           # minimum length in seconds of a significant transient
+          'n_bins': 100,                 # number of bins per trial in which to group the dF/F traces
+          'bin_window_avg': 3,           # sliding window of bins (left and right) for trace smoothing
+          'bin_base': 0.25,              # fraction of lowest bins that are averaged for baseline calculation
+          'place_thresh': 0.25,          # threshold of being considered for place fields, calculated
+                                         # from difference between max and baseline dF/F
+          'min_bin_size': 10,            # minimum size in bins for a place field (should correspond to 15-20 cm) #TODO make it accept cm values and calculate n_bins through track length
+          'fluo_infield': 7,             # factor above which the mean DF/F in the place field should lie compared to outside the field
+          'trans_time': 0.2,             # fraction of the (unbinned!) signal while the mouse is located in
+                                         # the place field that should consist of significant transients
+          'n_splits': 10}                # segments the binned DF/F should be split into for bootstrapping
+
+#%% initialize PlaceCellFinder object
+pcf = pc.PlaceCellFinder(cnm, params)
+
+# split traces into trials
+pcf.split_traces_into_trials()
+# create significant-transient-only traces
+pcf.create_transient_only_traces()
 
 
+def get_noise_fwhm(data):
+    """
+    Returns noise level as standard deviation (sigma) from a dataset using full-width-half-maximum (Koay et al. 2019)
+    :param data: 1D array of data that you need the noise level from
+    :return: noise: float, sigma of given dataset
+    """
+    if np.all(data == 0): # catch trials without data
+        sigma = 0
+    else:
+        plt.figure()
+        x_data, y_data = sns.distplot(data).get_lines()[0].get_data()
+        y_max = y_data.argmax()  # get idx of half maximum
+        # get points above/below y_max that is closest to max_y/2 by subtracting it from the data and
+        # looking for the minimum absolute value
+        nearest_above = (np.abs(y_data[y_max:] - max(y_data) / 2)).argmin()
+        nearest_below = (np.abs(y_data[:y_max] - max(y_data) / 2)).argmin()
+        # get FWHM by subtracting the x-values of the two points
+        FWHM = x_data[nearest_above + y_max] - x_data[nearest_below]
+        # return noise level as FWHM/2.3548
+        sigma = FWHM/2.3548
+        plt.close()
+    return sigma

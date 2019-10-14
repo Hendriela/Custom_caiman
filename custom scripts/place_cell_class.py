@@ -6,6 +6,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import random
 
 
 class PlaceCellFinder:
@@ -18,7 +19,7 @@ class PlaceCellFinder:
         Constructor of the PCF class
 
         PlaceCellFinder objects are organized in two major parts:
-        - Actual data like the raw cnmf object, dF/F traces or binned data is stored in individual attributes.
+        - Actual data like the cnmf object, dF/F traces or binned data is stored in individual attributes.
         - Initial analysis parameters or parameters that are calculated during the analysis pipeline are stored in the
           params dictionary.
 
@@ -29,13 +30,16 @@ class PlaceCellFinder:
         :param cnmf: CNMF object that holds the raw calcium data
         :param params: dictionary that holds the pipeline's parameters. Can be initialized now or filled later.
         """
-        self.cnmf = cnmf
-        self.session = None
-        self.session_trans = None
-        self.behavior = None
-        self.bin_frame_count = None
-        self.bin_activity = None
-        self.bin_avg_activity = None
+        self.cnmf = cnmf                # CNMF object that you obtain from the CaImAn pipeline
+        self.session = None             # List of neurons containing dF/F traces ordered by neurons and trials
+        self.session_trans = None       # Same as session, just with significant transients only (rest is 0)
+        self.behavior = None            # Array containing behavioral data and frame time stamps (for alignment)
+        self.bin_activity = None        # Same structure as session, but binned activity normalized to VR position
+        self.bin_avg_activity = None    # List of neurons and their binned activity averaged across trials
+        self.place_cells = []           # List of accepted place cells. Stored as tuples with (neuron_id,
+                                        # place_field_bins, p-value)
+        self.place_cells_reject = []    # List of place cells that passed all criteria, but with p > 0.05.
+
 
         if params is not None:
             self.params = params
@@ -48,13 +52,14 @@ class PlaceCellFinder:
                            'bin_base': 0.25,        # fraction of lowest bins that are averaged for baseline calculation
                            'place_thresh': 0.25,    # threshold of being considered for place fields, calculated
                                                     # from difference between max and baseline dF/F
-                           'min_bin_size': 10,      # minimum size in bins for a place field (should correspond to 15-20 cm)
+                           'min_bin_size': 10,      # minimum size in bins for a place field (should correspond to 15-20 cm) #TODO make it accept cm values and calculate n_bins through track length
                            'fluo_infield': 7,       # factor above which the mean DF/F in the place field should lie compared to outside the field
                            'trans_time': 0.2,       # fraction of the (unbinned!) signal while the mouse is located in
                                                     # the place field that should consist of significant transients
                            'n_splits': 10,          # segments the binned DF/F should be split into for bootstrapping. Has to be a divisor of n_bins
+                           'track_length': None,    # length of the VR corridor track during this trial in cm
 
-            # The following parameters are calculated during analysis and do not have to be set by user
+            # The following parameters are calculated during analysis and do not have to be set by the user
                            'n_neuron': None,        # number of neurons that were detected in this session
                            'n_trial': None,         # number of trials in this session
                            'sigma': None,           # array[n_neuron x n_trials], noise level (from FWHM) of every trial
@@ -99,7 +104,8 @@ class PlaceCellFinder:
         self.params['n_neuron'] = n_neuron
         self.params['n_trial'] = n_trials
 
-        return self
+        print('\nSuccessfully separated traces into trials and sorted them by neurons.\nResults are stored in pcf.session')
+        #return self
 
     def create_transient_only_traces(self):
         """
@@ -146,6 +152,7 @@ class PlaceCellFinder:
 
         # add the final data structure to the PCF object
         self.session_trans = session_trans
+        print('\nSuccessfully created transient-only traces.\nThey are stored in pcf.session_trans')
 
         return self
 
@@ -252,28 +259,69 @@ class PlaceCellFinder:
             self.params['bin_frame_count'] = bin_frame_count
             self.bin_activity = bin_activity
             self.bin_avg_activity = bin_avg_activity
+            print('\nSuccessfully aligned traces with VR position and binned them to an equal length.\n'
+                  'Results are stored in pcf.bin_activity and pcf.bin_avg_activity')
 
-            return self
 
-    def find_place_field_trial(self, data, n_neuron):
+    def find_place_cells(self):
         """
-        Performs place field analysis (smoothing, pre-screening and criteria application) on a single neuron data set.
-        :param data: binned and across-trial-averaged dF/F data of one neuron, e.g. from bin_avg_activity
-        :param n_neuron: ID of the neuron that the data belongs to
+        Wrapper function that checks every neuron for place fields by calling find_place_field_neuron().
         :return:
         """
+        pass
+
+    def find_place_field_neuron(self, data, neuron_id):
+        """
+        Performs place field analysis (smoothing, pre-screening and criteria application) on a single neuron data set.
+        #TODO remove other potential place fields from outside field dF/F value
+        :param data: 1D array, binned and across-trial-averaged dF/F data of one neuron, e.g. from bin_avg_activity
+        :param neuron_id: ID of the neuron that the data belongs to (its index in session list)
+        :return:
+        """
+        # smoothing binned data by averaging over adjacent bins
         smooth_trace = self.smooth_trace(data)
 
-        # pre-screen for potential place fields
-        f_max = max(smooth_trace)  # get maximum DF/F value
+        # pre-screening for potential place fields
+        pot_place_blocks = self.pre_screen_place_fields(smooth_trace)
+
+        # if the trace has above-threshold values, continue with place cell criteria
+        if len(pot_place_blocks) > 0:
+            place_fields_passed = self.apply_pf_criteria(smooth_trace, pot_place_blocks, neuron_id)
+            # if this neuron has one or more place fields that passed all three criteria, validate via bootstrapping
+            if len(place_fields_passed) > 0:
+                p_value = self.bootstrapping(data, neuron_id)
+                # if the p_value is lower than 0.05, accept the current cell as a place cell
+                if p_value < 0.05:
+                    self.place_cells.append((neuron_id, place_fields_passed, p_value))
+                # if the p_value is higher than 0.05, save it in a separate list
+                else:
+                    self.place_cells_reject.append((neuron_id, place_fields_passed, p_value))
+
+    def pre_screen_place_fields(self, trace):
+        """
+        Performs pre-screening of potential place fields in a trace. A potential place field is any bin/point that
+        has a higher dF/F value than 'place_thresh'% (default 25%) of the difference between the baseline and maximum
+        dF/F of this trace. The baseline dF/F is set as the mean of the 'bin_base' % (default 25%) least active bins.
+
+        :param trace: 1D array of the trace where place fields are to be found, e.g. smoothed binned trial-averaged data
+        :return: list of arrays containing separate potential place fields (empty list if there are no place fields)
+        """
+        f_max = max(trace)  # get maximum DF/F value
         # get baseline dF/F value from the average of the 'bin_base' % least active bins (default 25% of n_bins)
-        f_base = np.mean(np.sort(smooth_trace)[:int(smooth_trace.size * self.params['bin_base'])])
+        f_base = np.mean(np.sort(trace)[:int(trace.size * self.params['bin_base'])])
         # get threshold value above which a point is considered part of the potential place field (default 25%)
         f_thresh = (f_max - f_base) * self.params['place_thresh']
         # get indices where the smoothed trace is above threshold
-        pot_place_idx = np.where(smooth_trace >= f_thresh)[0]
-        # split indices into consecutive blocks to get separate place fields
-        pot_place_blocks = np.split(pot_place_idx, np.where(np.diff(pot_place_idx) != 1)[0] + 1)
+        pot_place_idx = np.where(trace >= f_thresh)[0]
+
+        if pot_place_idx.size != 0:
+            # split indices into consecutive blocks to get separate place fields
+            pot_place_blocks = np.split(pot_place_idx, np.where(np.diff(pot_place_idx) != 1)[0] + 1)
+        else:
+            # return an empty list in case there were no potential place cells found in this trace
+            pot_place_blocks = []
+
+        return pot_place_blocks
 
     def smooth_trace(self, trace):
         """
@@ -300,7 +348,7 @@ class PlaceCellFinder:
 
         return smooth_trace
 
-    def apply_pf_criteria(self, trace, place_blocks):
+    def apply_pf_criteria(self, trace, place_blocks, neuron_id):
         """
         Applies the criteria of place fields to potential place fields of a trace. A place field is accepted when...
             1) it stretches at least 'min_bin_size' bins (default 10)
@@ -311,16 +359,20 @@ class PlaceCellFinder:
 
         :param place_blocks: list of array(s) that hold bin indices of potential place fields, one array per field (from pot_place_blocks)
         :param trace: 1D array containing the trace in which the potential place fields are located
-        :return: list of place field arrays that passed all three criteria.
+        :param neuron_id: Index of current neuron in the session_trans list. Needed for criterion 3.
+        :return: list of place field arrays that passed all three criteria (empty if none passed).
         """
-
+        place_field_passed = []
         for pot_place in place_blocks:
             if self.is_large_enough(pot_place) and self.is_strong_enough(trace, pot_place) and self.has_enough_transients(neuron_id, pot_place):
-                # Todo: continue here, implement bootstrapping, implement loop for all cells
+                place_field_passed.append(pot_place)
+
+        return place_field_passed
 
     def is_large_enough(self, place_field):
         """
         Checks if the potential place field is large enough according to 'min_bin_size' (criterion 1).
+
         :param place_field: 1D array of indices of data points that form the potential place field
         :return: boolean value whether the criterion is passed or not
         """
@@ -329,6 +381,7 @@ class PlaceCellFinder:
     def is_strong_enough(self, trace, place_field):
         """
         Checks if the place field has a mean dF/F that is 'fluo_infield'x higher than outside the field (criterion 2).
+
         :param trace: 1D array of the trace data
         :param place_field: 1D array of indices of data points that form the potential place field
         :return: boolean value whether the criterion is passed or not
@@ -340,6 +393,7 @@ class PlaceCellFinder:
         """
         Checks if of the time during which the mouse is located in the potential field, at least 'trans_time'%
         consist of significant transients (criterion 3).
+
         :param neuron_id: 1D array of index of the current neuron in the session list
         :param place_field: 1D array of indices of data points that form the potential place field
         :return: boolean value whether the criterion is passed or not
@@ -359,3 +413,34 @@ class PlaceCellFinder:
         place_frames_trace = np.hstack(place_frames_trace).astype('bool')
         # check if at least 'trans_time' percent of the frames are part of a significant transient
         return np.sum(place_frames_trace) >= self.params['trans_time'] * place_frames_trace.shape[0]
+
+    def bootstrapping(self, trace, neuron_id):
+        """
+        Performs bootstrapping on a trace and returns p-value for a place cell in this trace.
+        #TODO implement Bartos analysis: shuffle dF/F unbinned data and then bin new
+        The trace split in "n_splits" parts which are randomly shuffled 1000 times. Then, place cell detection is
+        performed on each shuffled trace. The p-value is defined as the ratio of place cells detected in the shuffled
+        traces versus number of shuffles (1000; see Dombeck et al., 2010). If this neuron's trace gets a p-value
+        of p < 0.05 (place fields detected in less than 50 shuffles), the place field is accepted.
+
+        :param trace: 1D array, trace data that is to be shuffled
+        :param neuron_id: 1D array of index of the current neuron in the session list
+        :return: place_field_p, p-value of place fields in this trace/neuron
+        """
+        try:
+            split_trace = np.split(trace, self.params['n_splits'])
+        except ValueError:
+            raise ValueError('The number of splits for bootstrapping has to be a divisor of the number of bins! Consider changing n_bins or n_splits.') from None
+
+        p_counter = 0
+        for i in range(1000):
+            # shuffle trace 1000 times and perform place cell analysis on every shuffled trace
+            curr_shuffle = random.sample(split_trace, len(split_trace))
+            smooth_trace = self.smooth_trace(curr_shuffle)                  # smoothing
+            pot_place_fields = self.pre_screen_place_fields(smooth_trace,)  # pre-screening
+            if len(pot_place_fields) > 0:                                   # criteria testing
+                place_fields = self.apply_pf_criteria(smooth_trace, pot_place_fields, neuron_id)
+            if len(place_fields):
+                p_counter += 1      # if the shuffled trace contained a place cell that passed all 3 criteria, count it
+
+        return p_counter/1000   # return p-value of this neuron
