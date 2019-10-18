@@ -155,7 +155,7 @@ def reject_component(cnm, idx):
     :param idx: index this component has in the idx_components list
     """
     # add component to the rejected list
-    cnm.estimates.idx_components_bad = np.append(cnm2.estimates.idx_components_bad, cnm2.estimates.idx_components[idx])
+    cnm.estimates.idx_components_bad = np.append(cnm.estimates.idx_components_bad, cnm.estimates.idx_components[idx])
     # remove component from the accepted list
     cnm.estimates.idx_components = np.delete(cnm.estimates.idx_components, idx)
     return cnm

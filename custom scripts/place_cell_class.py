@@ -198,17 +198,13 @@ class PlaceCellFinder:
         behavior = []
         if self.params['trial_list'] is not None:
             for trial in self.params['trial_list']:
-                behavior.append(np.loadtxt(
-                    f'E:\PhD\Data\CA1\Maus 3 13.03.2019 behavior\{trial}\merged_vr_licks.txt'))  # TODO remove hard coding
+                behavior.append(np.loadtxt(f'E:\PhD\Data\CA1\Maus 3 13.03.2019 behavior\{trial}\merged_behavior.txt',
+                                           delimiter='\t'))  # TODO remove hard coding
         else:
             raise Exception('You have to provide trial_list before continuing the analysis!')
 
         bin_frame_count = np.zeros((self.params['n_bins'], self.params['n_trials']), 'int')
         for trial in range(len(behavior)):  # go through vr data of every trial and prepare it for analysis
-
-            # get a normalized time stamp that is easier to visualize (optional)
-            behavior[trial] = np.insert(behavior[trial], 1, behavior[trial][:, 0] - behavior[trial][0, 0], 1)
-            # time stamps at data[:,1], position at data[:,2], velocity at data[:,7]
 
             # bin data in distance chunks
             fr = self.cnmf.params.data['fr']

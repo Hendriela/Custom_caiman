@@ -67,7 +67,7 @@ def main():
 
 #%% Select file(s) to be processed (download if not present)
     root = '/Users/hheiser/Desktop/testing data/chronic_M2N3/0d_baseline/channel1'
-
+"""
     fnames = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00011.tif',
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif',
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00013.tif',
@@ -80,16 +80,22 @@ def main():
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00020.tif',
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00021.tif',
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00022.tif']
-
-    #fnames = ['Sue_2x_3000_40_-46.tif']  # filename to be processed
-    if fnames[0] in ['Sue_2x_3000_40_-46.tif', 'demoMovie.tif']:
-        fnames = [download_demo(fnames[0])]
+"""
+    fnames = [r'E:\PhD\Data\DG\M14_20191014\N2\file_00003.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N2\file_00004.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N2\file_00005.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N2\file_00006.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N2\file_00007.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N2\file_00008.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N2\file_00009.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N2\file_00010.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N2\file_00011.tif',]
 
 #%% First setup some parameters for data and motion correction
 
     # dataset dependent parameters
     fr = 30             # imaging rate in frames per second
-    decay_time = 3    # length of a typical transient in seconds (0.4)
+    decay_time = 0.4    # length of a typical transient in seconds (0.4)
     dxy = (1, 1)      # spatial resolution in x and y in (um per pixel)
     # note the lower than usual spatial resolution here
     max_shift_um = (20., 20.)       # maximum shift in um
@@ -182,8 +188,8 @@ def main():
     rf = 50
     # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
     stride_cnmf = 20            # amount of overlap between the patches in pixels (20)
-    K = 10                      # number of components per patch (10)
-    gSig = [13, 11]             # expected half size of neurons in pixels (13,11)
+    K = 5                      # number of components per patch (10)
+    gSig = [19, 18]             # expected half size of neurons in pixels (13,11)
     # initialization method (if analyzing dendritic data using 'sparse_nmf')
     method_init = 'greedy_roi'
     ssub = 2                    # spatial subsampling during initialization
@@ -251,7 +257,7 @@ def main():
     #  cnm1.fit_file(motion_correct=True)
 
 #%% plot contours of found components
-    Cn = cm.local_correlations(images, swap_dim=False)
+    Cn = cm.local_correlations(images[5000:-5000], swap_dim=False)
     Cn[np.isnan(Cn)] = 0
     cnm.estimates.plot_contours(img=Cn)
     plt.title('Contour plots of found components')
@@ -281,20 +287,20 @@ def main():
     cnm2.estimates.evaluate_components(images, params=cnm2.params, dview=dview)
 
 #%% PLOT COMPONENTS
-    cnm.estimates.plot_contours(img=Cn, idx=cnm.estimates.idx_components)
+    cnm2.estimates.plot_contours(img=Cn, idx=cnm2.estimates.idx_components)
 
 #%% VIEW TRACES (accepted and rejected)
 
     if display_images:
-        cnm.estimates.view_components(images, img=cnm.estimates.Cn,
-                                      idx=cnm.estimates.idx_components)
+        cnm2.estimates.view_components(images, img=Cn,
+                                      idx=cnm2.estimates.idx_components)
         cnm2.estimates.view_components(images, img=Cn,
                                       idx=cnm2.estimates.idx_components_bad)
 #%% update object with selected components
     #### -> will delete rejected components!
     cnm2.estimates.select_components(use_object=True)
 #%% Extract DF/F values
-    cnm.estimates.detrend_df_f(quantileMin=8, frames_window=500)
+    cnm2.estimates.detrend_df_f(quantileMin=8, frames_window=500)
 
 #%% Show final traces
     cnm2.estimates.view_components(img=Cn)
