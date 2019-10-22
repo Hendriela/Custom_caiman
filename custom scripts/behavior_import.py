@@ -86,13 +86,17 @@ for folder in folder_list:
         # set actual first frame before the first recorded frame (first check if necessary)
         if np.sum(trigger[:, 2]) - frame_list[counter-1] == 0:
             print('Frame count matched, no correction necessary.')
-        elif np.sum(trigger[:, 2]) - frame_list[counter-1] == -1:
-            print('Imported frame count missed 1, corrected.')
-            trigger[trig_blocks[1][0]-67, 2] = 1
-        elif np.sum(trigger[:, 2]) - frame_list[counter-1] < -1:
-            print(f'{abs(np.sum(trigger[:, 2]) - frame_list[counter-1])} too few frames imported, check files!')
+        elif np.sum(trigger[:, 2]) - frame_list[counter-1] <= -1:
+            missing_frames = np.sum(trigger[:, 2]) - frame_list[counter-1]
+            if trig_blocks[1][0] - missing_frames*67 >= 0:
+                trigger[trig_blocks[1][0] - missing_frames*67, 2] = 1
+                print(f'Imported frame count missed {int(abs(missing_frames))}, corrected.')
+            else:
+                print(f'{int(abs(missing_frames))} too few frames imported, could not be corrected.')
+#        elif np.sum(trigger[:, 2]) - frame_list[counter-1] < -1:
+#            print(f'{int(abs(np.sum(trigger[:, 2]) - frame_list[counter-1]))} too few frames imported, check files!')
         elif np.sum(trigger[:, 2]) - frame_list[counter-1] > 0:
-            print(f'{abs(np.sum(trigger[:, 2]) - frame_list[counter-1])} too many frames imported, check files!')
+            print(f'{int(abs(np.sum(trigger[:, 2]) - frame_list[counter-1]))} too many frames imported, check files!')
 
 
         ### create the master time line, with one sample every 0.5 milliseconds

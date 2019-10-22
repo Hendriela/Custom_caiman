@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import random
+import copy
 
 
 class PlaceCellFinder:
@@ -40,13 +41,14 @@ class PlaceCellFinder:
                                         # place_field_bins, p-value)
         self.place_cells_reject = []    # List of place cells that passed all criteria, but with p > 0.05.
 
-
         if params is not None:
             self.params = params
         else:
             self.params = {'frame_list': None,      # list of number of frames in every trial in this session
                            'trial_list': None,      # trial number of files that should be included in the analysis #TODO somehow get it to work automatically, change save organisation?
                            'trans_length': 0.5,     # minimum length in seconds of a significant transient
+                           'trans_thresh': 4,       # factor of sigma above which a transient is significant; int or
+                                                    # tuple of int (for different start and end of transients)
                            'n_bins': 100,           # number of bins per trial in which to group the dF/F traces
                            'bin_window_avg': 3,     # sliding window of bins (left and right) for trace smoothing
                            'bin_base': 0.25,        # fraction of lowest bins that are averaged for baseline calculation
@@ -119,10 +121,10 @@ class PlaceCellFinder:
         the shape [n_neurons X n_trials] and can be indexed as such to retrieve noise levels for every trial.
         :return: Updated PCF object with the significant-transient-only session_trans list
         """
-        session_trans = list(np.zeros(self.params['n_neuron']))
-        self.params['sigma'] = np.zeros((self.params['n_neuron'], len(self.session_trans[0])))
+        session_trans = copy.deepcopy(self.session)
+        self.params['sigma'] = np.zeros((self.params['n_neuron'], self.params['n_trial']))
         self.params['sigma'].fill(np.nan)
-        for neuron in range(len(self.session_trans)):
+        for neuron in range(self.params['n_neuron']):
             curr_neuron = self.session[neuron]
             for i in range(len(curr_neuron)):
                 trial = curr_neuron[i]
@@ -133,28 +135,35 @@ class PlaceCellFinder:
                 if sigma == 0:
                     idx = []
                 else:
-                    idx = np.where(trial >= self.params['trans_thresh'] * sigma)[0]
-                # split indices into consecutive blocks
-                blocks = np.split(idx, np.where(np.diff(idx) != 1)[0] + 1)
-                # find blocks of >500 ms length (use frame rate in cnmf object) and merge them in one array
-                duration = int(self.params['trans_length'] / (1 / self.cnmf.params.data['fr']))
-                try:
-                    transient_idx = np.concatenate([x for x in blocks if x.size >= duration])
-                except ValueError:
+                    thresh = self.params['trans_thresh']
+                    if type(thresh) == int:    # use one threshold for borders of transient (Koay)
+                        idx = np.where(trial >= thresh * sigma)[0]
+                    elif type(thresh) == tuple: # use different thresholds for on and offset of transients
+                        pass                    # TODO implement!
+                    else:
+                        raise Exception(f'Parameter "trans_thresh" has to be int or tuple, but was {type(thresh)}!')
+
+                if idx.size > 0:
+                    # split indices into consecutive blocks
+                    blocks = np.split(idx, np.where(np.diff(idx) != 1)[0] + 1)
+                    # find blocks of >500 ms length (use frame rate in cnmf object) and merge them in one array
+                    duration = int(self.params['trans_length'] / (1 / self.cnmf.params.data['fr']))
+                    try:
+                        transient_idx = np.concatenate([x for x in blocks if x.size >= duration])
+                    except ValueError:
+                        transient_idx = []
+                else:
                     transient_idx = []
                 # create a transient-only trace of the raw calcium trace
                 trans_only = trial.copy()
-                select = np.in1d(range(trans_only.shape[0]), transient_idx) # create mask for trans-only indices
-                trans_only[~select] = 0 # set everything outside of this mask to 0
-
+                select = np.in1d(range(trans_only.shape[0]), transient_idx)  # create mask for trans-only indices
+                trans_only[~select] = 0     # set everything outside of this mask to 0
                 # add the transient only trace to the list
                 session_trans[neuron][i] = trans_only
 
         # add the final data structure to the PCF object
         self.session_trans = session_trans
         print('\nSuccessfully created transient-only traces.\nThey are stored in pcf.session_trans')
-
-        return self
 
     def get_noise_fwhm(self, data):
         """
@@ -196,12 +205,23 @@ class PlaceCellFinder:
         :return: Updated PCF object with behavior and binned trial data
         """
         behavior = []
+        is_faulty = False
+        count = 0
         if self.params['trial_list'] is not None:
             for trial in self.params['trial_list']:
                 behavior.append(np.loadtxt(f'E:\PhD\Data\CA1\Maus 3 13.03.2019 behavior\{trial}\merged_behavior.txt',
                                            delimiter='\t'))  # TODO remove hard coding
+                count_list = int(self.params['frame_list'][count])
+                count_imp = int(np.sum(behavior[-1][:,3]))
+                if count_imp != count_list:
+                    print(f'Contradicting frame counts in trial {trial} (no. {count}):\n'
+                          f'\tExpected {count_list} frames, imported {count_imp} frames...')
+                    is_faulty = True
+                count += 1
+            if is_faulty:
+                raise Exception('Frame count mismatch detected, stopping analysis.')
         else:
-            raise Exception('You have to provide trial_list before continuing the analysis!')
+            raise Exception('You have to provide trial_list before aligning data to VR position!')
 
         bin_frame_count = np.zeros((self.params['n_bins'], self.params['n_trials']), 'int')
         for trial in range(len(behavior)):  # go through vr data of every trial and prepare it for analysis

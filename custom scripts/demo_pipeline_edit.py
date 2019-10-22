@@ -67,6 +67,11 @@ def main():
 
 #%% Select file(s) to be processed (download if not present)
     root = '/Users/hheiser/Desktop/testing data/chronic_M2N3/0d_baseline/channel1'
+    fnames = [r'E:\PhD\Data\DG\M14_20191021\N2\1\file_00001.tif',
+              r'E:\PhD\Data\DG\M14_20191021\N2\2\file_00002.tif',
+              r'E:\PhD\Data\DG\M14_20191021\N2\3\file_00003.tif',
+              r'E:\PhD\Data\DG\M14_20191021\N2\4\file_00004.tif',
+              r'E:\PhD\Data\DG\M14_20191021\N2\5\file_00005.tif']
 """
     fnames = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00011.tif',
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif',
@@ -80,7 +85,7 @@ def main():
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00020.tif',
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00021.tif',
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00022.tif']
-"""
+
     fnames = [r'E:\PhD\Data\DG\M14_20191014\N2\file_00003.tif',
               r'E:\PhD\Data\DG\M14_20191014\N2\file_00004.tif',
               r'E:\PhD\Data\DG\M14_20191014\N2\file_00005.tif',
@@ -90,7 +95,7 @@ def main():
               r'E:\PhD\Data\DG\M14_20191014\N2\file_00009.tif',
               r'E:\PhD\Data\DG\M14_20191014\N2\file_00010.tif',
               r'E:\PhD\Data\DG\M14_20191014\N2\file_00011.tif',]
-
+"""
 #%% First setup some parameters for data and motion correction
 
     # dataset dependent parameters

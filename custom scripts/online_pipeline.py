@@ -99,7 +99,7 @@ cnm.save(os.path.splitext(fnames[0])[0] + '_results.hdf5')
 
 #%% post analysis
 
-cnm = cnmf.cnmf.load_CNMF(r'E:\PhD\Data\CA1\Maus 3 13.08.2019\online_motioncorr_results.hdf5')
+cnm = cnmf.cnmf.load_CNMF(r'E:\PhD\Data\DG\M14_20191014\N2\N2_results.hdf5')
 
 # post analysis parameters
 # lengths in frames of every trial in this session
@@ -320,15 +320,16 @@ for pot_place in pot_place_blocks:
 #%% PCF object pipeline
 
 # load CNMF object
-cnm = cnmf.cnmf.load_CNMF(r'E:\PhD\Data\DG\M14_20191014\N2\file_00003_results.hdf5')
+cnm = cnmf.cnmf.load_CNMF(r'E:\PhD\Data\DG\M14_20191014\N2\N2_results.hdf5')
 
 # set parameters
 #frame_list = [5625, 1801, 855, 2397, 9295, 476, 3713, 1816, 903, 4747, 1500, 5024]
 frame_list = [3709, 5188, 2447, 2526, 3034, 3553, 2234, 3109, 2175]
-trial_list = np.linspace(11,22,12,dtype='int')
+trial_list = np.arange(3, 12, dtype='int')
 params = {'frame_list': frame_list,      # list of number of frames in every trial in this session
           'trial_list': trial_list,      # trial number of files that should be included in the analysis #TODO somehow get it to work automatically, change save organisation?
           'trans_length': 0.5,           # minimum length in seconds of a significant transient
+          'trans_thresh': 4,
           'n_bins': 100,                 # number of bins per trial in which to group the dF/F traces
           'bin_window_avg': 3,           # sliding window of bins (left and right) for trace smoothing
           'bin_base': 0.25,              # fraction of lowest bins that are averaged for baseline calculation
@@ -341,7 +342,7 @@ params = {'frame_list': frame_list,      # list of number of frames in every tri
           'n_splits': 10}                # segments the binned DF/F should be split into for bootstrapping
 
 #%% initialize PlaceCellFinder object
-pcf = pc.PlaceCellFinder(cnm2, params)
+pcf = pc.PlaceCellFinder(cnm, params)
 
 # split traces into trials
 pcf.split_traces_into_trials()
