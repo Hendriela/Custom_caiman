@@ -1,8 +1,5 @@
 import numpy as np
-import tkinter as tk
-from tkinter import filedialog
 import glob
-import os
 from math import ceil, floor
 import sys
 
@@ -33,30 +30,21 @@ def progress(count, total, status=''):
     sys.stdout.flush()
 
 
-frame_list = [4837, 11174, 709, 3275, 2036, 6274, 7654, 1622, 5475]
+# frame_list = [4837, 11174, 709, 3275, 2036, 6274, 7654, 1622, 5475]
 # 14 N1 frame_list = [900, 5927, 2430, 1814, 2504, 4624, 6132, 2168, 1953, 2670, 3817]  #todo remove hardcoding
-#%% get directory of all trial-folders
-root = tk.Tk()
-root.lift()
-root.attributes('-topmost', True)
-root.after_idle(root.attributes, '-topmost', False)
-root_dir = filedialog.askdirectory()
-root.withdraw()
-folder_list = np.sort(np.array(os.listdir(root_dir), dtype='int'))
 
-#%% loop through every folder and process the files
-counter = 1
-for folder in folder_list:
-    if len(frame_list) != len(folder_list):
-        print('Different number of trials from frame_list and folder_list!')
-        break
-    else:
+
+def import_files(folder_list):
+    counter = 1
+    for folder in folder_list:
+        # get frame count of the current trial from memmap file name
+        frame_count = int(glob.glob(folder+'*.mmap')[0].split('_')[-2])
+
         print(f'\nNow processing trial {counter} of {len(folder_list)}: Folder {folder}...')
-        curr_path = os.path.join(root_dir, f'{folder}')
         # load the three files (encoder (running speed), TCP (VR position) and TDT (licking + frame trigger))
-        encoder = load_file(curr_path+r'\Encoder*.txt')
-        position = load_file(curr_path+r'\TCP*.txt')
-        trigger = load_file(curr_path+r'\TDT*.txt')
+        encoder = load_file(folder+r'Encoder*.txt')
+        position = load_file(folder+r'TCP*.txt')
+        trigger = load_file(folder+r'TDT*.txt')
 
         # determine the earliest time stamp in the logs as a starting point for the master time line
         earliest_time = min(encoder[0, 0], position[0, 0], trigger[0, 0])
@@ -84,19 +72,17 @@ for folder in folder_list:
         for block in trig_blocks[1:]:
             trigger[block[1:], 2] = 0
         # set actual first frame before the first recorded frame (first check if necessary)
-        if np.sum(trigger[:, 2]) - frame_list[counter-1] == 0:
+        if np.sum(trigger[:, 2]) - frame_count == 0:
             print('Frame count matched, no correction necessary.')
-        elif np.sum(trigger[:, 2]) - frame_list[counter-1] <= -1:
-            missing_frames = np.sum(trigger[:, 2]) - frame_list[counter-1]
-            if trig_blocks[1][0] - missing_frames*67 >= 0:
+        elif np.sum(trigger[:, 2]) - frame_count <= -1:
+            missing_frames = int(np.sum(trigger[:, 2]) - frame_count)
+            if trig_blocks[1][0] - missing_frames*67 > 0:
                 trigger[trig_blocks[1][0] - missing_frames*67, 2] = 1
                 print(f'Imported frame count missed {int(abs(missing_frames))}, corrected.')
             else:
-                print(f'{int(abs(missing_frames))} too few frames imported, could not be corrected.')
-#        elif np.sum(trigger[:, 2]) - frame_list[counter-1] < -1:
-#            print(f'{int(abs(np.sum(trigger[:, 2]) - frame_list[counter-1]))} too few frames imported, check files!')
-        elif np.sum(trigger[:, 2]) - frame_list[counter-1] > 0:
-            print(f'{int(abs(np.sum(trigger[:, 2]) - frame_list[counter-1]))} too many frames imported, check files!')
+                print(f'{int(abs(missing_frames))} too few frames imported from TDT, could not be corrected.')
+        elif np.sum(trigger[:, 2]) - frame_count > 0:
+            print(f'{int(abs(np.sum(trigger[:, 2]) - frame_count))} too many frames imported from TDT, check files!')
 
 
         ### create the master time line, with one sample every 0.5 milliseconds
@@ -141,11 +127,10 @@ for folder in folder_list:
         merge[:, 0] = [floor(x * 100000) / 100000 for x in merge[:, 0]]
 
         # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
-        file_path = curr_path+r'\merged_behavior.txt'
+        file_path = folder+r'merged_behavior.txt'
         np.savetxt(file_path, merge, delimiter='\t',
                    fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
         print(f'Done! \nSaving merged file to {file_path}...')
         counter += 1
-
 #%%
 
