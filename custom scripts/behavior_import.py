@@ -20,6 +20,13 @@ def load_file(path):
 
 
 def progress(count, total, status=''):
+    """
+    Displays an automatically updating progress bar in the console, showing progress of a for-loop.
+    :param count: int, current iteration of the loop (current progress)
+    :param total: int, maximum iteration of the loop (end point)
+    :param status: str, status message displayed next to the progress bar
+    :return:
+    """
     bar_len = 20
     filled_len = int(round(bar_len * count / float(total)))
 
@@ -34,11 +41,24 @@ def progress(count, total, status=''):
 # 14 N1 frame_list = [900, 5927, 2430, 1814, 2504, 4624, 6132, 2168, 1953, 2670, 3817]  #todo remove hardcoding
 
 
-def import_files(folder_list):
+def align_files(folder_list):
+    """
+    Takes the three behavioral .txt files (encoder, TCP (VR position) and TDT (licks + frame trigger)) and synchronizes
+    and aligns them according to the master time stamp provided by Lab View. Data are sampled at the rate of the data
+    with the highest sampling rate (TDT, 2 kHz). Missing values of data with lower sampling rate are filled in based on
+    their last available value.
+    :param folder_list: list of folders (one folder per trial) that include the three behavioral files as well as the
+                        memmap file acquired through CaImAn motion correction that includes the frame count in its name
+    :return: merged behavioral data saved as 'merged_behavior.txt' in the same folder
+    """
     counter = 1
     for folder in folder_list:
         # get frame count of the current trial from memmap file name
-        frame_count = int(glob.glob(folder+'*.mmap')[0].split('_')[-2])
+        if len(glob.glob(folder+'*.mmap')) != 0:
+            frame_count = int(glob.glob(folder+'*.mmap')[0].split('_')[-2])
+        else:
+            print(f'No memmap files found at {folder}. Run motion correction before aligning behavioral data!')
+            break
 
         print(f'\nNow processing trial {counter} of {len(folder_list)}: Folder {folder}...')
         # load the three files (encoder (running speed), TCP (VR position) and TDT (licking + frame trigger))

@@ -45,7 +45,9 @@ def motion_correction(params, remove_f_order=True):
     cm.stop_server(dview=dview)
 
     if remove_f_order:
-        os.remove(mc.fname_tot_els)
+        for file in mc.fname_tot_els:
+            print(f'Removing file {file}...')
+            os.remove(file)
 
     return fname_new
 

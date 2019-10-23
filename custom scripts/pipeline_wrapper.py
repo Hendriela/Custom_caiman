@@ -51,12 +51,12 @@ opts = params.CNMFParams(params_dict=mc_dict)
 #%% Set working directory
 
 folder_list, tif_list = pipe.set_file_paths()
-opts = opts.change_params({'fnames': tif_list[0]})
+opts = opts.change_params({'fnames': tif_list})
 
 #%% Perform motion correction
-motion_file = pipe.motion_correction(opts)
+motion_file = pipe.motion_correction(opts, remove_f_order=True)
 
 #%% Import behavioral data
-behavior.import_files(folder_list)
+behavior.align_files(folder_list)
 
 
