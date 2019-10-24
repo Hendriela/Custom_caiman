@@ -11,20 +11,27 @@ from glob import glob
 import caiman as cm
 from caiman.motion_correction import MotionCorrect
 from caiman.source_extraction.cnmf import cnmf as cnmf
+import re
 
 
 def set_file_paths():
+    def atoi(text):
+        return int(text) if text.isdigit() else text
+
+    def natural_keys(text):
+        return [atoi(c) for c in re.split('(\d+)', text)]
     root = tk.Tk()
     root.lift()
     root.attributes('-topmost', True)
     root.after_idle(root.attributes, '-topmost', False)
     root_dir = filedialog.askdirectory(title='Select folder that contains all trial folders')
     root.withdraw()
-
     folder_list = glob(root_dir+'/*/')  # list of directories for behavioral import
+    folder_list.sort(key=natural_keys)
     tif_list = glob(root_dir + r'/*/*.tif')  # list of tif movies, used by CaImAn
+    tif_list.sort(key=natural_keys)
 
-    return folder_list, tif_list
+    return root_dir, folder_list, tif_list
 
 
 def motion_correction(params, remove_f_order=True):

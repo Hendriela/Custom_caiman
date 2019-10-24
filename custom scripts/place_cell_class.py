@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import random
 import copy
+import os
+import glob
 
 
 class PlaceCellFinder:
@@ -44,8 +46,7 @@ class PlaceCellFinder:
         if params is not None:
             self.params = params
         else:
-            self.params = {'frame_list': None,      # list of number of frames in every trial in this session
-                           'trial_list': None,      # trial number of files that should be included in the analysis #TODO somehow get it to work automatically, change save organisation?
+            self.params = {'root': None,            # main directory of that session
                            'trans_length': 0.5,     # minimum length in seconds of a significant transient
                            'trans_thresh': 4,       # factor of sigma above which a transient is significant; int or
                                                     # tuple of int (for different start and end of transients)
@@ -62,18 +63,26 @@ class PlaceCellFinder:
                            'track_length': None,    # length of the VR corridor track during this trial in cm
 
             # The following parameters are calculated during analysis and do not have to be set by the user
+                           'frame_list': None,      # list of number of frames in every trial in this session
+                           'trial_list': None,  # list of trial folders in this session
                            'n_neuron': None,        # number of neurons that were detected in this session
                            'n_trial': None,         # number of trials in this session
                            'sigma': None,           # array[n_neuron x n_trials], noise level (from FWHM) of every trial
                            'bin_frame_count': None} # array[n_bins x n_trials], number of frames averaged in each bin
 
-
+        # find directories, files and frame counts
+        self.params['frame_list'] = []
+        for trial in self.params['trial_list']:
+            if len(glob.glob(trial+'//*.mmap')) != 0:
+                self.params['frame_list'].append(int(glob.glob(trial+'//*.mmap')[0].split('_')[-2]))
+            else:
+                print(f'No memmap files found at {trial}. Run motion correction before initializing PCF object!')
 
     def split_traces_into_trials(self):
         """
         First function to call in the "normal" pipeline.
         Takes raw, across-trial DF/F traces from the CNMF object and splits it into separate trials using the frame
-        counts provided in frame_list (#todo get frame_list from trial file names).
+        counts provided in frame_list.
         It returns a "session" list of all neurons. Each neuron itself is a list of 1D arrays that hold the DF/F trace
         for each trial in that session. "Session" can thus be indexed as session[number_neurons][number_trials].
 
@@ -106,7 +115,7 @@ class PlaceCellFinder:
         self.params['n_neuron'] = n_neuron
         self.params['n_trial'] = n_trials
 
-        print('\nSuccessfully separated traces into trials and sorted them by neurons.\nResults are stored in pcf.session')
+        print('\nSuccessfully separated traces into trials and sorted them by neurons.\nResults are stored in pcf.session.\n')
         #return self
 
     def create_transient_only_traces(self):
@@ -163,7 +172,7 @@ class PlaceCellFinder:
 
         # add the final data structure to the PCF object
         self.session_trans = session_trans
-        print('\nSuccessfully created transient-only traces.\nThey are stored in pcf.session_trans')
+        print('\nSuccessfully created transient-only traces.\nThey are stored in pcf.session_trans.')
 
     def get_noise_fwhm(self, data):
         """
@@ -209,10 +218,9 @@ class PlaceCellFinder:
         count = 0
         if self.params['trial_list'] is not None:
             for trial in self.params['trial_list']:
-                behavior.append(np.loadtxt(f'E:\PhD\Data\CA1\Maus 3 13.03.2019 behavior\{trial}\merged_behavior.txt',
-                                           delimiter='\t'))  # TODO remove hard coding
+                behavior.append(np.loadtxt(trial+'//merged_behavior.txt', delimiter='\t'))
                 count_list = int(self.params['frame_list'][count])
-                count_imp = int(np.sum(behavior[-1][:,3]))
+                count_imp = int(np.sum(behavior[-1][:, 3]))
                 if count_imp != count_list:
                     print(f'Contradicting frame counts in trial {trial} (no. {count}):\n'
                           f'\tExpected {count_list} frames, imported {count_imp} frames...')
@@ -223,61 +231,62 @@ class PlaceCellFinder:
         else:
             raise Exception('You have to provide trial_list before aligning data to VR position!')
 
-        bin_frame_count = np.zeros((self.params['n_bins'], self.params['n_trials']), 'int')
+        bin_frame_count = np.zeros((self.params['n_bins'], self.params['n_trial']), 'int')
         for trial in range(len(behavior)):  # go through vr data of every trial and prepare it for analysis
 
             # bin data in distance chunks
-            fr = self.cnmf.params.data['fr']
-            bin_borders = np.linspace(-10, 110, self.params['n_bins'] + 1)
-            idx = np.digitize(behavior[trial][:, 2], bin_borders)  # get indices of bins
-
-            # create estimate time stamps for frames (only necessary for behavior data without frame trigger)
-            last_stamp = 0
-            for i in range(behavior[trial].shape[0]):
-                if last_stamp + (1 / fr) < behavior[trial][i, 1] or i == 0:
-                    behavior[trial][i, 5] = 1
-                    last_stamp = behavior[trial][i, 1]
+            bin_borders = np.linspace(-10, 110, self.params['n_bins'])
+            idx = np.digitize(behavior[trial][:, 1], bin_borders)  # get indices of bins
 
             # check how many frames are in each bin
             for i in range(self.params['n_bins']):
-                bin_frame_count[i, trial] = np.sum(behavior[trial][np.where(idx == i + 1), 5])
+                bin_frame_count[i, trial] = np.sum(behavior[trial][np.where(idx == i + 1), 3])
 
-            # Average dF/F for each neuron for each trial for each bin
-            # goes through every trial, extracts frames according to current bin size, averages it and puts it into
-            # the data structure "bin_activity", a list of neurons, with every neuron having an array of shape
-            # (n_trials X n_bins) containing the average dF/F activity of this bin of that trial
-            bin_activity = list(np.zeros(self.params['n_neuron']))
-            for neuron in range(self.params['n_neuron']):
-                curr_neur_act = np.zeros((self.params['n_trial'], self.params['n_bins']))
-                for trial in range(self.params['n_trial']):
-                    curr_trace = self.session[neuron][trial]
-                    curr_bins = bin_frame_count[:, trial]
-                    curr_act_bin = np.zeros(self.params['n_bins'])
-                    for bin_no in range(self.params['n_bins']):
-                        # extract the trace of the current bin from the trial trace
-                        if len(curr_trace) > curr_bins[bin_no]:
-                            trace_to_avg, curr_trace = curr_trace[:curr_bins[bin_no]], curr_trace[curr_bins[bin_no]:]
-                        elif len(curr_trace) == curr_bins[bin_no]:
-                            trace_to_avg = curr_trace
-                        else:
-                            trace_to_avg = np.nan
-                            raise Exception('Something went wrong during binning...')
+        # double check if number of frames are correct
+        for i in range(len(self.params['frame_list'])):
+            frame_list_count = self.params['frame_list'][i]
+            if frame_list_count != np.sum(bin_frame_count[:, i]):
+                print(f'Frame count not matching in trial {i}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
+
+        # Average dF/F for each neuron for each trial for each bin
+        # goes through every trial, extracts frames according to current bin size, averages it and puts it into
+        # the data structure "bin_activity", a list of neurons, with every neuron having an array of shape
+        # (n_trials X n_bins) containing the average dF/F activity of this bin of that trial
+        bin_activity = list(np.zeros(self.params['n_neuron']))
+        for neuron in range(self.params['n_neuron']):
+            curr_neur_act = np.zeros((self.params['n_trial'], self.params['n_bins']))
+            for trial in range(self.params['n_trial']):
+                curr_trace = self.session[neuron][trial]
+                curr_bins = bin_frame_count[:, trial]
+                curr_act_bin = np.zeros(self.params['n_bins'])
+                for bin_no in range(self.params['n_bins']):
+                    # extract the trace of the current bin from the trial trace
+                    if len(curr_trace) > curr_bins[bin_no]:
+                        trace_to_avg, curr_trace = curr_trace[:curr_bins[bin_no]], curr_trace[curr_bins[bin_no]:]
+                    elif len(curr_trace) == curr_bins[bin_no]:
+                        trace_to_avg = curr_trace
+                    else:
+                        trace_to_avg = np.nan
+                        raise Exception('Something went wrong during binning...')
+                    if trace_to_avg.size > 0:
                         curr_act_bin[bin_no] = np.mean(trace_to_avg)
-                    curr_neur_act[trial] = curr_act_bin
-                bin_activity[neuron] = curr_neur_act
+                    else:
+                        curr_act_bin[bin_no] = 0
+                curr_neur_act[trial] = curr_act_bin
+            bin_activity[neuron] = curr_neur_act
 
-            # Get average activity across trials of every neuron for every bin
-            bin_avg_activity = np.zeros((self.params['n_neuron'], self.params['n_bins']))
-            for neuron in range(self.params['n_neuron']):
-                bin_avg_activity[neuron] = np.mean(bin_activity[neuron], axis=0)
+        # Get average activity across trials of every neuron for every bin
+        bin_avg_activity = np.zeros((self.params['n_neuron'], self.params['n_bins']))
+        for neuron in range(self.params['n_neuron']):
+            bin_avg_activity[neuron] = np.mean(bin_activity[neuron], axis=0)
 
-            self.behavior = behavior
-            self.params['bin_frame_count'] = bin_frame_count
-            self.bin_activity = bin_activity
-            self.bin_avg_activity = bin_avg_activity
-            print('\nSuccessfully aligned traces with VR position and binned them to an equal length.\n'
-                  'Results are stored in pcf.bin_activity and pcf.bin_avg_activity')
+        self.behavior = behavior
+        self.params['bin_frame_count'] = bin_frame_count
+        self.bin_activity = bin_activity
+        self.bin_avg_activity = bin_avg_activity
 
+        print('\nSuccessfully aligned traces with VR position and binned them to an equal length.\n' +
+              'Results are stored in pcf.bin_activity and pcf.bin_avg_activity.\n')
 
     def find_place_cells(self):
         """

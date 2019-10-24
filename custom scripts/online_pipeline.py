@@ -168,8 +168,8 @@ for neuron in range(len(session)):
 #%% import VR data (track position)
 
 data = []
-for trial in trial_list:
-    data.append(np.loadtxt(r'E:\PhD\Data\DG\M14_20191014 behavior\N2\{}\merged_behavior.txt'.format(trial),
+for trial in test:
+    data.append(np.loadtxt(r'{}\merged_behavior.txt'.format(trial),
                            delimiter='\t')) #TODO remove hard coding
 
 bin_frame_count = np.zeros((n_bins, n_trials), 'int')
@@ -185,9 +185,9 @@ for trial in range(len(data)):  # go through vr data of every trial and prepare 
         bin_frame_count[i, trial] = np.sum(data[trial][np.where(idx == i+1), 3])
 
 # double check if number of frames are correct
-for i in range(len(frame_list)):
-    if frame_list[i] != np.sum(bin_frame_count[:, i]):
-        print('Frame count not matching in trial {}'.format(i))
+for i in range(len(test2)):
+    if test2[i] != np.sum(bin_frame_count[:, i]):
+        print('Frame count not matching in trial {}'.format(i+1))
 
 # Average dF/F for each neuron for each trial for each bin
 # goes through every trial, extracts frames according to current bin size, averages it and puts it into

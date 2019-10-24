@@ -2,6 +2,7 @@ import numpy as np
 import glob
 from math import ceil, floor
 import sys
+import os
 
 
 def load_file(path):
@@ -62,9 +63,9 @@ def align_files(folder_list):
 
         print(f'\nNow processing trial {counter} of {len(folder_list)}: Folder {folder}...')
         # load the three files (encoder (running speed), TCP (VR position) and TDT (licking + frame trigger))
-        encoder = load_file(folder+r'Encoder*.txt')
-        position = load_file(folder+r'TCP*.txt')
-        trigger = load_file(folder+r'TDT*.txt')
+        encoder = load_file(os.path.join(folder, r'Encoder*.txt'))
+        position = load_file(os.path.join(folder, r'TCP*.txt'))
+        trigger = load_file(os.path.join(folder, r'TDT*.txt'))
 
         # determine the earliest time stamp in the logs as a starting point for the master time line
         earliest_time = min(encoder[0, 0], position[0, 0], trigger[0, 0])
@@ -147,7 +148,7 @@ def align_files(folder_list):
         merge[:, 0] = [floor(x * 100000) / 100000 for x in merge[:, 0]]
 
         # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
-        file_path = folder+r'merged_behavior.txt'
+        file_path = os.path.join(folder, r'merged_behavior.txt')
         np.savetxt(file_path, merge, delimiter='\t',
                    fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
         print(f'Done! \nSaving merged file to {file_path}...')
