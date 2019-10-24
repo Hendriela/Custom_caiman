@@ -317,8 +317,8 @@ class PlaceCellFinder:
                     ax[i, 0].axis('off')
                     ax[i, 1].axis('off')
                 ax[i, 0].set_title(f'{i + 1}', x=-0.02, y=-0.4)
+                fig.colorbar(im, ax=ax[i, 0])
             ax[i, 0].set_xlim(0, self.params['n_bins'])
-            fig.colorbar(im, ax=ax[i, 0])
             fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
         else:
             print(f'Too many neurons to plot ({traces.shape[0]}).')
