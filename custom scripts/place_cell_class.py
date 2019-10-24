@@ -124,7 +124,6 @@ class PlaceCellFinder:
         Significant transients are detected using the full-width-half-maximum measurement of standard deviation (see
         Koay et al., 2019). The traces itself are left untouched, but all values outside of transients are set to 0.
         This is mainly useful for the place field criterion 3 (20% of time inside place field has to be transients).
-        # Todo: implement the criterion described in Dombeck2007 and Zaremba2017 with negative and positive transients?
         The structure of the resulting list is the same as PCF.session (see split_traces_into_trials()).
         Additionally, the noise level sigma is saved for every neuron for each trial in params[sigma] as an array with
         the shape [n_neurons X n_trials] and can be indexed as such to retrieve noise levels for every trial.
@@ -147,14 +146,21 @@ class PlaceCellFinder:
                     thresh = self.params['trans_thresh']
                     if type(thresh) == int:    # use one threshold for borders of transient (Koay)
                         idx = np.where(trial >= thresh * sigma)[0]
-                    elif type(thresh) == tuple: # use different thresholds for on and offset of transients
-                        pass                    # TODO implement!
+                    elif type(thresh) == tuple:  # use different thresholds for on and offset of transients
+                        idx = np.where(trial >= thresh[0] * sigma)[0]
                     else:
                         raise Exception(f'Parameter "trans_thresh" has to be int or tuple, but was {type(thresh)}!')
 
                 if idx.size > 0:
                     # split indices into consecutive blocks
                     blocks = np.split(idx, np.where(np.diff(idx) != 1)[0] + 1)
+
+                    # if Dombecks criterion of 2-0.5 sigma should be used, the transient has to be extended
+                    if type(thresh) == tuple:
+                        for j in range(len(blocks)-1):
+                            new_stop = np.where(trial[blocks[j][0]:] <= thresh[1] * sigma)[0][0]
+                            blocks[j] = np.arange(blocks[j][0], new_stop+blocks[j][0]+1)
+
                     # find blocks of >500 ms length (use frame rate in cnmf object) and merge them in one array
                     duration = int(self.params['trans_length'] / (1 / self.cnmf.params.data['fr']))
                     try:
