@@ -288,6 +288,41 @@ class PlaceCellFinder:
         print('\nSuccessfully aligned traces with VR position and binned them to an equal length.\n' +
               'Results are stored in pcf.bin_activity and pcf.bin_avg_activity.\n')
 
+    def plot_binned_neurons(self, idx=None, sliced=False):
+        if idx:
+            if sliced:
+                if type(idx) == int:
+                    traces = self.bin_avg_activity[:idx]
+                elif type(idx) == list and len(idx) == 2:
+                    traces = self.bin_avg_activity[idx[0], idx[2]]
+                else:
+                    print('Idx has to be either int or list. If sliced, list has to have length 2.')
+                    return
+            else:
+                traces = self.bin_avg_activity[idx]
+        else:
+            traces = self.bin_avg_activity
+        if traces.shape[0] < 30:
+            fig, ax = plt.subplots(nrows=traces.shape[0], ncols=2, sharex=True, figsize=(20, 12))
+            for i in range(traces.shape[0]):
+                im = ax[i, 1].pcolormesh(traces[i, np.newaxis])
+                ax[i, 0].plot(traces[i])
+                if i == ax[:, 0].size - 1:
+                    ax[i, 0].spines['top'].set_visible(False)
+                    ax[i, 0].spines['right'].set_visible(False)
+                    ax[i, 0].set_yticks([])
+                    ax[i, 1].spines['top'].set_visible(False)
+                    ax[i, 1].spines['right'].set_visible(False)
+                else:
+                    ax[i, 0].axis('off')
+                    ax[i, 1].axis('off')
+                ax[i, 0].set_title(f'{i + 1}', x=-0.02, y=-0.4)
+            ax[i, 0].set_xlim(0, self.params['n_bins'])
+            fig.colorbar(im, ax=ax[i, 0])
+            fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+        else:
+            print(f'Too many neurons to plot ({traces.shape[0]}).')
+
     def find_place_cells(self):
         """
         Wrapper function that checks every neuron for place fields by calling find_place_field_neuron().
