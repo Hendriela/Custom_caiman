@@ -45,7 +45,7 @@ class PlaceCellFinder:
 
         if params is not None:
             self.params = params
-        else:
+        else: #TODO fix dict implementation so given parameters are not overwritten but all are assigned
             self.params = {'root': None,            # main directory of that session
                            'trans_length': 0.5,     # minimum length in seconds of a significant transient
                            'trans_thresh': 4,       # factor of sigma above which a transient is significant; int or
@@ -59,7 +59,7 @@ class PlaceCellFinder:
                            'fluo_infield': 7,       # factor above which the mean DF/F in the place field should lie compared to outside the field
                            'trans_time': 0.2,       # fraction of the (unbinned!) signal while the mouse is located in
                                                     # the place field that should consist of significant transients
-                           'n_splits': 10,          # segments the binned DF/F should be split into for bootstrapping. Has to be a divisor of n_bins
+                           'split_size': 50,        # size in frames of bootstrapping segments
                            'track_length': None,    # length of the VR corridor track during this trial in cm
 
             # The following parameters are calculated during analysis and do not have to be set by the user
@@ -115,8 +115,8 @@ class PlaceCellFinder:
         self.params['n_neuron'] = n_neuron
         self.params['n_trial'] = n_trials
 
-        print('\nSuccessfully separated traces into trials and sorted them by neurons.\nResults are stored in pcf.session.\n')
-        #return self
+        print('\nSuccessfully separated traces into trials and sorted them by neurons.'
+              '\nResults are stored in pcf.session.\n')
 
     def create_transient_only_traces(self):
         """
@@ -204,20 +204,20 @@ class PlaceCellFinder:
             plt.close()
         return sigma
 
-    def align_to_vr_position(self):
+    def import_behavior_and_align_traces(self):
         """
-        Imports behavioral data (merged_vr_licks.txt) and aligns the traces to it. Then bins the traces to
-        achieve a uniform trial length and subsequent place cell analysis.
+        Imports behavioral data (merged_behavior.txt) and aligns the calcium traces to the VR position.
         Behavioral data is saved in the 'behavior' list that includes one array per trial with the following structure:
-            time stamp -> VR position -- time stamp -> lick sensor -- 2p trigger -- time stamp -> encoder (speed)
-        Binned data is saved is saved in three formats:
-            - as bin_frame_count, an array of shape [n_bins x n_trials] showing the number of frames that have to be
-              averaged for each bin in every trial (stored in params)
+            universal time stamp -- VR position -- lick sensor -- 2p trigger -- encoder (speed)
+        Frames per bin are saved in bin_frame_count, an array of shape [n_bins x n_trials] showing the number of frames
+        that have to be averaged for each bin in every trial (stored in params).
+        Binned calcium data is saved in two formats:
             - as bin_activity, a list of neurons that consist of an array with shape [n_bins x n_trials] and stores
               the binned dF/F for every trial.
             - as bin_avg_activity, an array of shape [n_neuron x n_bins] that contain the dF/F for each bin of every
               neuron, averaged across trials. This is what will mainly be used for place cell analysis.
-        :return: Updated PCF object with behavior and binned trial data
+
+        :return: Updated PCF object with behavior and binned data
         """
         behavior = []
         is_faulty = False
@@ -254,45 +254,51 @@ class PlaceCellFinder:
             if frame_list_count != np.sum(bin_frame_count[:, i]):
                 print(f'Frame count not matching in trial {i}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
 
-        # Average dF/F for each neuron for each trial for each bin
-        # goes through every trial, extracts frames according to current bin size, averages it and puts it into
-        # the data structure "bin_activity", a list of neurons, with every neuron having an array of shape
-        # (n_trials X n_bins) containing the average dF/F activity of this bin of that trial
-        bin_activity = list(np.zeros(self.params['n_neuron']))
-        for neuron in range(self.params['n_neuron']):
-            curr_neur_act = np.zeros((self.params['n_trial'], self.params['n_bins']))
-            for trial in range(self.params['n_trial']):
-                curr_trace = self.session[neuron][trial]
-                curr_bins = bin_frame_count[:, trial]
-                curr_act_bin = np.zeros(self.params['n_bins'])
-                for bin_no in range(self.params['n_bins']):
-                    # extract the trace of the current bin from the trial trace
-                    if len(curr_trace) > curr_bins[bin_no]:
-                        trace_to_avg, curr_trace = curr_trace[:curr_bins[bin_no]], curr_trace[curr_bins[bin_no]:]
-                    elif len(curr_trace) == curr_bins[bin_no]:
-                        trace_to_avg = curr_trace
-                    else:
-                        trace_to_avg = np.nan
-                        raise Exception('Something went wrong during binning...')
-                    if trace_to_avg.size > 0:
-                        curr_act_bin[bin_no] = np.mean(trace_to_avg)
-                    else:
-                        curr_act_bin[bin_no] = 0
-                curr_neur_act[trial] = curr_act_bin
-            bin_activity[neuron] = curr_neur_act
-
-        # Get average activity across trials of every neuron for every bin
-        bin_avg_activity = np.zeros((self.params['n_neuron'], self.params['n_bins']))
-        for neuron in range(self.params['n_neuron']):
-            bin_avg_activity[neuron] = np.mean(bin_activity[neuron], axis=0)
-
         self.behavior = behavior
         self.params['bin_frame_count'] = bin_frame_count
-        self.bin_activity = bin_activity
-        self.bin_avg_activity = bin_avg_activity
+        print('\nSuccessfully aligned traces with VR position.')
 
-        print('\nSuccessfully aligned traces with VR position and binned them to an equal length.\n' +
-              'Results are stored in pcf.bin_activity and pcf.bin_avg_activity.\n')
+        # bin the activity for every neuron to the VR position, construct bin_activity and bin_avg_activity
+        self.bin_activity = []
+        self.bin_avg_activity = np.zeros((self.params['n_neuron'], self.params['n_bins']))
+        for neuron in range(self.params['n_neuron']):
+            neuron_bin_activity, neuron_bin_avg_activity = self.bin_activity_to_vr(self.session[neuron])
+            self.bin_activity.append(neuron_bin_activity)
+            self.bin_avg_activity[neuron, :] = neuron_bin_avg_activity
+        print('\nSuccessfully aligned calcium data to the VR position bins.'
+              '\nResults are stored in pcf.bin_activity and pcf.bin_avg_activity.\n')
+
+    def bin_activity_to_vr(self, neuron_traces):
+        """
+        Takes bin_frame_count and bins the dF/F traces of all trials of one neuron to achieve a uniform trial length
+        for place cell analysis. Procedure for every trial: Algorithm goes through every bin and extracts the
+        corresponding frames according to bin_frame_count.
+        :param neuron_traces: list of arrays that contain the dF/F traces of a neuron. From self.session[n_neuron]
+        :return: bin_activity (list of trials), bin_avg_activity (1D array) for this neuron
+        """
+        bin_activity = np.zeros((self.params['n_trial'], self.params['n_bins']))
+        for trial in range(self.params['n_trial']):
+            curr_trace = neuron_traces[trial]
+            curr_bins = self.params['bin_frame_count'][:, trial]
+            curr_act_bin = np.zeros(self.params['n_bins'])
+            for bin_no in range(self.params['n_bins']):
+                # extract the trace of the current bin from the trial trace
+                if len(curr_trace) > curr_bins[bin_no]:
+                    trace_to_avg, curr_trace = curr_trace[:curr_bins[bin_no]], curr_trace[curr_bins[bin_no]:]
+                elif len(curr_trace) == curr_bins[bin_no]:
+                    trace_to_avg = curr_trace
+                else:
+                    raise Exception('Something went wrong during binning...')
+                if trace_to_avg.size > 0:
+                    curr_act_bin[bin_no] = np.mean(trace_to_avg)
+                else:
+                    curr_act_bin[bin_no] = 0
+            bin_activity[trial] = curr_act_bin
+
+        # Get average activity across trials of this neuron for every bin
+        bin_avg_activity = np.mean(bin_activity, axis=0)
+
+        return bin_activity, bin_avg_activity
 
     def plot_binned_neurons(self, idx=None, sliced=False):
         if idx:
@@ -339,7 +345,7 @@ class PlaceCellFinder:
     def find_place_field_neuron(self, data, neuron_id):
         """
         Performs place field analysis (smoothing, pre-screening and criteria application) on a single neuron data set.
-        #TODO remove other potential place fields from outside field dF/F value
+
         :param data: 1D array, binned and across-trial-averaged dF/F data of one neuron, e.g. from bin_avg_activity
         :param neuron_id: ID of the neuron that the data belongs to (its index in session list)
         :return:
@@ -355,7 +361,7 @@ class PlaceCellFinder:
             place_fields_passed = self.apply_pf_criteria(smooth_trace, pot_place_blocks, neuron_id)
             # if this neuron has one or more place fields that passed all three criteria, validate via bootstrapping
             if len(place_fields_passed) > 0:
-                p_value = self.bootstrapping(data, neuron_id)
+                p_value = self.bootstrapping(neuron_id)
                 # if the p_value is lower than 0.05, accept the current cell as a place cell
                 if p_value < 0.05:
                     self.place_cells.append((neuron_id, place_fields_passed, p_value))
@@ -430,7 +436,7 @@ class PlaceCellFinder:
         """
         place_field_passed = []
         for pot_place in place_blocks:
-            if self.is_large_enough(pot_place) and self.is_strong_enough(trace, pot_place) and self.has_enough_transients(neuron_id, pot_place):
+            if self.is_large_enough(pot_place) and self.is_strong_enough(trace, pot_place, place_blocks) and self.has_enough_transients(neuron_id, pot_place):
                 place_field_passed.append(pot_place)
 
         return place_field_passed
@@ -444,16 +450,18 @@ class PlaceCellFinder:
         """
         return place_field.size >= self.params['min_bin_size']
 
-    def is_strong_enough(self, trace, place_field):
+    def is_strong_enough(self, trace, place_field, all_fields):
         """
         Checks if the place field has a mean dF/F that is 'fluo_infield'x higher than outside the field (criterion 2).
 
         :param trace: 1D array of the trace data
         :param place_field: 1D array of indices of data points that form the potential place field
+        :param all_fields: 1D array of indices of all place fields in this trace
         :return: boolean value whether the criterion is passed or not
         """
-        pot_place_idx = np.in1d(range(trace.shape[0]), place_field) # get an idx mask for the potential place field
-        return np.mean(trace[pot_place_idx]) >= self.params['fluo_infield'] * np.mean(trace[~pot_place_idx])
+        pot_place_idx = np.in1d(range(trace.shape[0]), place_field)  # get an idx mask for the potential place field
+        all_place_idx = np.in1d(range(trace.shape[0]), all_fields)   # get an idx mask for all place fields
+        return np.mean(trace[pot_place_idx]) >= self.params['fluo_infield'] * np.mean(trace[~all_place_idx])
 
     def has_enough_transients(self, neuron_id, place_field):
         """
@@ -466,12 +474,11 @@ class PlaceCellFinder:
         """
         place_frames_trace = []  # stores the trace of all trials when the mouse was in a place field as one data row
         for trial in range(self.params['bin_frame_count'].shape[1]):
-            # get the start and end frame for the current place field from the bin_frame_count array that stores how many
-            # frames were pooled for each bin
+            # get the start and end frame for the current place field from the bin_frame_count array that stores how
+            # many frames were pooled for each bin
             curr_place_frames = (np.sum(self.params['bin_frame_count'][:place_field[0], trial]),
                                  np.sum(self.params['bin_frame_count'][:place_field[-1] + 1, trial]))
             # attach the transient-only trace in the place field during this trial to the array
-            # TODO: not working with the current behavior data, make it work for behavior&frame-trigger data
             place_frames_trace.append(self.session_trans[neuron_id][trial][curr_place_frames[0]:curr_place_frames[1] + 1])
 
         # create one big 1D array that includes all frames where the mouse was located in the place field
@@ -480,33 +487,42 @@ class PlaceCellFinder:
         # check if at least 'trans_time' percent of the frames are part of a significant transient
         return np.sum(place_frames_trace) >= self.params['trans_time'] * place_frames_trace.shape[0]
 
-    def bootstrapping(self, trace, neuron_id):
+    def bootstrapping(self, neuron_id):
         """
-        Performs bootstrapping on a trace and returns p-value for a place cell in this trace.
-        #TODO implement Bartos analysis: shuffle dF/F unbinned data and then bin new
-        The trace split in "n_splits" parts which are randomly shuffled 1000 times. Then, place cell detection is
-        performed on each shuffled trace. The p-value is defined as the ratio of place cells detected in the shuffled
-        traces versus number of shuffles (1000; see Dombeck et al., 2010). If this neuron's trace gets a p-value
-        of p < 0.05 (place fields detected in less than 50 shuffles), the place field is accepted.
+        Performs bootstrapping on a unbinned dF/F trace and returns p-value for a place cell in this trace.
+        The trace is divided in parts with 'split_size' length which are randomly shuffled 1000 times. Then, place cell
+        detection is performed on each shuffled trace. The p-value is defined as the ratio of place cells detected in
+        the shuffled traces versus number of shuffles (1000; see Dombeck et al., 2010). If this neuron's trace gets a
+        p-value of p < 0.05 (place fields detected in less than 50 shuffles), the place field is accepted.
 
-        :param trace: 1D array, trace data that is to be shuffled
-        :param neuron_id: 1D array of index of the current neuron in the session list
-        :return: place_field_p, p-value of place fields in this trace/neuron
+        :param neuron_id: 1D array of index of the checked neuron in the session list
+        :return: p-value of place fields in this neuron
         """
-        try:
-            split_trace = np.split(trace, self.params['n_splits'])
-        except ValueError:
-            raise ValueError('The number of splits for bootstrapping has to be a divisor of the number of bins! Consider changing n_bins or n_splits.') from None
-
         p_counter = 0
         for i in range(1000):
-            # shuffle trace 1000 times and perform place cell analysis on every shuffled trace
-            curr_shuffle = random.sample(split_trace, len(split_trace))
-            smooth_trace = self.smooth_trace(curr_shuffle)                  # smoothing
-            pot_place_fields = self.pre_screen_place_fields(smooth_trace,)  # pre-screening
-            if len(pot_place_fields) > 0:                                   # criteria testing
-                place_fields = self.apply_pf_criteria(smooth_trace, pot_place_fields, neuron_id)
-            if len(place_fields):
-                p_counter += 1      # if the shuffled trace contained a place cell that passed all 3 criteria, count it
+            # create shuffled neuron data by shuffling every trial
+            shuffle = []
+            for trial in self.session[neuron_id]:
+                # divide the trial trace into splits of 'split_size' size and manually append the remainder
+                div_length = trial.shape[0] - trial.shape[0] % self.params['split_size']
+                split_trace = np.split(trial[:div_length], trial[:div_length].shape[0]/self.params['split_size'])
+                split_trace.append(trial[div_length:])
 
-        return p_counter/1000   # return p-value of this neuron
+                curr_shuffle = np.concatenate(random.sample(split_trace, len(split_trace)))
+                shuffle.append(curr_shuffle)
+
+            # bin trials to VR position
+            bin_act, bin_avg_act = self.bin_activity_to_vr(shuffle)
+
+            # perform place cell analysis on binned and trial-averaged activity of shuffled neuron trace
+            smooth_trace = self.smooth_trace(bin_avg_act)
+            pot_place_blocks = self.pre_screen_place_fields(smooth_trace)
+
+            # if the trace has passed pre-screening, continue with place cell criteria
+            if len(pot_place_blocks) > 0:
+                place_fields_passed = self.apply_pf_criteria(smooth_trace, pot_place_blocks, neuron_id)
+                # if the shuffled trace contained a place cell that passed all 3 criteria, count it
+                if len(place_fields_passed) > 0:
+                    p_counter += 1
+
+        return p_counter/1000   # return p-value of this neuron (number of place fields after 1000 shuffles)

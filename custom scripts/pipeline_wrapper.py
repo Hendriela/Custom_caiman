@@ -86,6 +86,6 @@ pcf.split_traces_into_trials()
 # create significant-transient-only traces
 pcf.create_transient_only_traces()
 # align the frames to the VR position using merged behavioral data
-pcf.align_to_vr_position()
+pcf.import_behavior_and_align_traces()
 #%%
 
