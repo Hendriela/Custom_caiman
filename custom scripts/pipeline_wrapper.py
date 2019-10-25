@@ -73,7 +73,7 @@ params = {'root': root,                  # main directory of this session
           'bin_base': 0.25,              # fraction of lowest bins that are averaged for baseline calculation
           'place_thresh': 0.25,          # threshold of being considered for place fields, calculated
                                          # from difference between max and baseline dF/F
-          'min_bin_size': 10,            # minimum size in bins for a place field (should correspond to 15-20 cm) #TODO make it accept cm values and calculate n_bins through track length
+          'min_bin_size': 10,            # minimum size in bins for a place field (should correspond to 15-20 cm)
           'fluo_infield': 7,             # factor above which the mean DF/F in the place field should lie compared to outside the field
           'trans_time': 0.2,             # fraction of the (unbinned!) signal while the mouse is located in
                                          # the place field that should consist of significant transients
@@ -87,5 +87,7 @@ pcf.split_traces_into_trials()
 pcf.create_transient_only_traces()
 # align the frames to the VR position using merged behavioral data
 pcf.import_behavior_and_align_traces()
+# look for place cells
+pcf.find_place_cells()
 #%%
 

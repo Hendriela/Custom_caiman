@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import random
 import copy
-import os
 import glob
 
 
@@ -17,7 +16,7 @@ class PlaceCellFinder:
     Class that holds all the data, parameters and results to perform place cell analysis.
     The analysis steps and major parameters are mainly adapted from Dombeck2007/2010, Hainmüller2018 and Koay2019.
     """
-    def __init__(self, cnmf, params=None):
+    def __init__(self, cnmf, param_dict=None):
         """
         Constructor of the PCF class
 
@@ -31,7 +30,7 @@ class PlaceCellFinder:
         from analysis steps and will be filled during the pipeline.
 
         :param cnmf: CNMF object that holds the raw calcium data
-        :param params: dictionary that holds the pipeline's parameters. Can be initialized now or filled later.
+        :param param_dict: dictionary that holds all parameters. All keys that are not initialized get default value.
         """
         self.cnmf = cnmf                # CNMF object that you obtain from the CaImAn pipeline
         self.session = None             # List of neurons containing dF/F traces ordered by neurons and trials
@@ -43,32 +42,48 @@ class PlaceCellFinder:
                                         # place_field_bins, p-value)
         self.place_cells_reject = []    # List of place cells that passed all criteria, but with p > 0.05.
 
-        if params is not None:
-            self.params = params
-        else: #TODO fix dict implementation so given parameters are not overwritten but all are assigned
-            self.params = {'root': None,            # main directory of that session
-                           'trans_length': 0.5,     # minimum length in seconds of a significant transient
-                           'trans_thresh': 4,       # factor of sigma above which a transient is significant; int or
-                                                    # tuple of int (for different start and end of transients)
-                           'n_bins': 100,           # number of bins per trial in which to group the dF/F traces
-                           'bin_window_avg': 3,     # sliding window of bins (left and right) for trace smoothing
-                           'bin_base': 0.25,        # fraction of lowest bins that are averaged for baseline calculation
-                           'place_thresh': 0.25,    # threshold of being considered for place fields, calculated
-                                                    # from difference between max and baseline dF/F
-                           'min_bin_size': 10,      # minimum size in bins for a place field (should correspond to 15-20 cm) #TODO make it accept cm values and calculate n_bins through track length
-                           'fluo_infield': 7,       # factor above which the mean DF/F in the place field should lie compared to outside the field
-                           'trans_time': 0.2,       # fraction of the (unbinned!) signal while the mouse is located in
-                                                    # the place field that should consist of significant transients
-                           'split_size': 50,        # size in frames of bootstrapping segments
-                           'track_length': None,    # length of the VR corridor track during this trial in cm
+        # noinspection PyDictCreation
+        self.params = {'root': None,            # main directory of that session
+                       'trial_list': None,  # list of trial folders in this session
+                    # The following parameters can be provided, but reset to default values if not
+                       'trans_length': 0.5,     # minimum length in seconds of a significant transient
+                       'trans_thresh': 4,       # factor of sigma above which a transient is significant; int or
+                                                # tuple of int (for different start and end of transients)
+                       'bin_length': 2,         # length in cm VR distance of each bin in which to group the dF/F traces
+                       'bin_window_avg': 3,     # sliding window of bins (left and right) for trace smoothing
+                       'bin_base': 0.25,        # fraction of lowest bins that are averaged for baseline calculation
+                       'place_thresh': 0.25,    # threshold of being considered for place fields, calculated
+                                                # from difference between max and baseline dF/F
+                       'min_bin_size_cm': 10,   # minimum size in cm for a place field (should be 15-20 cm)
+                       'fluo_infield': 7,       # factor above which the mean DF/F in the place field should lie compared to outside the field
+                       'trans_time': 0.2,       # fraction of the (unbinned!) signal while the mouse is located in
+                                                # the place field that should consist of significant transients
+                       'split_size': 50,        # size in frames of bootstrapping segments
+                       'track_length': 170,     # length in cm of the VR corridor track
+                    # The following parameters are calculated during analysis and do not have to be set by the user
+                       'frame_list': None,      # list of number of frames in every trial in this session
+                       'n_neuron': None,        # number of neurons that were detected in this session
+                       'n_trial': None,         # number of trials in this session
+                       'sigma': None,           # array[n_neuron x n_trials], noise level (from FWHM) of every trial
+                       'bin_frame_count': None, # array[n_bins x n_trials], number of frames averaged in each bin
+                       'place_results': None}   # array[n_neuron x criteria] that stores place cell finder results with
+                                                # order pre_screen - bin_size - dF/F - transients - p<0.05
 
-            # The following parameters are calculated during analysis and do not have to be set by the user
-                           'frame_list': None,      # list of number of frames in every trial in this session
-                           'trial_list': None,  # list of trial folders in this session
-                           'n_neuron': None,        # number of neurons that were detected in this session
-                           'n_trial': None,         # number of trials in this session
-                           'sigma': None,           # array[n_neuron x n_trials], noise level (from FWHM) of every trial
-                           'bin_frame_count': None} # array[n_bins x n_trials], number of frames averaged in each bin
+        # implement user-given parameters
+        for key in param_dict.keys():
+            if key in self.params.keys():
+                self.params[key] = param_dict[key]
+            else:
+                print(f'Parameter {key} was not recognized!')
+
+        if self.params['root'] is None:
+            print(f'Essential parameter root has not been provided upon initialization.')
+        if self.params['trial_list'] is None:
+            print(f'Essential parameter trial_list has not been provided upon initialization.')
+
+        # calculate track_length dependent binning parameters
+        self.params['n_bins'] = self.params['track_length'] / self.params['bin_length_cm']
+        self.params['min_bin_size'] = self.params['min_bin_size_cm'] / self.params['bin_length_cm']
 
         # find directories, files and frame counts
         self.params['frame_list'] = []
@@ -300,47 +315,16 @@ class PlaceCellFinder:
 
         return bin_activity, bin_avg_activity
 
-    def plot_binned_neurons(self, idx=None, sliced=False):
-        if idx:
-            if sliced:
-                if type(idx) == int:
-                    traces = self.bin_avg_activity[:idx]
-                elif type(idx) == list and len(idx) == 2:
-                    traces = self.bin_avg_activity[idx[0], idx[2]]
-                else:
-                    print('Idx has to be either int or list. If sliced, list has to have length 2.')
-                    return
-            else:
-                traces = self.bin_avg_activity[idx]
-        else:
-            traces = self.bin_avg_activity
-        if traces.shape[0] < 30:
-            fig, ax = plt.subplots(nrows=traces.shape[0], ncols=2, sharex=True, figsize=(20, 12))
-            for i in range(traces.shape[0]):
-                im = ax[i, 1].pcolormesh(traces[i, np.newaxis])
-                ax[i, 0].plot(traces[i])
-                if i == ax[:, 0].size - 1:
-                    ax[i, 0].spines['top'].set_visible(False)
-                    ax[i, 0].spines['right'].set_visible(False)
-                    ax[i, 0].set_yticks([])
-                    ax[i, 1].spines['top'].set_visible(False)
-                    ax[i, 1].spines['right'].set_visible(False)
-                else:
-                    ax[i, 0].axis('off')
-                    ax[i, 1].axis('off')
-                ax[i, 0].set_title(f'{i + 1}', x=-0.02, y=-0.4)
-                fig.colorbar(im, ax=ax[i, 0])
-            ax[i, 0].set_xlim(0, self.params['n_bins'])
-            fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
-        else:
-            print(f'Too many neurons to plot ({traces.shape[0]}).')
-
     def find_place_cells(self):
         """
         Wrapper function that checks every neuron for place fields by calling find_place_field_neuron().
-        :return:
+        Also initializes params['place_results'], where results from place cell checks are stored for each neuron.
+        Order of 'place_results': pre_screening -- is_large_enough -- is_strong_enough -- has_transients -- p<0.05
+        :return: updated PCF object with place cell results
         """
-        pass
+        self.params['place_results'] = np.zeros((self.params['n_neuron'], 5), dtype='bool')
+        for i in range(self.bin_avg_activity.shape[0]):
+            self.find_place_field_neuron(self.bin_avg_activity[i, :], i)
 
     def find_place_field_neuron(self, data, neuron_id):
         """
@@ -348,7 +332,7 @@ class PlaceCellFinder:
 
         :param data: 1D array, binned and across-trial-averaged dF/F data of one neuron, e.g. from bin_avg_activity
         :param neuron_id: ID of the neuron that the data belongs to (its index in session list)
-        :return:
+        :return: updated PCF object with filled-in place_cells and place_cells_reject
         """
         # smoothing binned data by averaging over adjacent bins
         smooth_trace = self.smooth_trace(data)
@@ -358,6 +342,7 @@ class PlaceCellFinder:
 
         # if the trace has above-threshold values, continue with place cell criteria
         if len(pot_place_blocks) > 0:
+            self.params['place_results'][neuron_id, 0] = True
             place_fields_passed = self.apply_pf_criteria(smooth_trace, pot_place_blocks, neuron_id)
             # if this neuron has one or more place fields that passed all three criteria, validate via bootstrapping
             if len(place_fields_passed) > 0:
@@ -365,9 +350,12 @@ class PlaceCellFinder:
                 # if the p_value is lower than 0.05, accept the current cell as a place cell
                 if p_value < 0.05:
                     self.place_cells.append((neuron_id, place_fields_passed, p_value))
+                    self.params['place_results'][neuron_id, 4] = True
+                    print(f'Neuron {neuron_id} identified as place cell with p={p_value}!')
                 # if the p_value is higher than 0.05, save it in a separate list
                 else:
                     self.place_cells_reject.append((neuron_id, place_fields_passed, p_value))
+                    print(f'Neuron {neuron_id} identified as place cell, but p={p_value}.')
 
     def pre_screen_place_fields(self, trace):
         """
@@ -382,7 +370,7 @@ class PlaceCellFinder:
         # get baseline dF/F value from the average of the 'bin_base' % least active bins (default 25% of n_bins)
         f_base = np.mean(np.sort(trace)[:int(trace.size * self.params['bin_base'])])
         # get threshold value above which a point is considered part of the potential place field (default 25%)
-        f_thresh = (f_max - f_base) * self.params['place_thresh']
+        f_thresh = ((f_max - f_base) * self.params['place_thresh']) + f_base
         # get indices where the smoothed trace is above threshold
         pot_place_idx = np.where(trace >= f_thresh)[0]
 
@@ -420,7 +408,7 @@ class PlaceCellFinder:
 
         return smooth_trace
 
-    def apply_pf_criteria(self, trace, place_blocks, neuron_id):
+    def apply_pf_criteria(self, trace, place_blocks, neuron_id, save_results=True):
         """
         Applies the criteria of place fields to potential place fields of a trace. A place field is accepted when...
             1) it stretches at least 'min_bin_size' bins (default 10)
@@ -432,12 +420,24 @@ class PlaceCellFinder:
         :param place_blocks: list of array(s) that hold bin indices of potential place fields, one array per field (from pot_place_blocks)
         :param trace: 1D array containing the trace in which the potential place fields are located
         :param neuron_id: Index of current neuron in the session_trans list. Needed for criterion 3.
+        :param save_results: boolean flag whether place_cell_check results should be saved in params (no for bootstrap)
         :return: list of place field arrays that passed all three criteria (empty if none passed).
         """
         place_field_passed = []
         for pot_place in place_blocks:
-            if self.is_large_enough(pot_place) and self.is_strong_enough(trace, pot_place, place_blocks) and self.has_enough_transients(neuron_id, pot_place):
+            bin_size = self.is_large_enough(pot_place)
+            intensity = self.is_strong_enough(trace, pot_place, place_blocks)
+            transients = self.has_enough_transients(neuron_id, pot_place)
+            if bin_size and intensity and transients:
                 place_field_passed.append(pot_place)
+
+            if save_results:
+                if bin_size:
+                    self.params['place_results'][neuron_id, 1] = True
+                if intensity:
+                    self.params['place_results'][neuron_id, 2] = True
+                if transients:
+                    self.params['place_results'][neuron_id, 3] = True
 
         return place_field_passed
 
@@ -460,7 +460,7 @@ class PlaceCellFinder:
         :return: boolean value whether the criterion is passed or not
         """
         pot_place_idx = np.in1d(range(trace.shape[0]), place_field)  # get an idx mask for the potential place field
-        all_place_idx = np.in1d(range(trace.shape[0]), all_fields)   # get an idx mask for all place fields
+        all_place_idx = np.in1d(range(trace.shape[0]), np.concatenate(all_fields))   # get an idx mask for all place fields
         return np.mean(trace[pot_place_idx]) >= self.params['fluo_infield'] * np.mean(trace[~all_place_idx])
 
     def has_enough_transients(self, neuron_id, place_field):
@@ -520,9 +520,59 @@ class PlaceCellFinder:
 
             # if the trace has passed pre-screening, continue with place cell criteria
             if len(pot_place_blocks) > 0:
-                place_fields_passed = self.apply_pf_criteria(smooth_trace, pot_place_blocks, neuron_id)
+                place_fields_passed = self.apply_pf_criteria(
+                    smooth_trace, pot_place_blocks, neuron_id, save_results=False)
                 # if the shuffled trace contained a place cell that passed all 3 criteria, count it
                 if len(place_fields_passed) > 0:
                     p_counter += 1
 
         return p_counter/1000   # return p-value of this neuron (number of place fields after 1000 shuffles)
+
+#%% Visualization
+    def plot_binned_neurons(self, idx=None, sliced=False):
+        if idx:
+            if sliced:
+                if type(idx) == int:
+                    traces = self.bin_avg_activity[:idx]
+                elif type(idx) == list and len(idx) == 2:
+                    traces = self.bin_avg_activity[idx[0], idx[2]]
+                else:
+                    print('Idx has to be either int or list. If sliced, list has to have length 2.')
+                    return
+            else:
+                traces = self.bin_avg_activity[idx]
+        else:
+            traces = self.bin_avg_activity
+        if traces.shape[0] < 30:
+            fig, ax = plt.subplots(nrows=traces.shape[0], ncols=2, sharex=True, figsize=(20, 12))
+            for i in range(traces.shape[0]):
+                im = ax[i, 1].pcolormesh(traces[i, np.newaxis])
+                ax[i, 0].plot(traces[i])
+                if i == ax[:, 0].size - 1:
+                    ax[i, 0].spines['top'].set_visible(False)
+                    ax[i, 0].spines['right'].set_visible(False)
+                    ax[i, 0].set_yticks([])
+                    ax[i, 1].spines['top'].set_visible(False)
+                    ax[i, 1].spines['right'].set_visible(False)
+                else:
+                    ax[i, 0].axis('off')
+                    ax[i, 1].axis('off')
+                ax[i, 0].set_title(f'{i + 1}', x=-0.02, y=-0.4)
+                fig.colorbar(im, ax=ax[i, 0])
+            ax[i, 0].set_xlim(0, self.params['n_bins'])
+            fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+        else:
+            print(f'Too many neurons to plot ({traces.shape[0]}).')
+
+    def plot_individual_neuron(self, idx, vr_aligned=True):
+        if vr_aligned:
+            traces = self.bin_activity[idx]
+        else:
+            traces = self.session[idx]
+        fig, ax = plt.subplots(nrows=len(traces), ncols=1, sharex=True, figsize=(20, 12))
+        for i in range(len(traces)):
+            ax[i].plot(traces[i])
+            ax[i].set_title(f'{i + 1}', x=-0.02, y=-0.4)
+        if vr_aligned:
+            ax[i].set_xlim(0, self.params['n_bins'])
+        fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
