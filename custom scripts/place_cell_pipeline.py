@@ -12,6 +12,7 @@ import caiman as cm
 from caiman.motion_correction import MotionCorrect
 from caiman.source_extraction.cnmf import cnmf as cnmf
 import re
+import pickle
 
 
 def set_file_paths():
@@ -59,4 +60,12 @@ def motion_correction(params, remove_f_order=True):
     return fname_new
 
 
+def save_pcf(path, obj):
+    with open(path, 'wb') as file:
+        pickle.dump(obj, file)
 
+
+def load_pcf(path):
+    with open(path, 'rb') as file:
+        obj = pickle.load(file)
+    return obj

@@ -68,16 +68,17 @@ params = {'root': root,                  # main directory of this session
           'trial_list': folder_list,     # list of all trial directories in this session
           'trans_length': 0.5,           # minimum length in seconds of a significant transient
           'trans_thresh': 4,             # factor of sigma above which a transient is significant
-          'n_bins': 100,                 # number of bins per trial in which to group the dF/F traces
+          'bin_length': 2,               # length in cm VR distance of each bin in which to group the dF/F traces (has to be divisor of track_length
           'bin_window_avg': 3,           # sliding window of bins (left and right) for trace smoothing
           'bin_base': 0.25,              # fraction of lowest bins that are averaged for baseline calculation
           'place_thresh': 0.25,          # threshold of being considered for place fields, calculated
                                          # from difference between max and baseline dF/F
-          'min_bin_size': 10,            # minimum size in bins for a place field (should correspond to 15-20 cm)
+          'min_pf_size_cm': 10,          # minimum size in cm for a place field (should be 15-20 cm)
           'fluo_infield': 7,             # factor above which the mean DF/F in the place field should lie compared to outside the field
           'trans_time': 0.2,             # fraction of the (unbinned!) signal while the mouse is located in
                                          # the place field that should consist of significant transients
-          'n_splits': 10}                # segments the binned DF/F should be split into for bootstrapping
+          'track_length': 170,           # length in cm of the virtual reality corridor
+          'split_size': 10}              # size in frames of bootstrapping segments
 
 pcf = pc.PlaceCellFinder(cnm, params)
 

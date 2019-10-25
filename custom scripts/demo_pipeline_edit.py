@@ -170,7 +170,7 @@ def main():
     # during motion correction, although be careful about the components near
     # the boundaries
 
-    fname_new = r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00014_d1_512_d2_512_d3_1_order_C_frames_2397_.mmap'
+    fname_new = r'E:\PhD\Data\DG\M14_20191021\N2\memmap__d1_512_d2_512_d3_1_order_C_frames_17375_.mmap'
 
     # memory map the file in order 'C'
     fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C',
@@ -262,8 +262,8 @@ def main():
     #  cnm1.fit_file(motion_correct=True)
 
 #%% plot contours of found components
-    Cn = cm.local_correlations(images[5000:-5000], swap_dim=False)
-    Cn[np.isnan(Cn)] = 0
+    Cn3 = cm.local_correlations(images[1000:1200], swap_dim=False)
+    Cn2[np.isnan(Cn2)] = 0
     cnm.estimates.plot_contours(img=Cn)
     plt.title('Contour plots of found components')
 

@@ -9,6 +9,7 @@ import seaborn as sns
 import random
 import copy
 import glob
+from math import ceil
 
 
 class PlaceCellFinder:
@@ -54,7 +55,7 @@ class PlaceCellFinder:
                        'bin_base': 0.25,        # fraction of lowest bins that are averaged for baseline calculation
                        'place_thresh': 0.25,    # threshold of being considered for place fields, calculated
                                                 # from difference between max and baseline dF/F
-                       'min_bin_size_cm': 10,   # minimum size in cm for a place field (should be 15-20 cm)
+                       'min_pf_size_cm': 10,    # minimum size in cm for a place field (should be 15-20 cm)
                        'fluo_infield': 7,       # factor above which the mean DF/F in the place field should lie compared to outside the field
                        'trans_time': 0.2,       # fraction of the (unbinned!) signal while the mouse is located in
                                                 # the place field that should consist of significant transients
@@ -82,8 +83,11 @@ class PlaceCellFinder:
             print(f'Essential parameter trial_list has not been provided upon initialization.')
 
         # calculate track_length dependent binning parameters
-        self.params['n_bins'] = self.params['track_length'] / self.params['bin_length_cm']
-        self.params['min_bin_size'] = self.params['min_bin_size_cm'] / self.params['bin_length_cm']
+        if self.params['track_length'] % self.params['bin_length'] == 0:
+            self.params['n_bins'] = int(self.params['track_length'] / self.params['bin_length'])
+        else:
+            raise Exception('Bin_length has to be a divisor of track_length!')
+        self.params['min_bin_size'] = int(ceil(self.params['min_pf_size_cm'] / self.params['bin_length']))
 
         # find directories, files and frame counts
         self.params['frame_list'] = []
