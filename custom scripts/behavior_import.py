@@ -42,7 +42,7 @@ def progress(count, total, status=''):
 # 14 N1 frame_list = [900, 5927, 2430, 1814, 2504, 4624, 6132, 2168, 1953, 2670, 3817]  #todo remove hardcoding
 
 
-def align_files(folder_list):
+def align_files(folder_list, performance_check=False):
     """
     Takes the three behavioral .txt files (encoder, TCP (VR position) and TDT (licks + frame trigger)) and synchronizes
     and aligns them according to the master time stamp provided by Lab View. Data are sampled at the rate of the data
@@ -50,9 +50,15 @@ def align_files(folder_list):
     their last available value.
     :param folder_list: list of folders (one folder per trial) that include the three behavioral files as well as the
                         memmap file acquired through CaImAn motion correction that includes the frame count in its name
+    :param performance_check: bool flag whether the performance should be analyzed (time per trial).
     :return: merged behavioral data saved as 'merged_behavior.txt' in the same folder
+    #TODO: adapt so that it looks in multiple subfolders for all behavioral files that have not yet been aligned
     """
     counter = 1
+
+    if performance_check:
+        trial_times = []
+
     for folder in folder_list:
         # get frame count of the current trial from memmap file name
         if len(glob.glob(folder+'*.mmap')) != 0:
@@ -60,6 +66,12 @@ def align_files(folder_list):
         else:
             print(f'No memmap files found at {folder}. Run motion correction before aligning behavioral data!')
             break
+
+        if performance_check:
+            root = folder.split('\\')[0]
+            save_file = os.path.join(root, r'performance.txt')
+            with open(save_file, 'w') as f:
+                out = f.write('Performance for the current session:')
 
         print(f'\nNow processing trial {counter} of {len(folder_list)}: Folder {folder}...')
         # load the three files (encoder (running speed), TCP (VR position) and TDT (licking + frame trigger))
@@ -147,11 +159,27 @@ def align_files(folder_list):
         merge[:, 0] = merge[:, 0] - merge[0, 0]
         merge[:, 0] = [floor(x * 100000) / 100000 for x in merge[:, 0]]
 
+        if performance_check:
+            print(f'Trial {counter} was {merge[-1, 0]} s long.')
+            trial_times.append(merge[-1, 0])
+
+            with open(save_file, 'a') as text_file:
+                out = text_file.write(f'Trial {counter} was {merge[-1, 0]} s long.')
+
         # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
         file_path = os.path.join(folder, r'merged_behavior.txt')
         np.savetxt(file_path, merge, delimiter='\t',
                    fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
         print(f'Done! \nSaving merged file to {file_path}...')
         counter += 1
+
+    if performance_check:
+        print(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
+              f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
+              f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
+        with open(save_file, 'a') as f:
+            out = f.write(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
+                          f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
+                          f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
 #%%
 

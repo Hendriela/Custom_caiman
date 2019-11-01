@@ -67,11 +67,7 @@ def main():
 
 #%% Select file(s) to be processed (download if not present)
     root = '/Users/hheiser/Desktop/testing data/chronic_M2N3/0d_baseline/channel1'
-    fnames = [r'E:\PhD\Data\DG\M14_20191021\N2\1\file_00001.tif',
-              r'E:\PhD\Data\DG\M14_20191021\N2\2\file_00002.tif',
-              r'E:\PhD\Data\DG\M14_20191021\N2\3\file_00003.tif',
-              r'E:\PhD\Data\DG\M14_20191021\N2\4\file_00004.tif',
-              r'E:\PhD\Data\DG\M14_20191021\N2\5\file_00005.tif']
+
 """
     fnames = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00011.tif',
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif',
@@ -86,15 +82,17 @@ def main():
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00021.tif',
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00022.tif']
 
-    fnames = [r'E:\PhD\Data\DG\M14_20191014\N2\file_00003.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N2\file_00004.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N2\file_00005.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N2\file_00006.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N2\file_00007.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N2\file_00008.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N2\file_00009.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N2\file_00010.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N2\file_00011.tif',]
+    fnames = [r'E:\PhD\Data\DG\M14_20191014\N1\1\file_00001.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N1\2\file_00002.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N1\3\file_00003.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N1\4\file_00004.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N1\5\file_00005.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N1\6\file_00006.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N1\7\file_00007.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N1\8\file_00008.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N1\9\file_00009.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N1\10\file_00010.tif',
+              r'E:\PhD\Data\DG\M14_20191014\N1\11\file_00011.tif']
 """
 #%% First setup some parameters for data and motion correction
 
@@ -141,7 +139,7 @@ def main():
         m_orig = cm.load_movie_chain(fnames)
         ds_ratio = 0.2
         moviehandle = m_orig.resize(1, 1, ds_ratio)
-        moviehandle.play(q_max=99.5, fr=30, magnification=1, do_loop=True)
+        moviehandle.play(q_max=99.5, fr=30, magnification=1, do_loop=False)
 
 #%% start a cluster for parallel processing
     c, dview, n_processes = cm.cluster.setup_cluster(
@@ -157,8 +155,8 @@ def main():
 
 #%% compare with original movie
     if display_images:
-        m_orig = cm.load_movie_chain(fnames)
-        m_els = cm.load(mc.mmap_file)
+        m_orig = cm.load_movie_chain(fnames[:3])
+        m_els = cm.load(mmap_file[:3])
         ds_ratio = 0.2
         moviehandle = cm.concatenate([m_orig.resize(1, 1, ds_ratio) - mc.min_mov*mc.nonneg_movie,
                                       m_els.resize(1, 1, ds_ratio)], axis=2)
@@ -170,16 +168,29 @@ def main():
     # during motion correction, although be careful about the components near
     # the boundaries
 
-    fname_new = r'E:\PhD\Data\DG\M14_20191021\N2\memmap__d1_512_d2_512_d3_1_order_C_frames_17375_.mmap'
+    mmap_file = [r'E:\PhD\Data\DG\M14_20191014\N1\1\file_00001_els__d1_512_d2_512_d3_1_order_F_frames_900_.mmap',
+                 r'E:\PhD\Data\DG\M14_20191014\N1\2\file_00002_els__d1_512_d2_512_d3_1_order_F_frames_5927_.mmap',
+                 r'E:\PhD\Data\DG\M14_20191014\N1\3\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_2430_.mmap',
+                 r'E:\PhD\Data\DG\M14_20191014\N1\4\file_00004_els__d1_512_d2_512_d3_1_order_F_frames_1814_.mmap',
+                 r'E:\PhD\Data\DG\M14_20191014\N1\5\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_2504_.mmap',
+                 r'E:\PhD\Data\DG\M14_20191014\N1\6\file_00006_els__d1_512_d2_512_d3_1_order_F_frames_4624_.mmap',
+                 r'E:\PhD\Data\DG\M14_20191014\N1\7\file_00007_els__d1_512_d2_512_d3_1_order_F_frames_6132_.mmap',
+                 r'E:\PhD\Data\DG\M14_20191014\N1\8\file_00008_els__d1_512_d2_512_d3_1_order_F_frames_2168_.mmap',
+                 r'E:\PhD\Data\DG\M14_20191014\N1\9\file_00009_els__d1_512_d2_512_d3_1_order_F_frames_1953_.mmap',
+                 r'E:\PhD\Data\DG\M14_20191014\N1\10\file_00010_els__d1_512_d2_512_d3_1_order_F_frames_2670_.mmap',
+                 r'E:\PhD\Data\DG\M14_20191014\N1\11\file_00011_els__d1_512_d2_512_d3_1_order_F_frames_3817_.mmap']
+
+    fname_new = r'E:\PhD\Data\DG\M14_20191014\N1\memmap__d1_512_d2_512_d3_1_order_C_frames_34939_.mmap'
 
     # memory map the file in order 'C'
-    fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C',
+    fname_new = cm.save_memmap(mmap_file, base_name='memmap_', order='C',
                                border_to_0=border_to_0)  # exclude borders
 
     # now load the file
     Yr, dims, T = cm.load_memmap(fname_new)
     images = np.reshape(Yr.T, [T] + list(dims), order='F')
     # load frames in python format (T x X x Y)
+
 
 #%% restart cluster to clean up memory
     cm.stop_server(dview=dview)
@@ -193,8 +204,8 @@ def main():
     rf = 50
     # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
     stride_cnmf = 20            # amount of overlap between the patches in pixels (20)
-    K = 5                      # number of components per patch (10)
-    gSig = [19, 18]             # expected half size of neurons in pixels (13,11)
+    K = 2                      # number of components per patch (10)
+    gSig = [20, 20]             # expected half size of neurons in pixels (13,11)
     # initialization method (if analyzing dendritic data using 'sparse_nmf')
     method_init = 'greedy_roi'
     ssub = 2                    # spatial subsampling during initialization
@@ -262,8 +273,8 @@ def main():
     #  cnm1.fit_file(motion_correct=True)
 
 #%% plot contours of found components
-    Cn3 = cm.local_correlations(images[1000:1200], swap_dim=False)
-    Cn2[np.isnan(Cn2)] = 0
+    Cn = cm.local_correlations(images, swap_dim=False)
+    Cn[np.isnan(Cn)] = 0
     cnm.estimates.plot_contours(img=Cn)
     plt.title('Contour plots of found components')
 
@@ -327,7 +338,7 @@ def main():
 
     dirname = fnames[0][:-4] + "_results.hdf5"
     cnm2.estimates.Cn = Cn
-    cnm2.save(dirname)
+    cnm2.save(r'E:\PhD\Data\DG\M14_20191014\N1\cnm_results.hdf5')
 
     #load results
     cnm2 = cnmf.load_CNMF(dirname)

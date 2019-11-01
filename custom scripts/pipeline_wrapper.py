@@ -16,7 +16,7 @@ folders have to be grouped in one folder per field of view. Several FOVs can be 
 # dataset dependent parameters
 fr = 30  # imaging rate in frames per second
 decay_time = 0.4  # length of a typical transient in seconds (0.4)
-dxy = (1, 1)  # spatial resolution in x and y in (um per pixel)
+dxy = (0.83, 0.76)  # spatial resolution in x and y in (um per pixel) [(1.66,1.52) for 1x, (0.83,0.76) for 2x]
 # note the lower than usual spatial resolution here
 max_shift_um = (20., 20.)  # maximum shift in um
 patch_motion_um = (40., 40.)  # patch size for non-rigid correction in um
@@ -57,7 +57,7 @@ opts = opts.change_params({'fnames': tif_list})
 motion_file = pipe.motion_correction(opts, remove_f_order=True)
 
 #%% Align behavioral data
-behavior.align_files(folder_list)
+behavior.align_files(folder_list, performance_check=True)
 
 #%% CaImAn source extraction
 

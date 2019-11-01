@@ -31,7 +31,8 @@ def set_file_paths():
     folder_list.sort(key=natural_keys)
     tif_list = glob(root_dir + r'/*/*.tif')  # list of tif movies, used by CaImAn
     tif_list.sort(key=natural_keys)
-
+    print(f'Found {len(tif_list)} files:')
+    t = [print(f'{file}\n') for file in tif_list]
     return root_dir, folder_list, tif_list
 
 
@@ -40,6 +41,10 @@ def motion_correction(params, remove_f_order=True):
     if remove_f_order:
         print('F-order files will be removed after processing.')
 
+    try:    #TODO: make it work in case a cluster is already set up
+        dview.terminate()
+    except NameError:
+        pass
     c, dview, n_processes = cm.cluster.setup_cluster(backend='local', n_processes=None, single_thread=False)
 
     # perform motion correction
