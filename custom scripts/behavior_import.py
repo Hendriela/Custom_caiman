@@ -1,5 +1,5 @@
 import numpy as np
-import glob
+from glob import glob
 from math import ceil, floor
 import sys
 import os
@@ -11,7 +11,7 @@ def load_file(path):
     :param path: directory
     :return: loaded file as np.array
     """
-    file_path = glob.glob(path)
+    file_path = glob(path)
     if len(file_path) < 1:
         raise Exception(f'No files found at {path}!')
     elif len(file_path) > 1:
@@ -41,6 +41,27 @@ def progress(count, total, status=''):
 # frame_list = [4837, 11174, 709, 3275, 2036, 6274, 7654, 1622, 5475]
 # 14 N1 frame_list = [900, 5927, 2430, 1814, 2504, 4624, 6132, 2168, 1953, 2670, 3817]  #todo remove hardcoding
 
+def align_multiple(root, performance_check=False):
+    """
+    Wrapper for aligning multiple behavioral files. Looks through all subfolders of root for behavioral files.
+    If it finds a folder with behavioral files but without merged_behavior.txt, it aligns them.
+    If the folder does not contain a .tif file (training without imaging), frame trigger is ignored.
+    :param root: string, path of the folder where files are searched
+    :param performance_check: boolean flag whether performance should be checked during alignment
+    :return: saves merged_behavior.txt for each aligned trial
+    """
+
+    for step in os.walk(root):
+        if len(step[2]) > 0:   # yes if there are files in the current folder
+            if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
+                if 'merged_behavior.txt' not in step[2]:  # check if the trial folder has already been processed
+                    if len(glob(step[0] + r'\\*.tif')) > 0:  # check if there is an imaging file for this trial
+                        if len(glob(step[0] + r'\\*.mmap')) != 0:    # check if the movie has already been motion corrected
+                            frame_count = int(glob(step[0] + r'\\*.mmap')[0].split('_')[-2])
+                            align_files(step[0], frame_count, performance_check=performance_check)
+            else:
+                print(f'No behavioral files in {step[0]}. Alignment not possible.')
+
 
 def align_files(folder_list, performance_check=False):
     """
@@ -48,8 +69,7 @@ def align_files(folder_list, performance_check=False):
     and aligns them according to the master time stamp provided by Lab View. Data are sampled at the rate of the data
     with the highest sampling rate (TDT, 2 kHz). Missing values of data with lower sampling rate are filled in based on
     their last available value.
-    :param folder_list: list of folders (one folder per trial) that include the three behavioral files as well as the
-                        memmap file acquired through CaImAn motion correction that includes the frame count in its name
+    :param root: folder that includes the three behavioral files
     :param performance_check: bool flag whether the performance should be analyzed (time per trial).
     :return: merged behavioral data saved as 'merged_behavior.txt' in the same folder
     #TODO: adapt so that it looks in multiple subfolders for all behavioral files that have not yet been aligned
