@@ -3,6 +3,7 @@ from glob import glob
 from math import ceil, floor
 import sys
 import os
+import re
 
 
 def load_file(path):
@@ -56,36 +57,49 @@ def align_multiple(root, performance_check=False):
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
                 if 'merged_behavior.txt' not in step[2]:  # check if the trial folder has already been processed
                     if len(glob(step[0] + r'\\*.tif')) > 0:  # check if there is an imaging file for this trial
-                        if len(glob(step[0] + r'\\*.mmap')) != 0:    # check if the movie has already been motion corrected
-                            frame_count = int(glob(step[0] + r'\\*.mmap')[0].split('_')[-2])
-                            align_files(step[0], frame_count, performance_check=performance_check)
+                        if len(glob(step[0] + r'\\*.mmap')) > 0:    # check if the movie has already been motion corrected
+                            print(f'Alignment of files in session {step[0][:-2]} with frame trigger')
+                            #align_files(step[0][:-2], imaging=True, performance_check=performance_check) #Todo: remove hard coding of above folder
+                        else:
+                            print(f'Motion correct .tif movie in {step[0]} before aligning behavioral files.')
+                    else:
+                        print(f'Alignment of files in session {step[0][:-2]} without frame trigger')
+                        # align_files(step[0][:-2], imaging=False, performance_check=performance_check)
             else:
                 print(f'No behavioral files in {step[0]}. Alignment not possible.')
 
 
-def align_files(folder_list, performance_check=False):
+def align_files(root, imaging=False, performance_check=False):
     """
     Takes the three behavioral .txt files (encoder, TCP (VR position) and TDT (licks + frame trigger)) and synchronizes
     and aligns them according to the master time stamp provided by Lab View. Data are sampled at the rate of the data
     with the highest sampling rate (TDT, 2 kHz). Missing values of data with lower sampling rate are filled in based on
     their last available value.
     :param root: folder that includes the three behavioral files
+    :param imaging: bool flag whether imaging was performed during the session. If yes, TDT frame trigger is compared
+                    with frame count of the movie to ensure one trigger signal per frame.
     :param performance_check: bool flag whether the performance should be analyzed (time per trial).
     :return: merged behavioral data saved as 'merged_behavior.txt' in the same folder
     #TODO: adapt so that it looks in multiple subfolders for all behavioral files that have not yet been aligned
     """
     counter = 1
 
+    def atoi(text):
+        return int(text) if text.isdigit() else text
+
+    def natural_keys(text):
+        return [atoi(c) for c in re.split('(\d+)', text)]
+
+    folder_list = glob(root+'/*/')  # find list of trial folders in root directory
+    folder_list.sort(key=natural_keys)
+
     if performance_check:
         trial_times = []
 
     for folder in folder_list:
         # get frame count of the current trial from memmap file name
-        if len(glob.glob(folder+'*.mmap')) != 0:
+        if imaging:
             frame_count = int(glob.glob(folder+'*.mmap')[0].split('_')[-2])
-        else:
-            print(f'No memmap files found at {folder}. Run motion correction before aligning behavioral data!')
-            break
 
         if performance_check:
             root = folder.split('\\')[0]
@@ -116,26 +130,27 @@ def align_files(folder_list, performance_check=False):
         trigger[:, 0] = [ceil(x * 100000) / 100000 for x in trigger[:, 0]]
         trigger = np.delete(trigger, 0, 0)
 
-        # re-arrange frame trigger signal (inverse, only take first trigger stamp)
-        trigger[:, 2] = np.invert(trigger[:, 2].astype('bool'))
-        trig_blocks = np.split(np.where(trigger[:, 2])[0], np.where(np.diff(np.where(trigger[:, 2])[0]) != 1)[0] + 1)
-        # remove artifact before VR start
-        trigger[trig_blocks[0], 2] = 0
-        # remove trigger duplicates
-        for block in trig_blocks[1:]:
-            trigger[block[1:], 2] = 0
-        # set actual first frame before the first recorded frame (first check if necessary)
-        if np.sum(trigger[:, 2]) - frame_count == 0:
-            print('Frame count matched, no correction necessary.')
-        elif np.sum(trigger[:, 2]) - frame_count <= -1:
-            missing_frames = int(np.sum(trigger[:, 2]) - frame_count)
-            if trig_blocks[1][0] - missing_frames*67 > 0:
-                trigger[trig_blocks[1][0] - missing_frames*67, 2] = 1
-                print(f'Imported frame count missed {int(abs(missing_frames))}, corrected.')
-            else:
-                print(f'{int(abs(missing_frames))} too few frames imported from TDT, could not be corrected.')
-        elif np.sum(trigger[:, 2]) - frame_count > 0:
-            print(f'{int(abs(np.sum(trigger[:, 2]) - frame_count))} too many frames imported from TDT, check files!')
+        if imaging:
+            # re-arrange frame trigger signal (inverse, only take first trigger stamp)
+            trigger[:, 2] = np.invert(trigger[:, 2].astype('bool'))
+            trig_blocks = np.split(np.where(trigger[:, 2])[0], np.where(np.diff(np.where(trigger[:, 2])[0]) != 1)[0] + 1)
+            # remove artifact before VR start
+            trigger[trig_blocks[0], 2] = 0
+            # remove trigger duplicates
+            for block in trig_blocks[1:]:
+                trigger[block[1:], 2] = 0
+            # set actual first frame before the first recorded frame (first check if necessary)
+            if np.sum(trigger[:, 2]) - frame_count == 0:
+                print('Frame count matched, no correction necessary.')
+            elif np.sum(trigger[:, 2]) - frame_count <= -1:
+                missing_frames = int(np.sum(trigger[:, 2]) - frame_count)
+                if trig_blocks[1][0] - missing_frames*67 > 0:
+                    trigger[trig_blocks[1][0] - missing_frames*67, 2] = 1
+                    print(f'Imported frame count missed {int(abs(missing_frames))}, corrected.')
+                else:
+                    print(f'{int(abs(missing_frames))} too few frames imported from TDT, could not be corrected.')
+            elif np.sum(trigger[:, 2]) - frame_count > 0:
+                print(f'{int(abs(np.sum(trigger[:, 2]) - frame_count))} too many frames imported from TDT, check files!')
 
 
         ### create the master time line, with one sample every 0.5 milliseconds
@@ -159,9 +174,11 @@ def align_files(folder_list, performance_check=False):
             else:
                 merge[i, 1] = last_pos      # if this time point does not have a value, fill in the last value
 
+            # look at adjacent time points, if they are less than 0.5 ms apart, take the maximum (1 if there was a frame during that time)
             if trigger[(merge[i, 0] <= trigger[:, 0]) & (trigger[:, 0] < merge[i + 1, 0]), 1].size:
                 merge[i, 2] = max(trigger[(merge[i, 0] <= trigger[:, 0]) & (trigger[:, 0] < merge[i + 1, 0]), 1])
-                merge[i, 3] = max(trigger[(merge[i, 0] <= trigger[:, 0]) & (trigger[:, 0] < merge[i + 1, 0]), 2])
+                if imaging: # not needed without imaging during this session
+                    merge[i, 3] = max(trigger[(merge[i, 0] <= trigger[:, 0]) & (trigger[:, 0] < merge[i + 1, 0]), 2])
             else:
                 merge[i, 2] = 0
                 merge[i, 3] = 0
@@ -174,10 +191,14 @@ def align_files(folder_list, performance_check=False):
             progress(i, merge.shape[0]-1, status='Aligning behavioral data...')
 
         # clean up file: remove redundant first time stamps, remove last time stamp, reset time stamps
-        merge = np.delete(merge, range(np.where(merge[:, 3] == 1)[0][0]), 0)
+        if imaging:
+            merge = np.delete(merge, range(np.where(merge[:, 3] == 1)[0][0]), 0)
         merge = np.delete(merge, merge.shape[0]-1, 0)
         merge[:, 0] = merge[:, 0] - merge[0, 0]
         merge[:, 0] = [floor(x * 100000) / 100000 for x in merge[:, 0]]
+
+        if not imaging:
+            merge[:, 3] = 0
 
         if performance_check:
             print(f'Trial {counter} was {merge[-1, 0]} s long.')
