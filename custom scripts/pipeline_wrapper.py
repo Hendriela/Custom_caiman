@@ -58,7 +58,7 @@ motion_file = pipe.motion_correction(opts, remove_f_order=True)
 
 #%% Align behavioral data
 #behavior.align_files(folder_list, performance_check=True)
-behavior.align_multiple(root, performance_check=True)
+behavior.align_behavior(root, performance_check=True)
 
 #%% CaImAn source extraction
 

@@ -67,7 +67,7 @@ def main():
 
 #%% Select file(s) to be processed (download if not present)
     root = '/Users/hheiser/Desktop/testing data/chronic_M2N3/0d_baseline/channel1'
-
+    fnames = [r'E:\PhD\Data\FluoCheck_20191029\M19\N2_X490_Y616_Z79.tif']
 """
     fnames = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00011.tif',
               r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif',
@@ -183,7 +183,7 @@ def main():
     fname_new = r'E:\PhD\Data\DG\M14_20191014\N1\memmap__d1_512_d2_512_d3_1_order_C_frames_34939_.mmap'
 
     # memory map the file in order 'C'
-    fname_new = cm.save_memmap(mmap_file, base_name='memmap_', order='C',
+    fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C',
                                border_to_0=border_to_0)  # exclude borders
 
     # now load the file
@@ -200,12 +200,12 @@ def main():
 #%%  parameters for source extraction and deconvolution
     p = 1                       # order of the autoregressive system
     gnb = 3                     # number of global background components (3)
-    merge_thr = 0.86            # merging threshold, max correlation allowed (0.86)
-    rf = 50
+    merge_thr = 0.70            # merging threshold, max correlation allowed (0.86)
+    rf = 25
     # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
-    stride_cnmf = 20            # amount of overlap between the patches in pixels (20)
-    K = 2                      # number of components per patch (10)
-    gSig = [20, 20]             # expected half size of neurons in pixels (13,11)
+    stride_cnmf = 10            # amount of overlap between the patches in pixels (20)
+    K = 20                      # number of components per patch (10)
+    gSig = [13, 11]             # expected half size of neurons in pixels (13,11)
     # initialization method (if analyzing dendritic data using 'sparse_nmf')
     method_init = 'greedy_roi'
     ssub = 2                    # spatial subsampling during initialization
@@ -290,8 +290,8 @@ def main():
     min_SNR = 6  # signal to noise ratio for accepting a component (default 2)
     SNR_lowest = 3
     rval_thr = 0.7 # space correlation threshold for accepting a component (default 0.85)
-    cnn_thr = 0.99  # threshold for CNN based classifier (default 0.99)
-    cnn_lowest = 0.1 # neurons with cnn probability lower than this value are rejected (default 0.1)
+    cnn_thr = 0.4  # threshold for CNN based classifier (default 0.99)
+    cnn_lowest = 0.01 # neurons with cnn probability lower than this value are rejected (default 0.1)
 
     cnm2.params.set('quality', {'decay_time': decay_time,
                                'SNR_lowest': SNR_lowest,

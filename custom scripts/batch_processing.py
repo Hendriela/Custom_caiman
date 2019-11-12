@@ -60,22 +60,11 @@ opts.change_params({'n_processes': n_processes, 'fnames': fnames})
 
 #%% manually set parameters
 
-root = r'E:\PhD\Data\CA1\Maus 3 13.08.2019'
-manual_files = True
+root = r'E:\PhD\Data\FluoCheck_20191029\M19'
+manual_files = False
 
 if manual_files:
-    movie_list = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00011.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00013.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00014.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00015.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00016.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00017.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00018.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00019.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00020.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00021.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00022.tif']
+    movie_list = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\N1_XYZ0.tif',]
 else:
     movie_list = glob.glob(root+r'\*.tif')
 
