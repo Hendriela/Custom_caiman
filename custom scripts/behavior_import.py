@@ -4,6 +4,7 @@ from math import ceil, floor
 import sys
 import os
 import re
+from timeit import default_timer as timer
 
 
 def load_file(path):
@@ -119,20 +120,21 @@ def align_nonfolder_files(root, performance_check=True):
         print(f'\nNow processing trial {counter} of {len(enc_files)}, time stamp {timestamp}...')
         merge = align_behavior_files(file, pos_file, trig_file, imaging=False)
 
-        # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
-        file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
-        np.savetxt(file_path, merge, delimiter='\t',
-                   fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
-        print(f'Done! \nSaving merged file to {file_path}...')
+        if merge is not None:
+            # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
+            file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
+            np.savetxt(file_path, merge, delimiter='\t',
+                       fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
+            print(f'Done! \nSaving merged file to {file_path}...')
 
-        if performance_check:
-            print(f'Trial {counter} was {merge[-1, 0]} s long.')
-            trial_times.append(merge[-1, 0])
+            if performance_check:
+                print(f'Trial {counter} was {merge[-1, 0]} s long.')
+                trial_times.append(merge[-1, 0])
 
-            with open(save_file, 'a') as text_file:
-                out = text_file.write(f'Trial {counter} length: {merge[-1, 0]} s\n')
+                with open(save_file, 'a') as text_file:
+                    out = text_file.write(f'Trial {counter} length: {merge[-1, 0]} s\n')
 
-        counter += 1
+            counter += 1
 
     if performance_check:
         print(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
@@ -222,6 +224,10 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     position = load_file(pos_path)
     trigger = load_file(trig_path)
 
+    if max(position[-3,1]) < 110:
+        print('Trial incomplete, please remove file!')
+        return
+
     # determine the earliest time stamp in the logs as a starting point for the master time line
     earliest_time = min(encoder[0, 0], position[0, 0], trigger[0, 0])
     # get the offsets of every file in milliseconds
@@ -276,6 +282,9 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     # if precise time stamp does not have data, fill in the value of the most recent available time
     last_pos = -10
     last_enc = 0
+
+    start = timer()
+
     for i in range(merge.shape[0] - 1):
         if position[merge[i, 0] == position[:, 0], 1].size:  # check if position has the current time stamp
             merge[i, 1] = position[merge[i, 0] == position[:, 0], 1][0]  # if yes, fill it in
@@ -296,8 +305,14 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
             last_enc = merge[i, 4]
         else:
             merge[i, 4] = last_enc
-        progress(i, merge.shape[0] - 1, status='Aligning behavioral data...')
 
+        if i == 0:
+            end = timer()
+            est_time = (merge.shape[0] - 1) * end-start
+            print("Estimated processing time for this trial: {0:.2f}".format(est_time))
+        progress(i, merge.shape[0] - 1, status='Aligning behavioral data...')
+    end = timer()
+    print('Actual processing time for this trial: {0:.2f}'.format(end-start))
     # clean up file: remove redundant first time stamps, remove last time stamp, reset time stamps
     if imaging:
         merge = np.delete(merge, range(np.where(merge[:, 3] == 1)[0][0]), 0)
