@@ -132,7 +132,7 @@ def align_nonfolder_files(root, performance_check=True):
                 trial_times.append(merge[-1, 0])
 
                 with open(save_file, 'a') as text_file:
-                    out = text_file.write(f'Trial {counter} length: {merge[-1, 0]} s\n')
+                    out = text_file.write(f'{int(merge[-1, 0])} \n')
 
             counter += 1
 
@@ -140,10 +140,11 @@ def align_nonfolder_files(root, performance_check=True):
         print(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
               f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
               f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
-        with open(save_file, 'a') as f:
-            out = f.write(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
-                          f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
-                          f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
+
+        #with open(save_file, 'a') as f:
+        #    out = f.write(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
+        #                  f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
+        #                  f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
 
 
 def align_folder_files(root, performance_check=True):
@@ -223,11 +224,11 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     encoder = load_file(enc_path)
     position = load_file(pos_path)
     trigger = load_file(trig_path)
-
-    if max(position[-3,1]) < 110:
+    """
+    if max(position[:, 1]) < 110:
         print('Trial incomplete, please remove file!')
         return
-
+    """
     # determine the earliest time stamp in the logs as a starting point for the master time line
     earliest_time = min(encoder[0, 0], position[0, 0], trigger[0, 0])
     # get the offsets of every file in milliseconds
@@ -280,39 +281,116 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
 
     # go through data and order it into the correct time bin by looking for the time stamp of merge in the other arrays
     # if precise time stamp does not have data, fill in the value of the most recent available time
-    last_pos = -10
-    last_enc = 0
 
     start = timer()
-
     for i in range(merge.shape[0] - 1):
+        # first initialization of sliding range windows that avoid repetitive indexing
+        if i == 0:
+            old_pos = 3
+            new_pos = 3
+            last_pos = -10
+            curr_pos_range = position[new_pos - 3:new_pos + 3, :].copy()
+            old_enc = 3
+            new_enc = 3
+            last_enc = 0
+            curr_enc_range = encoder[new_enc - 3:new_enc + 3, :].copy()
+            old_trig = 3
+            new_trig = 3
+            curr_trig_range = trigger[new_trig - 3:new_trig + 3, :].copy()
+
+        curr_merge = merge[[i, i+1]].copy()     # save the current merge 0.5 ms window to avoid repetitive indexing
+        #### look for correct position time step ###
+        # if position window has to be updated, re-select the current range of position values
+        if new_pos != old_pos:
+            if new_pos+3 < position.shape[0]:
+                curr_pos_range = position[new_pos-3:new_pos+3, :].copy()
+            else:
+                curr_pos_range = position[new_pos-3:, :].copy()
+        old_pos = new_pos        # update old position index to the current one
+
+        # get the index of the current time stamp
+        curr_idx = np.where(curr_merge[0, 0] == curr_pos_range[:, 0])[0]
+        # if there is a matching time stamp, put the corresponding value into the merge slice
+        if curr_idx.size:
+            curr_merge[0, 1] = curr_pos_range[curr_idx, 1].copy()   # enter the position value into the merge slice
+            last_pos = curr_pos_range[curr_idx, 1].copy()           # update the last known position value
+            new_pos += 1                                            # move sliding window
+        # else, put in the last known position value
+        else:
+            curr_merge[0, 1] = last_pos
+        """
         if position[merge[i, 0] == position[:, 0], 1].size:  # check if position has the current time stamp
             merge[i, 1] = position[merge[i, 0] == position[:, 0], 1][0]  # if yes, fill it in
             last_pos = merge[i, 1]  # update the last available position value
         else:
             merge[i, 1] = last_pos  # if this time point does not have a value, fill in the last value
+        """
 
+        #### look for correct encoder time step ###
+        # if encoder window has to be updated, re-select the current range of encoder values
+
+        if new_enc != old_enc:
+            if new_enc+3 < encoder.shape[0]:
+                curr_enc_range = encoder[new_enc-3:new_enc+3, :].copy()
+            else:
+                curr_enc_range = encoder[new_enc-3:, :].copy()
+        old_enc = new_enc        # update old encoder index to the current one
+
+        # get the index of the current time stamp
+        curr_idx = np.where(curr_merge[0, 0] == curr_enc_range[:, 0])[0]
+        # if there is a matching time stamp, put the corresponding value into the merge slice
+        if curr_idx.size:
+            curr_merge[0, 4] = curr_enc_range[curr_idx[0], 1].copy()   # enter the encoder value into the merge slice
+            last_enc = curr_enc_range[curr_idx[0], 1].copy()           # update the last known encoder value
+            new_enc += 1                                            # move sliding window
+        # else, put in the last known encoder value
+        else:
+            curr_merge[0, 4] = last_enc
+        """
+        if encoder[merge[i, 0] == encoder[:, 0], 1].size:
+            merge[i, 4] = encoder[merge[i, 0] == encoder[:, 0], 1][0]
+            last_enc = merge[i, 4]
+        else:
+            merge[i, 4] = last_enc
+        
+        """
+        #### look for correct trigger time step ###
         # look at adjacent time points, if they are less than 0.5 ms apart, take the maximum (1 if there was a frame during that time)
+        # check if the sliding window moved and it has to be updated
+        if new_trig != old_trig:
+            if new_trig+3 < trigger.shape[0]:
+                curr_trig_range = trigger[new_trig-3:new_trig+3, :].copy()
+            else:
+                curr_trig_range = trigger[new_trig-3:, :].copy()
+        old_trig = new_trig        # update old trigger index to the current one
+
+        # check if the current sliding window has time stamps between the current merge time stamps
+        curr_idx = np.where((curr_merge[0, 0] <= curr_trig_range[:, 0]) & (curr_trig_range[:, 0] < curr_merge[1, 0]))[0]
+
+
+        if curr_idx.size:
+            curr_merge[0, 2] = max(curr_trig_range[curr_idx, 1])
+            curr_merge[0, 3] = max(curr_trig_range[curr_idx, 2])
+            new_trig = new_trig + curr_idx.size
+        else:
+            curr_merge[0, 2] = 0
+            curr_merge[0, 3] = 0
+        """
         if trigger[(merge[i, 0] <= trigger[:, 0]) & (trigger[:, 0] < merge[i + 1, 0]), 1].size:
             merge[i, 2] = max(trigger[(merge[i, 0] <= trigger[:, 0]) & (trigger[:, 0] < merge[i + 1, 0]), 1])
             merge[i, 3] = max(trigger[(merge[i, 0] <= trigger[:, 0]) & (trigger[:, 0] < merge[i + 1, 0]), 2])
         else:
             merge[i, 2] = 0
             merge[i, 3] = 0
+        """
 
-        if encoder[merge[i, 0] == encoder[:, 0], 1].size:
-            merge[i, 4] = encoder[merge[i, 0] == encoder[:, 0], 1][0]
-            last_enc = merge[i, 4]
-        else:
-            merge[i, 4] = last_enc
-
-        if i == 0:
-            end = timer()
-            est_time = (merge.shape[0] - 1) * end-start
-            print("Estimated processing time for this trial: {0:.2f}".format(est_time))
+        # put the aligned data back into the main merge array
+        merge[i] = curr_merge[0].copy()
         progress(i, merge.shape[0] - 1, status='Aligning behavioral data...')
+
     end = timer()
-    print('Actual processing time for this trial: {0:.2f}'.format(end-start))
+    print('Actual processing time for this trial: {0:.2f} s'.format(end-start))
+
     # clean up file: remove redundant first time stamps, remove last time stamp, reset time stamps
     if imaging:
         merge = np.delete(merge, range(np.where(merge[:, 3] == 1)[0][0]), 0)
