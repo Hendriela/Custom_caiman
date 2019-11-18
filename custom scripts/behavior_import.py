@@ -118,9 +118,9 @@ def align_nonfolder_files(root, performance_check=True):
             return
 
         print(f'\nNow processing trial {counter} of {len(enc_files)}, time stamp {timestamp}...')
-        merge = align_behavior_files(file, pos_file, trig_file, imaging=False)
+        merge, proc_time = align_behavior_files(file, pos_file, trig_file, imaging=False)
 
-        if merge is not None:
+        if merge is not None and proc_time is not None:
             # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
             file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
             np.savetxt(file_path, merge, delimiter='\t',
@@ -133,6 +133,9 @@ def align_nonfolder_files(root, performance_check=True):
 
                 with open(save_file, 'a') as text_file:
                     out = text_file.write(f'{int(merge[-1, 0])} \n')
+
+                with open(r'E:\PhD\Data\alignment timing test\alignment_timing_test_new.txt', 'a') as timing_file:
+                    out = timing_file.write(f'\n{int(merge[-1, 0])}\t{int(merge.shape[0])}\t{proc_time}')
 
             counter += 1
 
@@ -224,11 +227,11 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     encoder = load_file(enc_path)
     position = load_file(pos_path)
     trigger = load_file(trig_path)
-    """
+
     if max(position[:, 1]) < 110:
         print('Trial incomplete, please remove file!')
-        return
-    """
+        return None, None
+
     # determine the earliest time stamp in the logs as a starting point for the master time line
     earliest_time = min(encoder[0, 0], position[0, 0], trigger[0, 0])
     # get the offsets of every file in milliseconds
@@ -398,7 +401,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     merge[:, 0] = merge[:, 0] - merge[0, 0]
     merge[:, 0] = [floor(x * 100000) / 100000 for x in merge[:, 0]]
 
-    return merge
+    return merge, (end-start)
 
 #%%
 
