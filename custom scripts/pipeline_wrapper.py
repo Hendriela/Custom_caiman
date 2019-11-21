@@ -16,10 +16,10 @@ folders have to be grouped in one folder per field of view. Several FOVs can be 
 # dataset dependent parameters
 fr = 30  # imaging rate in frames per second
 decay_time = 0.4  # length of a typical transient in seconds (0.4)
-dxy = (0.83, 0.76)  # spatial resolution in x and y in (um per pixel) [(1.66,1.52) for 1x, (0.83,0.76) for 2x]
+dxy = (1.66, 1.52)  # spatial resolution in x and y in (um per pixel) [(1.66,1.52) for 1x, (0.83,0.76) for 2x]
 # note the lower than usual spatial resolution here
-max_shift_um = (20., 20.)  # maximum shift in um
-patch_motion_um = (40., 40.)  # patch size for non-rigid correction in um
+max_shift_um = (50., 50.)  # maximum shift in um
+patch_motion_um = (100., 100.)  # patch size for non-rigid correction in um
 
 # motion correction parameters
 pw_rigid = True  # flag to select rigid vs pw_rigid motion correction
@@ -50,11 +50,10 @@ opts = cnmf.params.CNMFParams(params_dict=mc_dict)
 
 #%% Set working directory
 
-root, folder_list, tif_list = pipe.set_file_paths()
-opts = opts.change_params({'fnames': tif_list})
+root = pipe.set_file_paths()
 
 #%% Perform motion correction
-motion_file = pipe.motion_correction(opts, remove_f_order=True)
+motion_file = pipe.motion_correction(root, opts, remove_f_order=True)
 
 #%% Align behavioral data
 #behavior.align_files(folder_list, performance_check=True)
