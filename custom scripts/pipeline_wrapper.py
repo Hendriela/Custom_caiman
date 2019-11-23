@@ -53,7 +53,21 @@ opts = cnmf.params.CNMFParams(params_dict=mc_dict)
 root = pipe.set_file_paths()
 
 #%% Perform motion correction
-motion_file = pipe.motion_correction(root, opts, remove_f_order=True)
+roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191120',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191121b',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191122a',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191123a',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191119a',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191120',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191122a',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191123a']
+
+for root in roots:
+    if root == r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191119a':
+        opts.change_params({'dxy': (0.83, 0.76)})
+    motion_file = pipe.motion_correction(root, opts, remove_f_order=True)
 
 #%% Align behavioral data
 #behavior.align_files(folder_list, performance_check=True)

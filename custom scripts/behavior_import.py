@@ -53,9 +53,9 @@ def align_behavior(root, performance_check=True):
     """
 
     for step in os.walk(root):
-        if len(step[2]) > 0:   # yes if there are files in the current folder
+        if len(step[2]) > 0:   # check if there are files in the current folder
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
-                if len(glob(step[0] + r'\\merged*.txt')) == 0:  # check if the trial folder has already been processed
+                if len(glob(step[0] + r'\\merged*.txt')) == 0:  # check if the trial folder not yet been processed
                     if len(glob(step[0] + r'\\*.tif')) > 0:  # check if there is an imaging file for this trial
                         if len(glob(step[0] + r'\\*.mmap')) > 0:    # check if the movie has already been motion corrected
                             align_folder_files(step[0][:-2], performance_check=performance_check) #Todo: remove hard coding of above folder
@@ -66,7 +66,7 @@ def align_behavior(root, performance_check=True):
                 else:
                     print(f'\nSession {step[0]} already processed.')
             else:
-                print(f'\nNo behavioral files in {step[0]}. Alignment not possible.')
+                print(f'\nNo behavioral files in {step[0]}.')
 
 
 def align_nonfolder_files(root, performance_check=True):
@@ -104,9 +104,9 @@ def align_nonfolder_files(root, performance_check=True):
 
     if performance_check:
         trial_times = []
-        save_file = os.path.join(root, r'Performance.txt')
+        save_file = os.path.join(root, r'trial_duration.txt')
         with open(save_file, 'w') as f:
-            out = f.write(f'Performance of session {root}:\n')
+            out = f.write(f'Trial durations of session {root}:\n')
 
     counter = 1
 
@@ -128,21 +128,21 @@ def align_nonfolder_files(root, performance_check=True):
             print(f'Done! \nSaving merged file to {file_path}...')
 
             if performance_check:
-                print(f'Trial {counter} was {merge[-1, 0]} s long.')
+                # print(f'Trial {counter} was {merge[-1, 0]} s long.')
                 trial_times.append(merge[-1, 0])
 
                 with open(save_file, 'a') as text_file:
                     out = text_file.write(f'{int(merge[-1, 0])} \n')
 
-                with open(r'E:\PhD\Data\alignment timing test\alignment_timing_test_new.txt', 'a') as timing_file:
-                    out = timing_file.write(f'\n{int(merge[-1, 0])}\t{int(merge.shape[0])}\t{proc_time}')
+                # with open(r'E:\PhD\Data\alignment timing test\alignment_timing_test_new.txt', 'a') as timing_file:
+                #     out = timing_file.write(f'\n{int(merge[-1, 0])}\t{int(merge.shape[0])}\t{proc_time}')
 
             counter += 1
 
-    if performance_check:
-        print(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
-              f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
-              f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
+    # if performance_check:
+    #    print(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
+    #          f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
+    #          f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
 
         #with open(save_file, 'a') as f:
         #    out = f.write(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
@@ -170,16 +170,16 @@ def align_folder_files(root, performance_check=True):
 
     if performance_check:
         trial_times = []
-        save_file = os.path.join(root, r'Performance.txt')
+        save_file = os.path.join(root, r'trial_duration.txt')
         with open(save_file, 'w') as f:
-            out = f.write('Performance for the current session:')
+            out = f.write(f'Trial duration of session {root}:')
 
     print(f'\nStart processing session {root}...')
     for folder in folder_list:
         # get frame count of the current trial from memmap file name
         frame_count = int(glob.glob(folder+'*.mmap')[0].split('_')[-2])
 
-        print(f'\nNow processing trial {counter} of {len(folder_list)}: Folder {folder}...')
+        #print(f'\nNow processing trial {counter} of {len(folder_list)}: Folder {folder}...')
         # load the three files (encoder (running speed), TCP (VR position) and TDT (licking + frame trigger))
         encoder = os.path.join(folder, r'Encoder*.txt')
         position = os.path.join(folder, r'TCP*.txt')
@@ -194,22 +194,22 @@ def align_folder_files(root, performance_check=True):
         print(f'Done! \nSaving merged file to {file_path}...')
 
         if performance_check:
-            print(f'Trial {counter} was {merge[-1, 0]} s long.')
+            # print(f'Trial {counter} was {merge[-1, 0]} s long.')
             trial_times.append(merge[-1, 0])
 
             with open(save_file, 'a') as text_file:
-                out = text_file.write(f'Trial {counter} was {merge[-1, 0]} s long.')
+                out = text_file.write(f'{int(merge[-1, 0])} \n')
 
         counter += 1
 
-    if performance_check:
+        """    if performance_check:
         print(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
               f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
               f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
         with open(save_file, 'a') as f:
             out = f.write(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
                           f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
-                          f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
+                          f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')"""
 
 
 def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_count=None):
@@ -403,5 +403,4 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
 
     return merge, (end-start)
 
-#%%
 
