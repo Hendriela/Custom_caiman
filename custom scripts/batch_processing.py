@@ -29,6 +29,7 @@ try:
         get_ipython().magic('autoreload 2')
 except NameError:
     pass
+
 #%% load parameters from a previous analysis
 root = r'E:\PhD\Data\CA1\Maus 3 13.08.2019'
 file_name = r'file_00011'

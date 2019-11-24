@@ -177,7 +177,7 @@ def align_folder_files(root, performance_check=True):
     print(f'\nStart processing session {root}...')
     for folder in folder_list:
         # get frame count of the current trial from memmap file name
-        frame_count = int(glob.glob(folder+'*.mmap')[0].split('_')[-2])
+        frame_count = int(glob(folder+'*.mmap')[0].split('_')[-2])
 
         #print(f'\nNow processing trial {counter} of {len(folder_list)}: Folder {folder}...')
         # load the three files (encoder (running speed), TCP (VR position) and TDT (licking + frame trigger))
