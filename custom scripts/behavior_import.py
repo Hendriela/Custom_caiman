@@ -58,7 +58,8 @@ def align_behavior(root, performance_check=True):
                 if len(glob(step[0] + r'\\merged*.txt')) == 0:  # check if the trial folder not yet been processed
                     if len(glob(step[0] + r'\\*.tif')) > 0:  # check if there is an imaging file for this trial
                         if len(glob(step[0] + r'\\*.mmap')) > 0:    # check if the movie has already been motion corrected
-                            align_folder_files(step[0][:-2], performance_check=performance_check) #Todo: remove hard coding of above folder
+                            #align_folder_files(step[0][:-2], performance_check=performance_check) #Todo: FIX
+                            pass
                         else:
                             print(f'\nMotion correct .tif movie in {step[0]} before aligning behavioral files.')
                     else:
