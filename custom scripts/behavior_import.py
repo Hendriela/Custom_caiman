@@ -40,7 +40,7 @@ def progress(count, total, status=''):
     sys.stdout.flush()
 
 
-def align_behavior(root, performance_check=True):
+def align_behavior(root, performance_check=True, overwrite=False, verbose=False):
     """
     This function is the main function called by pipelines!
     Wrapper for aligning multiple behavioral files. Looks through all subfolders of root for behavioral files.
@@ -49,32 +49,44 @@ def align_behavior(root, performance_check=True):
     Calls either align_nonfolder_files in case of training data or align_folder_files for combined imaging data
     :param root: string, path of the folder where files are searched
     :param performance_check: boolean flag whether performance should be checked during alignment
+    :param overwrite: bool flag whether trials that have been already processed should be aligned again (useful if the
+                    alignment script changed and data has to be re-aligned
+    :param verbose: bool flag whether unnecessary status updates should be printed to the console
     :return: saves merged_behavior.txt for each aligned trial
     """
+
+    processed_sessions = []
 
     for step in os.walk(root):
         if len(step[2]) > 0:   # check if there are files in the current folder
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
-                if len(glob(step[0] + r'\\merged*.txt')) == 0:  # check if the trial folder not yet been processed
+                if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:  # check if the trial folder not yet been processed
                     if len(glob(step[0] + r'\\*.tif')) > 0:  # check if there is an imaging file for this trial
                         if len(glob(step[0] + r'\\*.mmap')) > 0:    # check if the movie has already been motion corrected
-                            #align_folder_files(step[0][:-2], performance_check=performance_check) #Todo: FIX
+                            if step[0][:-2] not in processed_sessions:
+                                align_folder_files(step[0][:-2], performance_check=performance_check, verbose=verbose)
+                                processed_sessions.append(step[0][:-2])
                             pass
                         else:
                             print(f'\nMotion correct .tif movie in {step[0]} before aligning behavioral files.')
                     else:
-                        align_nonfolder_files(step[0], performance_check=performance_check)
+                        align_nonfolder_files(step[0], performance_check=performance_check, verbose=verbose)
+                elif len(glob(step[0] + r'\\merged*.txt')) < len(glob(step[0] + r'\\Encoder*.txt')):
+                    print(f'\nSession {step[0]} has been processed incompletely, remove files and start again!')
                 else:
-                    print(f'\nSession {step[0]} already processed.')
+                    if verbose:
+                        print(f'\nSession {step[0]} already processed.')
             else:
-                print(f'\nNo behavioral files in {step[0]}.')
+                if verbose:
+                    print(f'No behavioral files in {step[0]}.')
 
 
-def align_nonfolder_files(root, performance_check=True):
+def align_nonfolder_files(root, performance_check=True, verbose=False):
     """
     Wrapper for sessions with non-imaging data structure (one folder per session, trials not separated by folders).
     :param root: str, path to the session folder (includes unsorted behavioral .txt files)
     :param performance_check: boolean flag whether performance should be checked during alignment
+    :param verbose: boolean flag whether unnecessary status updates should be printed to the console
     :return: saves merged_behavior_timestamp.txt for each aligned trial
     """
 
@@ -95,7 +107,7 @@ def align_nonfolder_files(root, performance_check=True):
     print(f'\nStart processing session {root}...')
     enc_files = glob(root + r'\\Encoder*.txt')
     pos_files = glob(root + r'\\TCP*.txt')
-    trig_files = glob(root + r'\\TDT*.txt')
+    trig_files = glob(root + r'\\TDT TASK*.txt')
 
     if len(enc_files) == len(pos_files) & len(enc_files) == len(trig_files):
         pass
@@ -117,16 +129,17 @@ def align_nonfolder_files(root, performance_check=True):
         trig_file = find_file(timestamp, trig_files)
         if pos_file is None or trig_file is None:
             return
-
-        print(f'\nNow processing trial {counter} of {len(enc_files)}, time stamp {timestamp}...')
-        merge, proc_time = align_behavior_files(file, pos_file, trig_file, imaging=False)
+        if verbose:
+            print(f'\nNow processing trial {counter} of {len(enc_files)}, time stamp {timestamp}...')
+        merge, proc_time = align_behavior_files(file, pos_file, trig_file, imaging=False, verbose=verbose)
 
         if merge is not None and proc_time is not None:
             # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
             file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
             np.savetxt(file_path, merge, delimiter='\t',
                        fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
-            print(f'Done! \nSaving merged file to {file_path}...')
+            if verbose:
+                print(f'Done! \nSaving merged file to {file_path}...\n')
 
             if performance_check:
                 # print(f'Trial {counter} was {merge[-1, 0]} s long.')
@@ -134,31 +147,19 @@ def align_nonfolder_files(root, performance_check=True):
 
                 with open(save_file, 'a') as text_file:
                     out = text_file.write(f'{int(merge[-1, 0])} \n')
+        else:
+            print(f'Skipped trial {file}, please check!')
 
-                # with open(r'E:\PhD\Data\alignment timing test\alignment_timing_test_new.txt', 'a') as timing_file:
-                #     out = timing_file.write(f'\n{int(merge[-1, 0])}\t{int(merge.shape[0])}\t{proc_time}')
-
-            counter += 1
-
-    # if performance_check:
-    #    print(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
-    #          f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
-    #          f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
-
-        #with open(save_file, 'a') as f:
-        #    out = f.write(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
-        #                  f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
-        #                  f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
+        counter += 1
 
 
-def align_folder_files(root, performance_check=True):
+def align_folder_files(root, performance_check=True, verbose=False):
     """
     Wrapper for sessions with imaging data structure (one folder per session that includes one folder per trial).
     :param root: str, path to the session folder (includes folders of individual trials)
     :param performance_check: boolean flag whether performance should be checked during alignment
     :return: saves merged_behavior.txt for each aligned trial
     """
-    counter = 1
 
     def atoi(text):
         return int(text) if text.isdigit() else text
@@ -180,40 +181,34 @@ def align_folder_files(root, performance_check=True):
         # get frame count of the current trial from memmap file name
         frame_count = int(glob(folder+'*.mmap')[0].split('_')[-2])
 
-        #print(f'\nNow processing trial {counter} of {len(folder_list)}: Folder {folder}...')
         # load the three files (encoder (running speed), TCP (VR position) and TDT (licking + frame trigger))
         encoder = os.path.join(folder, r'Encoder*.txt')
         position = os.path.join(folder, r'TCP*.txt')
         trigger = os.path.join(folder, r'TDT*.txt')
 
-        merge = align_behavior_files(encoder, position, trigger, imaging=True, frame_count=frame_count)
+        merge, proc_time = align_behavior_files(encoder, position, trigger,
+                                                imaging=True, frame_count=frame_count, verbose=verbose)
 
-        # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
-        file_path = os.path.join(folder, r'merged_behavior.txt')
-        np.savetxt(file_path, merge, delimiter='\t',
-                   fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
-        print(f'Done! \nSaving merged file to {file_path}...')
+        if merge is not None and proc_time is not None:
+            # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
+            file_path = os.path.join(folder, r'merged_behavior.txt')
+            np.savetxt(file_path, merge, delimiter='\t',
+                       fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
+            if verbose:
+                print(f'Done! \nSaving merged file to {file_path}...')
 
-        if performance_check:
-            # print(f'Trial {counter} was {merge[-1, 0]} s long.')
-            trial_times.append(merge[-1, 0])
+            if performance_check:
+                # print(f'Trial {counter} was {merge[-1, 0]} s long.')
+                trial_times.append(merge[-1, 0])
 
-            with open(save_file, 'a') as text_file:
-                out = text_file.write(f'{int(merge[-1, 0])} \n')
+                with open(save_file, 'a') as text_file:
+                    out = text_file.write(f'{int(merge[-1, 0])} \n')
 
-        counter += 1
-
-        """    if performance_check:
-        print(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
-              f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
-              f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')
-        with open(save_file, 'a') as f:
-            out = f.write(f'\nPerformance parameters:\nAverage trial time: {np.mean(trial_times)}s'
-                          f'\nFastest trial: {np.min(trial_times)}s (trial {np.argmin(trial_times)+1})'
-                          f'\nLongest trial: {np.max(trial_times)}s (trial {np.argmax(trial_times)+1})')"""
+        else:
+            print(f'Skipped trial {folder}, please check!')
 
 
-def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_count=None):
+def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_count=None, verbose=False):
     """
     Main function that aligns behavioral data from three text files to a common master time frame provided by LabView.
     Data are re-sampled at the rate of the data type with the highest sampling rate (TDT, 2 kHz). Missing values of data
@@ -223,6 +218,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     :param trig_path: str, path to the TDT.txt file (licking and frame trigger)
     :param imaging: bool flag whether the behavioral data is accompanied by an imaging movie
     :param frame_count: int, frame count of the potential imaging movie
+    :param verbose: bool flag whether status updates should be printed into the console (progress bar not affected)
     :return: merge, np.array with columns [time stamp - position - licks - frame - encoder]
     """
     encoder = load_file(enc_path)
@@ -245,32 +241,38 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     encoder = np.delete(encoder, 0, 0)
     position[:, 0] = position[:, 0] + offsets[1]
     position[:, 0] = [ceil(x * 1000) / 1000 for x in position[:, 0]]
-    position = np.delete(position, [0, 1, position.shape[0] - 1], 0)
+    pos_to_be_del = np.append([0, 1], np.arange(np.argmax(position[:, 1])+1, position.shape[0]))
+    position = np.delete(position, pos_to_be_del, 0)
     trigger[:, 0] = trigger[:, 0] + offsets[2]
     trigger[:, 0] = [ceil(x * 100000) / 100000 for x in trigger[:, 0]]
     trigger = np.delete(trigger, 0, 0)
 
     if imaging:
-        # re-arrange frame trigger signal (inverse, only take first trigger stamp)
-        trigger[:, 2] = np.invert(trigger[:, 2].astype('bool'))
+        ### process frame trigger signal
+        # get a list of indices for every time stamp a frame was acquired
         trig_blocks = np.split(np.where(trigger[:, 2])[0], np.where(np.diff(np.where(trigger[:, 2])[0]) != 1)[0] + 1)
-        # remove artifact before VR start
-        trigger[trig_blocks[0], 2] = 0
-        # remove trigger duplicates
-        for block in trig_blocks[1:]:
-            trigger[block[1:], 2] = 0
+        # take the middle of each frame acquisition as the unique time stamp of that frame
+        for block in trig_blocks:
+            trigger[block, 2] = 0  # set the whole period to 0
+            trigger[int(round(np.mean(block))), 2] = 1
         # set actual first frame before the first recorded frame (first check if necessary)
-        if np.sum(trigger[:, 2]) - frame_count == 0:
+        if np.sum(trigger[:, 2]) - frame_count == 0 and verbose:
             print('Frame count matched, no correction necessary.')
         elif np.sum(trigger[:, 2]) - frame_count <= -1:
             missing_frames = int(np.sum(trigger[:, 2]) - frame_count)
-            if trig_blocks[1][0] - missing_frames * 67 > 0:
+            if trig_blocks[1][0] - missing_frames * 67 > 0 and verbose:
                 trigger[trig_blocks[1][0] - missing_frames * 67, 2] = 1
                 print(f'Imported frame count missed {int(abs(missing_frames))}, corrected.')
             else:
                 print(f'{int(abs(missing_frames))} too few frames imported from TDT, could not be corrected.')
+                with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
+                    out = bad_file.write(f'{trig_path}\n')
+                return None, None
         elif np.sum(trigger[:, 2]) - frame_count > 0:
             print(f'{int(abs(np.sum(trigger[:, 2]) - frame_count))} too many frames imported from TDT, check files!')
+            with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
+                out = bad_file.write(f'{trig_path}\n')
+            return None, None
 
     ### create the master time line, with one sample every 0.5 milliseconds
     # get maximum and minimum time stamps, rounded to the nearest 0.5 ms step
@@ -285,7 +287,6 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
 
     # go through data and order it into the correct time bin by looking for the time stamp of merge in the other arrays
     # if precise time stamp does not have data, fill in the value of the most recent available time
-
     start = timer()
     for i in range(merge.shape[0] - 1):
         # first initialization of sliding range windows that avoid repetitive indexing
@@ -301,8 +302,8 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
             old_trig = 3
             new_trig = 3
             curr_trig_range = trigger[new_trig - 3:new_trig + 3, :].copy()
-
         curr_merge = merge[[i, i+1]].copy()     # save the current merge 0.5 ms window to avoid repetitive indexing
+
         #### look for correct position time step ###
         # if position window has to be updated, re-select the current range of position values
         if new_pos != old_pos:
@@ -322,13 +323,6 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
         # else, put in the last known position value
         else:
             curr_merge[0, 1] = last_pos
-        """
-        if position[merge[i, 0] == position[:, 0], 1].size:  # check if position has the current time stamp
-            merge[i, 1] = position[merge[i, 0] == position[:, 0], 1][0]  # if yes, fill it in
-            last_pos = merge[i, 1]  # update the last available position value
-        else:
-            merge[i, 1] = last_pos  # if this time point does not have a value, fill in the last value
-        """
 
         #### look for correct encoder time step ###
         # if encoder window has to be updated, re-select the current range of encoder values
@@ -350,14 +344,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
         # else, put in the last known encoder value
         else:
             curr_merge[0, 4] = last_enc
-        """
-        if encoder[merge[i, 0] == encoder[:, 0], 1].size:
-            merge[i, 4] = encoder[merge[i, 0] == encoder[:, 0], 1][0]
-            last_enc = merge[i, 4]
-        else:
-            merge[i, 4] = last_enc
-        
-        """
+
         #### look for correct trigger time step ###
         # look at adjacent time points, if they are less than 0.5 ms apart, take the maximum (1 if there was a frame during that time)
         # check if the sliding window moved and it has to be updated
@@ -379,21 +366,15 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
         else:
             curr_merge[0, 2] = 0
             curr_merge[0, 3] = 0
-        """
-        if trigger[(merge[i, 0] <= trigger[:, 0]) & (trigger[:, 0] < merge[i + 1, 0]), 1].size:
-            merge[i, 2] = max(trigger[(merge[i, 0] <= trigger[:, 0]) & (trigger[:, 0] < merge[i + 1, 0]), 1])
-            merge[i, 3] = max(trigger[(merge[i, 0] <= trigger[:, 0]) & (trigger[:, 0] < merge[i + 1, 0]), 2])
-        else:
-            merge[i, 2] = 0
-            merge[i, 3] = 0
-        """
+
 
         # put the aligned data back into the main merge array
         merge[i] = curr_merge[0].copy()
         progress(i, merge.shape[0] - 1, status='Aligning behavioral data...')
 
     end = timer()
-    print('Actual processing time for this trial: {0:.2f} s'.format(end-start))
+    if verbose:
+        print('Actual processing time for this trial: {0:.2f} s'.format(end-start))
 
     # clean up file: remove redundant first time stamps, remove last time stamp, reset time stamps
     if imaging:

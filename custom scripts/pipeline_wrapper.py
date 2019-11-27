@@ -16,7 +16,7 @@ folders have to be grouped in one folder per field of view. Several FOVs can be 
 # dataset dependent parameters
 fr = 30  # imaging rate in frames per second
 decay_time = 0.4  # length of a typical transient in seconds (0.4)
-dxy = (1.66, 1.52)  # spatial resolution in x and y in (um per pixel) [(1.66,1.52) for 1x, (0.83,0.76) for 2x]
+dxy = (1.66, 1.52)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
 # note the lower than usual spatial resolution here
 max_shift_um = (50., 50.)  # maximum shift in um
 patch_motion_um = (100., 100.)  # patch size for non-rigid correction in um
@@ -69,9 +69,42 @@ for root in roots:
         opts.change_params({'dxy': (0.83, 0.76)})
     motion_file = pipe.motion_correction(root, opts, remove_f_order=True)
 
+# save C-order files
+
+mmap_files = [[r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\1\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_3883_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\2\file_00004_els__d1_512_d2_512_d3_1_order_F_frames_2024_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\3\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_1769_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\4\file_00006_els__d1_512_d2_512_d3_1_order_F_frames_2844_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\5\file_00007_els__d1_512_d2_512_d3_1_order_F_frames_2970_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\6\file_00008_els__d1_512_d2_512_d3_1_order_F_frames_3195_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\7\file_00009_els__d1_512_d2_512_d3_1_order_F_frames_6646_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\8\file_00010_els__d1_512_d2_512_d3_1_order_F_frames_3033_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\9\file_00011_els__d1_512_d2_512_d3_1_order_F_frames_2641_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\10\file_00012_els__d1_512_d2_512_d3_1_order_F_frames_3796_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\11\file_00013_els__d1_512_d2_512_d3_1_order_F_frames_2862_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\12\file_00014_els__d1_512_d2_512_d3_1_order_F_frames_4811_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\13\file_00015_els__d1_512_d2_512_d3_1_order_F_frames_3018_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\14\file_00016_els__d1_512_d2_512_d3_1_order_F_frames_1696_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\15\file_00017_els__d1_512_d2_512_d3_1_order_F_frames_1923_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\16\file_00018_els__d1_512_d2_512_d3_1_order_F_frames_2338_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\17\file_00019_els__d1_512_d2_512_d3_1_order_F_frames_1693_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\18\file_00020_els__d1_512_d2_512_d3_1_order_F_frames_1662_.mmap',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\19\file_00021_els__d1_512_d2_512_d3_1_order_F_frames_2575_.mmap'],
+              [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\1\file_00001_els__d1_512_d2_512_d3_1_order_F_frames_9889_.mmap',
+               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\2\file_00002_els__d1_512_d2_512_d3_1_order_F_frames_1998_.mmap',
+               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\3\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_8622_.mmap',
+               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\4\file_00004_els__d1_512_d2_512_d3_1_order_F_frames_1950_.mmap',
+               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\5\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_7251_.mmap',
+               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\6\file_00006_els__d1_512_d2_512_d3_1_order_F_frames_4729_.mmap',
+               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\7\file_00007_els__d1_512_d2_512_d3_1_order_F_frames_532_.mmap',
+               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\8\file_00008_els__d1_512_d2_512_d3_1_order_F_frames_310_.mmap',
+               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\9\file_00009_els__d1_512_d2_512_d3_1_order_F_frames_319_.mmap',
+               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\10\file_00010_els__d1_512_d2_512_d3_1_order_F_frames_397_.mmap']]
+
+
 #%% Align behavioral data
 #behavior.align_files(folder_list, performance_check=True)
-behavior.align_behavior(root, performance_check=True)
+behavior.align_behavior(root, performance_check=True, overwrite=True, verbose=True)
 
 # evaluate behavior
 mouse_list = []
