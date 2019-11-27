@@ -5,6 +5,7 @@ import sys
 import os
 import re
 from timeit import default_timer as timer
+from ScanImageTiffReader import ScanImageTiffReader
 
 
 def load_file(path):
@@ -54,7 +55,7 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False)
     :param verbose: bool flag whether unnecessary status updates should be printed to the console
     :return: saves merged_behavior.txt for each aligned trial
     """
-
+    # list that includes session that have been processed to avoid processing a session multiple times
     processed_sessions = []
 
     for step in os.walk(root):
@@ -64,13 +65,17 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False)
                     if len(glob(step[0] + r'\\*.tif')) > 0:  # check if there is an imaging file for this trial
                         if len(glob(step[0] + r'\\*.mmap')) > 0:    # check if the movie has already been motion corrected
                             if step[0][:-2] not in processed_sessions:
-                                align_folder_files(step[0][:-2], performance_check=performance_check, verbose=verbose)
+                                align_folder_files(step[0][:-2], performance_check=performance_check,
+                                                   verbose=verbose, mmap=True)
                                 processed_sessions.append(step[0][:-2])
                             pass
                         else:
-                            print(f'\nMotion correct .tif movie in {step[0]} before aligning behavioral files.')
+                            align_folder_files(step[0][:-2], performance_check=performance_check,
+                                               verbose=verbose, mmap=False)
+                            processed_sessions.append(step[0][:-2])
                     else:
                         align_nonfolder_files(step[0], performance_check=performance_check, verbose=verbose)
+                        processed_sessions.append(step[0])
                 elif len(glob(step[0] + r'\\merged*.txt')) < len(glob(step[0] + r'\\Encoder*.txt')):
                     print(f'\nSession {step[0]} has been processed incompletely, remove files and start again!')
                 else:
@@ -153,11 +158,12 @@ def align_nonfolder_files(root, performance_check=True, verbose=False):
         counter += 1
 
 
-def align_folder_files(root, performance_check=True, verbose=False):
+def align_folder_files(root, performance_check=True, verbose=False, mmap=False):
     """
     Wrapper for sessions with imaging data structure (one folder per session that includes one folder per trial).
     :param root: str, path to the session folder (includes folders of individual trials)
     :param performance_check: boolean flag whether performance should be checked during alignment
+    :param mmap: boolean flag if frame count can be taken from mmap file or if tif file has to be read
     :return: saves merged_behavior.txt for each aligned trial
     """
 
@@ -178,8 +184,14 @@ def align_folder_files(root, performance_check=True, verbose=False):
 
     print(f'\nStart processing session {root}...')
     for folder in folder_list:
-        # get frame count of the current trial from memmap file name
-        frame_count = int(glob(folder+'*.mmap')[0].split('_')[-2])
+
+        # get frame count of the current trial from memmap file name or by reading the tif file with ScanImageTiffReader
+        if mmap:
+            frame_count = int(glob(folder+'*.mmap')[0].split('_')[-2])
+        else:
+            movie_path = glob(folder+'*.tif')[0]
+            with ScanImageTiffReader(movie_path) as tif:
+                frame_count = tif.shape()[0]
 
         # load the three files (encoder (running speed), TCP (VR position) and TDT (licking + frame trigger))
         encoder = os.path.join(folder, r'Encoder*.txt')
@@ -217,7 +229,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     :param pos_path: str, path to the TCP.txt file (VR position)
     :param trig_path: str, path to the TDT.txt file (licking and frame trigger)
     :param imaging: bool flag whether the behavioral data is accompanied by an imaging movie
-    :param frame_count: int, frame count of the potential imaging movie
+    :param frame_count: int, frame count of the imaging movie (if imaging=True)
     :param verbose: bool flag whether status updates should be printed into the console (progress bar not affected)
     :return: merge, np.array with columns [time stamp - position - licks - frame - encoder]
     """
