@@ -68,7 +68,6 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False)
                                 align_folder_files(step[0][:-2], performance_check=performance_check,
                                                    verbose=verbose, mmap=True)
                                 processed_sessions.append(step[0][:-2])
-                            pass
                         else:
                             align_folder_files(step[0][:-2], performance_check=performance_check,
                                                verbose=verbose, mmap=False)
@@ -156,6 +155,7 @@ def align_nonfolder_files(root, performance_check=True, verbose=False):
             print(f'Skipped trial {file}, please check!')
 
         counter += 1
+    print('Done!\n')
 
 
 def align_folder_files(root, performance_check=True, verbose=False, mmap=False):
@@ -218,7 +218,7 @@ def align_folder_files(root, performance_check=True, verbose=False, mmap=False):
 
         else:
             print(f'Skipped trial {folder}, please check!')
-
+    print('\nDone!')
 
 def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_count=None, verbose=False):
     """
@@ -237,9 +237,21 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     position = load_file(pos_path)
     trigger = load_file(trig_path)
 
+    # check if the trial might be incomplete (VR not run until the end)
     if max(position[:, 1]) < 110:
         print('Trial incomplete, please remove file!')
+        with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
+            out = bad_file.write(f'{trig_path}\n')
         return None, None
+
+    # check if a file was copied from the previous one (bug in LabView), if the start time stamp differs by >2s
+    diff = (abs(int(encoder[0, 0]) - int(position[0, 0])),
+            abs(int(encoder[0, 0]) - int(trigger[0, 0])),
+            abs(int(trigger[0, 0]) - int(position[0, 0])))
+    if any(x > 2000 for x in diff):
+        print('Faulty trial (TDT file copied from previous trial)!')
+        with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
+            out = bad_file.write(f'{trig_path}\tTDT from previous trial\n')
 
     # determine the earliest time stamp in the logs as a starting point for the master time line
     earliest_time = min(encoder[0, 0], position[0, 0], trigger[0, 0])
@@ -267,24 +279,32 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
         for block in trig_blocks:
             trigger[block, 2] = 0  # set the whole period to 0
             trigger[int(round(np.mean(block))), 2] = 1
-        # set actual first frame before the first recorded frame (first check if necessary)
-        if np.sum(trigger[:, 2]) - frame_count == 0 and verbose:
+
+        # check if imported frame trigger matches frame count of .tif file
+        more_frames_in_TDT = int(np.sum(trigger[:, 2]) - frame_count)  #positive if TDT, negative if .tif had more frames
+        if more_frames_in_TDT == 0 and verbose:
             print('Frame count matched, no correction necessary.')
-        elif np.sum(trigger[:, 2]) - frame_count <= -1:
-            missing_frames = int(np.sum(trigger[:, 2]) - frame_count)
-            if trig_blocks[1][0] - missing_frames * 67 > 0 and verbose:
-                trigger[trig_blocks[1][0] - missing_frames * 67, 2] = 1
-                print(f'Imported frame count missed {int(abs(missing_frames))}, corrected.')
+        elif more_frames_in_TDT <= -1:
+            # if TDT file had too little frames, they are assumed to have been recorded before TDT logging
+            if (trig_blocks[1][0]+33) - more_frames_in_TDT * 67 > 0 and verbose:
+                trigger[(trig_blocks[1][0]+33) - more_frames_in_TDT * 67, 2] = 1
+                print(f'Imported frame count missed {int(abs(more_frames_in_TDT))}, corrected.')
             else:
-                print(f'{int(abs(missing_frames))} too few frames imported from TDT, could not be corrected.')
+                # correction does not work if the whole log file is not large enough to include all missing frames
+                print(f'{int(abs(more_frames_in_TDT))} too few frames imported from TDT, could not be corrected.')
+                with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
+                    out = bad_file.write(f'{trig_path}\t{more_frames_in_TDT}\n')
+                return None, None
+        elif more_frames_in_TDT > 0:
+            # if TDT included too many frames, its assumed that the false-positive frames are from the end of recording
+            if more_frames_in_TDT < 5:
+                for i in range(more_frames_in_TDT):
+                    trigger[trig_blocks[-i], 2] = 0
+            else:
+                print(f'{more_frames_in_TDT} too many frames imported from TDT, could not be corrected!')
                 with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
                     out = bad_file.write(f'{trig_path}\n')
                 return None, None
-        elif np.sum(trigger[:, 2]) - frame_count > 0:
-            print(f'{int(abs(np.sum(trigger[:, 2]) - frame_count))} too many frames imported from TDT, check files!')
-            with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
-                out = bad_file.write(f'{trig_path}\n')
-            return None, None
 
     ### create the master time line, with one sample every 0.5 milliseconds
     # get maximum and minimum time stamps, rounded to the nearest 0.5 ms step

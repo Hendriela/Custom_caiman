@@ -20,7 +20,7 @@ def set_file_paths():
     root.after_idle(root.attributes, '-topmost', False)
     root_dir = filedialog.askdirectory(title='Select folder that contains all trial folders')
     root.withdraw()
-    print(f'Root directory: {root_dir}')
+    print(f'Root directory:\n {root_dir}')
     return root_dir
 
 

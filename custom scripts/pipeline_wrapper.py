@@ -70,7 +70,6 @@ for root in roots:
     motion_file = pipe.motion_correction(root, opts, remove_f_order=True)
 
 # save C-order files
-
 mmap_files = [[r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\1\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_3883_.mmap',
               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\2\file_00004_els__d1_512_d2_512_d3_1_order_F_frames_2024_.mmap',
               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\3\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_1769_.mmap',
@@ -104,7 +103,7 @@ mmap_files = [[r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20
 
 #%% Align behavioral data
 #behavior.align_files(folder_list, performance_check=True)
-behavior.align_behavior(root, performance_check=True, overwrite=True, verbose=True)
+behavior.align_behavior(root, performance_check=True, overwrite=True, verbose=False)
 
 # evaluate behavior
 mouse_list = []
