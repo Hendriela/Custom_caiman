@@ -64,15 +64,17 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False)
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
                 if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:  # check if the trial folder not yet been processed
                     if len(glob(step[0] + r'\\*.tif')) > 0:  # check if there is an imaging file for this trial
+                        above_folder = os.path.join(*step[0].split('\\')[:-1])
                         if len(glob(step[0] + r'\\*.mmap')) > 0:    # check if the movie has already been motion corrected
-                            if step[0][:-2] not in processed_sessions:
-                                align_folder_files(step[0][:-2], performance_check=performance_check,
+                            if above_folder not in processed_sessions:
+                                print(above_folder)
+                                align_folder_files(above_folder, performance_check=performance_check,
                                                    verbose=verbose, mmap=True)
-                                processed_sessions.append(step[0][:-2])
+                                processed_sessions.append(above_folder)
                         else:
-                            align_folder_files(step[0][:-2], performance_check=performance_check,
+                            align_folder_files(above_folder, performance_check=performance_check,
                                                verbose=verbose, mmap=False)
-                            processed_sessions.append(step[0][:-2])
+                            processed_sessions.append(above_folder)
                     else:
                         align_nonfolder_files(step[0], performance_check=performance_check, verbose=verbose)
                         processed_sessions.append(step[0])
@@ -238,8 +240,8 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     position = load_file(pos_path)
     trigger = load_file(trig_path)
 
-    # check if the trial might be incomplete (VR not run until the end)
-    if max(position[:, 1]) < 110:
+    # check if the trial might be incomplete (VR not run until the end or TDT file incomplete)
+    if max(position[:, 1]) < 110 or abs(position[-1, 0] - trigger[-1, 0]) > 2:
         print('Trial incomplete, please remove file!')
         with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
             out = bad_file.write(f'{trig_path}\n')
@@ -256,9 +258,10 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
             abs((enc_time - trig_time).total_seconds()),
             abs((trig_time - pos_time).total_seconds()))
     if max(diff) > 2:
-        print(f'Faulty trial (TDT file copied from previous trial, time stamp differed by {int(max(diff))}s!')
+        print(f'Faulty trial (TDT file copied from previous trial), time stamps differed by {int(max(diff))}s!')
         with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
             out = bad_file.write(f'{trig_path}\tTDT from previous trial, diff {int(max(diff))}s\n')
+        return None, None
 
     # determine the earliest time stamp in the logs as a starting point for the master time line
     earliest_time = min(encoder[0, 0], position[0, 0], trigger[0, 0])
