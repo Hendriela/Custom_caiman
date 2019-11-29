@@ -6,6 +6,7 @@ import os
 import re
 from timeit import default_timer as timer
 from ScanImageTiffReader import ScanImageTiffReader
+from datetime import time, datetime
 
 
 def load_file(path):
@@ -244,14 +245,20 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
             out = bad_file.write(f'{trig_path}\n')
         return None, None
 
-    # check if a file was copied from the previous one (bug in LabView), if the start time stamp differs by >2s
-    diff = (abs(int(encoder[0, 0]) - int(position[0, 0])),
-            abs(int(encoder[0, 0]) - int(trigger[0, 0])),
-            abs(int(trigger[0, 0]) - int(position[0, 0])))
-    if any(x > 2000 for x in diff):
-        print('Faulty trial (TDT file copied from previous trial)!')
+    ### check if a file was copied from the previous one (bug in LabView), if the start time stamp differs by >2s
+    # transform the integer time stamps into datetime objects
+    time_format = '%H%M%S%f'
+    enc_time = datetime.strptime(str(int(encoder[0, 0])), time_format)
+    pos_time = datetime.strptime(str(int(position[0, 0])), time_format)
+    trig_time = datetime.strptime(str(int(trigger[0, 0])), time_format)
+    # calculate absolute difference in seconds between the start times
+    diff = (abs((enc_time - pos_time).total_seconds()),
+            abs((enc_time - trig_time).total_seconds()),
+            abs((trig_time - pos_time).total_seconds()))
+    if max(diff) > 2:
+        print(f'Faulty trial (TDT file copied from previous trial, time stamp differed by {int(max(diff))}s!')
         with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
-            out = bad_file.write(f'{trig_path}\tTDT from previous trial\n')
+            out = bad_file.write(f'{trig_path}\tTDT from previous trial, diff {int(max(diff))}s\n')
 
     # determine the earliest time stamp in the logs as a starting point for the master time line
     earliest_time = min(encoder[0, 0], position[0, 0], trigger[0, 0])
@@ -280,15 +287,21 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
             trigger[block, 2] = 0  # set the whole period to 0
             trigger[int(round(np.mean(block))), 2] = 1
 
-        # check if imported frame trigger matches frame count of .tif file
+        # check if imported frame trigger matches frame count of .tif file and try to fix it
         more_frames_in_TDT = int(np.sum(trigger[:, 2]) - frame_count)  #positive if TDT, negative if .tif had more frames
         if more_frames_in_TDT == 0 and verbose:
             print('Frame count matched, no correction necessary.')
         elif more_frames_in_TDT <= -1:
+            # first check if TDT has been logging shorter than TCP
+            tdt_offset = position[-1, 0] - trigger[-1, 0]
+            # if all missing frames would fit in the offset (time where tdt was not logging), add the frames in the end
+            if tdt_offset/0.033 > abs(more_frames_in_TDT):
+                trigger = append_frames(trigger, tdt_offset, more_frames_in_TDT)
             # if TDT file had too little frames, they are assumed to have been recorded before TDT logging
-            if (trig_blocks[1][0]+33) - more_frames_in_TDT * 67 > 0 and verbose:
+            if (trig_blocks[1][0]+33) - more_frames_in_TDT * 67 > 0:
                 trigger[(trig_blocks[1][0]+33) - more_frames_in_TDT * 67, 2] = 1
-                print(f'Imported frame count missed {int(abs(more_frames_in_TDT))}, corrected.')
+                if verbose:
+                    print(f'Imported frame count missed {int(abs(more_frames_in_TDT))}, corrected.')
             else:
                 # correction does not work if the whole log file is not large enough to include all missing frames
                 print(f'{int(abs(more_frames_in_TDT))} too few frames imported from TDT, could not be corrected.')
@@ -418,3 +431,14 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     return merge, (end-start)
 
 
+def append_frames(data, time_offset, n_frames_to_add):
+    #TODO write this
+    """
+    Extends the trigger dataset by time_offset seconds to manually add n_frames_to_add frame counts to the array.
+    This function is called when the TDT file has been logging not long enough, shorter than TCP.
+    :param data:
+    :param time_offset:
+    :param n_frames_to_add:
+    :return:
+    """
+    return
