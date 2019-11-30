@@ -214,7 +214,9 @@ def plot_single_place_cell(pcf, idx):
 
 
 def plot_all_place_cells(pcf):
-
+    # TODO: put plotting functions into pcf class
+    # todo: mark positions of place fields in graph
+    #TODO: scale bars?
     place_cell_idx = [x[0] for x in pcf.place_cells]
     traces = pcf.bin_avg_activity[place_cell_idx]
     n_neurons = traces.shape[0]
