@@ -10,6 +10,7 @@ import random
 import copy
 import glob
 from math import ceil
+import os
 
 
 class PlaceCellFinder:
@@ -67,8 +68,10 @@ class PlaceCellFinder:
                        'n_trial': None,         # number of trials in this session
                        'sigma': None,           # array[n_neuron x n_trials], noise level (from FWHM) of every trial
                        'bin_frame_count': None, # array[n_bins x n_trials], number of frames averaged in each bin
-                       'place_results': None}   # array[n_neuron x criteria] that stores place cell finder results with
+                       'place_results': None,   # array[n_neuron x criteria] that stores place cell finder results with
                                                 # order pre_screen - bin_size - dF/F - transients - p<0.05
+                       'mouse': None,
+                       'session': None}
 
         # implement user-given parameters
         for key in param_dict.keys():
@@ -80,7 +83,10 @@ class PlaceCellFinder:
         if self.params['root'] is None:
             print(f'Essential parameter root has not been provided upon initialization.')
         if self.params['trial_list'] is None:
-            print(f'Essential parameter trial_list has not been provided upon initialization.')
+            for step in os.walk(self.params['root']):
+                folder_list = step[1]
+                break
+            self.params['trial_list'] = [os.path.join(self.params['root'], folder) for folder in folder_list]
 
         # calculate track_length dependent binning parameters
         if self.params['track_length'] % self.params['bin_length'] == 0:
@@ -96,6 +102,10 @@ class PlaceCellFinder:
                 self.params['frame_list'].append(int(glob.glob(trial+'//*.mmap')[0].split('_')[-2]))
             else:
                 print(f'No memmap files found at {trial}. Run motion correction before initializing PCF object!')
+
+        # find mouse number and session
+        self.params['mouse'] = self.params['root'].split('/')[-3]
+        self.params['session'] = self.params['root'].split('/')[-2]
 
     def split_traces_into_trials(self):
         """

@@ -62,22 +62,23 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False)
     for step in os.walk(root):
         if len(step[2]) > 0:   # check if there are files in the current folder
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
-                if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:  # check if the trial folder not yet been processed
+                if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:  # check if trial folder has been processed
                     if len(glob(step[0] + r'\\*.tif')) > 0:  # check if there is an imaging file for this trial
                         above_folder = os.path.join(*step[0].split('\\')[:-1])
-                        if len(glob(step[0] + r'\\*.mmap')) > 0:    # check if the movie has already been motion corrected
-                            if above_folder not in processed_sessions:
-                                print(above_folder)
+                        if above_folder not in processed_sessions:
+                            if len(glob(step[0] + r'\\*.mmap')) > 0:    # check if the movie is been motion corrected
                                 align_folder_files(above_folder, performance_check=performance_check,
                                                    verbose=verbose, mmap=True)
                                 processed_sessions.append(above_folder)
-                        else:
-                            align_folder_files(above_folder, performance_check=performance_check,
-                                               verbose=verbose, mmap=False)
-                            processed_sessions.append(above_folder)
+                                print(processed_sessions)
+                            else:
+                                align_folder_files(above_folder, performance_check=performance_check,
+                                                   verbose=verbose, mmap=False)
+                                processed_sessions.append(above_folder)
                     else:
-                        align_nonfolder_files(step[0], performance_check=performance_check, verbose=verbose)
-                        processed_sessions.append(step[0])
+                        if step[0] in processed_sessions:
+                            align_nonfolder_files(step[0], performance_check=performance_check, verbose=verbose)
+                            processed_sessions.append(step[0])
                 elif len(glob(step[0] + r'\\merged*.txt')) < len(glob(step[0] + r'\\Encoder*.txt')):
                     print(f'\nSession {step[0]} has been processed incompletely, remove files and start again!')
                 else:

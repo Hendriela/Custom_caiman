@@ -174,30 +174,85 @@ def accept_component(cnm, idx):
     cnm.estimates.idx_components_bad = np.delete(cnm.estimates.idx_components_bad, idx)
     return cnm
 
-#%% place cell analysis
+#%% place cell result screening
 
-def get_noise_fwhm(data):
-    """
-    Returns noise level as standard deviation (sigma) from a dataset using full-width-half-maximum (Koay et al. 2019)
-    :param data: 1D array of data that you need the noise level from
-    :return: noise: float, sigma of given dataset
-    """
-    if np.all(data == 0): # catch trials without data
-        sigma = 0
+
+def plot_single_place_cell(pcf, idx):
+    if type(idx) != int:
+        return 'Idx has to be a single digit!'
+
+    traces = pcf.bin_activity[pcf.place_cells[idx][0]]
+
+    # plot components
+    if len(traces.shape) == 1:
+        nrows = 1
     else:
-        plt.figure()
-        x_data, y_data = sns.distplot(data).get_lines()[0].get_data()
-        y_max = y_data.argmax()  # get idx of half maximum
-        # get points above/below y_max that is closest to max_y/2 by subtracting it from the data and
-        # looking for the minimum absolute value
-        nearest_above = (np.abs(y_data[y_max:] - max(y_data) / 2)).argmin()
-        nearest_below = (np.abs(y_data[:y_max] - max(y_data) / 2)).argmin()
-        # get FWHM by subtracting the x-values of the two points
-        FWHM = x_data[nearest_above + y_max] - x_data[nearest_below]
-        # return noise level as FWHM/2.3548
-        sigma = FWHM/2.3548
-        plt.close()
-    return sigma
+        nrows = traces.shape[0]
+
+    trace_fig, trace_ax = plt.subplots(nrows=nrows, ncols=2, sharex=True, figsize=(18, 10))
+    trace_fig.suptitle(f'Neuron {pcf.place_cells[idx][0]}', fontsize=16)
+    for i in range(traces.shape[0]):
+        curr_trace = traces[i, np.newaxis]
+        trace_ax[i, 1].pcolormesh(curr_trace)
+        trace_ax[i, 0].plot(traces[i])
+        if i == trace_ax[:, 0].size - 1:
+            trace_ax[i, 0].spines['top'].set_visible(False)
+            trace_ax[i, 0].spines['right'].set_visible(False)
+            trace_ax[i, 0].set_yticks([])
+            trace_ax[i, 1].spines['top'].set_visible(False)
+            trace_ax[i, 1].spines['right'].set_visible(False)
+        else:
+            trace_ax[i, 0].axis('off')
+            trace_ax[i, 1].axis('off')
+        trace_ax[i, 0].set_title(f'Trial {i+1}', x=-0.1, y=0.3)
+    trace_ax[i, 0].set_xlim(0, traces.shape[1])
+    trace_ax[i, 0].set_xlabel('VR position', fontsize=12)
+    trace_ax[i, 1].set_xlabel('VR position', fontsize=12)
+    trace_fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+    # trace_fig.tight_layout()
+    plt.show()
+
+
+def plot_all_place_cells(pcf):
+
+    place_cell_idx = [x[0] for x in pcf.place_cells]
+    traces = pcf.bin_avg_activity[place_cell_idx]
+    n_neurons = traces.shape[0]
+
+    max_bins = []
+    for i in range(n_neurons):
+        max_bins.append((i, np.argmax(traces[i, :])))
+
+    max_bins_sorted = sorted(max_bins, key=lambda tup: tup[1])
+
+    trace_fig, trace_ax = plt.subplots(nrows=n_neurons, ncols=2, sharex=True, figsize=(18, 10))
+    mouse = pcf.params['root'].split('/')[-3]
+    session = pcf.params['root'].split('/')[-2]
+    trace_fig.suptitle(f'All place cells of mouse {mouse}, session {session}', fontsize=16)
+    for i in range(n_neurons):
+        curr_neur = max_bins_sorted[i][0]
+        curr_trace = traces[curr_neur, np.newaxis]
+        trace_ax[i, 1].pcolormesh(curr_trace)
+        trace_ax[i, 0].plot(traces[curr_neur])
+        if i == trace_ax[:, 0].size - 1:
+            trace_ax[i, 0].spines['top'].set_visible(False)
+            trace_ax[i, 0].spines['right'].set_visible(False)
+            trace_ax[i, 0].set_yticks([])
+            trace_ax[i, 1].spines['top'].set_visible(False)
+            trace_ax[i, 1].spines['right'].set_visible(False)
+        else:
+            trace_ax[i, 0].axis('off')
+            trace_ax[i, 1].axis('off')
+        trace_ax[i, 0].set_title(f'Neuron {place_cell_idx[curr_neur]}', x=-0.1, y=0)
+    trace_ax[i, 0].set_xlim(0, traces.shape[1])
+    trace_ax[i, 0].set_xlabel('VR position', fontsize=12)
+    trace_ax[i, 1].set_xlabel('VR position', fontsize=12)
+    trace_fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+    # trace_fig.tight_layout()
+    plt.show()
+
+
+
 
 #%% CORRELATION FUNCTIONS
 

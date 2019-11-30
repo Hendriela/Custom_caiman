@@ -2,7 +2,7 @@ from caiman.source_extraction import cnmf
 import place_cell_pipeline as pipe
 import behavior_import as behavior
 import place_cell_class as pc
-
+import caiman as cm
 """
 Complete pipeline for place cell analysis, from motion correction to place cell finding
 
@@ -10,7 +10,8 @@ Condition before starting:
 Tiff and behavioral files (encoder, position, frames/licks) have to be in separate folders for each trial, and trial
 folders have to be grouped in one folder per field of view. Several FOVs can be grouped in a folder per session.
 """
-
+c, dview, n_processes = cm.cluster.setup_cluster(
+    backend='local', n_processes=None, single_thread=False)
 #%% Set parameters
 
 # dataset dependent parameters
@@ -42,7 +43,8 @@ mc_dict = {
     'strides': strides,
     'overlaps': overlaps,
     'max_deviation_rigid': max_deviation_rigid,
-    'border_nan': 'copy'
+    'border_nan': 'copy',
+    'n_processes': n_processes
 }
 
 opts = cnmf.params.CNMFParams(params_dict=mc_dict)
@@ -50,24 +52,21 @@ opts = cnmf.params.CNMFParams(params_dict=mc_dict)
 
 #%% Set working directory
 
-root = pipe.set_file_paths()
+root2 = pipe.set_file_paths()
 
 #%% Perform motion correction
-roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191120',
+roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191121b',
          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191121b',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191122a',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191123a',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191119a',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191120',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191122a',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191123a']
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191121b',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191129a',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191129a',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191129a',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b']
 
 for root in roots:
-    if root == r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191119a':
+    if root == r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191129a':
         opts.change_params({'dxy': (0.83, 0.76)})
-    motion_file = pipe.motion_correction(root, opts, remove_f_order=True)
+    motion_file, dview = pipe.motion_correction(root, opts, remove_f_order=True)
 
 # save C-order files
 mmap_files = [[r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\1\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_3883_.mmap',
@@ -103,17 +102,85 @@ mmap_files = [[r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20
 
 #%% Align behavioral data
 #behavior.align_files(folder_list, performance_check=True)
-behavior.align_behavior(root, performance_check=True, overwrite=True, verbose=False)
+for root in roots:
+    behavior.align_behavior(root, performance_check=True, overwrite=True, verbose=False)
 
 # evaluate behavior
 mouse_list = []
 #%% CaImAn source extraction
 
+mmap_file, images = pipe.load_mmap(root)
+
+#%%
+p = 1  # order of the autoregressive system
+gnb = 3  # number of global background components (3)
+merge_thr = 0.70  # merging threshold, max correlation allowed (0.86)
+rf = 25
+# half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
+K = 20  # number of components per patch (10)
+gSig = [6, 6]  # expected half size of neurons in pixels (6,6) for 1x recordings
+# initialization method (if analyzing dendritic data using 'sparse_nmf')
+method_init = 'greedy_roi'
+ssub = 2  # spatial subsampling during initialization
+tsub = 2  # temporal subsampling during intialization
+
+# parameters for component evaluation
+opts_dict = {'fnames': mmap_file,
+             'nb': gnb,
+             'rf': rf,
+             'K': K,
+             'gSig': gSig,
+             'stride': stride_cnmf,
+             'method_init': method_init,
+             'rolling_sum': True,
+             'merge_thr': merge_thr,
+             'only_init': True,
+             'ssub': ssub,
+             'tsub': tsub}
+
+opts = opts.change_params(params_dict=opts_dict)
+
+cnm = pipe.run_source_extraction(images, opts)
+
+lcm = pipe.get_local_correlation(images)
+
+cnm.estimates.plot_contours(img=lcm)
+
+#%% COMPONENT EVALUATION
+# the components are evaluated in three ways:
+#   a) the shape of each component must be correlated with the data
+#   b) a minimum peak SNR is required over the length of a transient
+#   c) each shape passes a CNN based classifier
+min_SNR = 6  # signal to noise ratio for accepting a component (default 2)
+SNR_lowest = 3
+rval_thr = 0.7 # space correlation threshold for accepting a component (default 0.85)
+cnn_thr = 0.4  # threshold for CNN based classifier (default 0.99)
+cnn_lowest = 0.01 # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+cnm.params.set('quality', {'decay_time': decay_time,
+                           'SNR_lowest': SNR_lowest,
+                           'min_SNR': min_SNR,
+                           'rval_thr': rval_thr,
+                           'use_cnn': True,
+                           'min_cnn_thr': cnn_thr,
+                           'cnn_lowest': cnn_lowest})
+cnm = pipe.run_evaluation(images, cnm, dview=dview)
+
+cnm.estimates.plot_contours(img=cnm.estimates.Cn, idx=cnm.estimates.idx_components)
+cnm.estimates.view_components(images, img=cnm.estimates.Cn,
+                               idx=cnm.estimates.idx_components)
+cnm.estimates.view_components(images, img=cnm.estimates.Cn,
+                               idx=cnm.estimates.idx_components_bad)
+cnm.estimates.select_components(use_object=True)
+cnm.estimates.detrend_df_f(quantileMin=8, frames_window=500)
+cnm.estimates.view_components(img=cnm.estimates.Cn)
+
+pipe.save_cnmf(cnm, root=root)
 #%% Initialize PlaceCellFinder object
 
-cnm = cnmf.cnmf.load_CNMF(r'E:\PhD\Data\DG\M14_20191014\N2\N2_results.hdf5')
+cnm = pipe.load_cnmf(root)
 params = {'root': root,                  # main directory of this session
-          'trial_list': folder_list,     # list of all trial directories in this session
           'trans_length': 0.5,           # minimum length in seconds of a significant transient
           'trans_thresh': 4,             # factor of sigma above which a transient is significant
           'bin_length': 2,               # length in cm VR distance of each bin in which to group the dF/F traces (has to be divisor of track_length
