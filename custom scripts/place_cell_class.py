@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # author: Hendrik Heiser
 # created on 11 October 2019
-
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -11,6 +11,8 @@ import copy
 import glob
 from math import ceil
 import os
+import re
+from behavior_import import progress
 
 
 class PlaceCellFinder:
@@ -73,6 +75,12 @@ class PlaceCellFinder:
                        'mouse': None,
                        'session': None}
 
+        def atoi(text):
+            return int(text) if text.isdigit() else text
+
+        def natural_keys(text):
+            return [atoi(c) for c in re.split('(\d+)', text)]
+
         # implement user-given parameters
         for key in param_dict.keys():
             if key in self.params.keys():
@@ -87,6 +95,7 @@ class PlaceCellFinder:
                 folder_list = step[1]
                 break
             self.params['trial_list'] = [os.path.join(self.params['root'], folder) for folder in folder_list]
+        self.params['trial_list'].sort(key=natural_keys)
 
         # calculate track_length dependent binning parameters
         if self.params['track_length'] % self.params['bin_length'] == 0:
@@ -104,8 +113,14 @@ class PlaceCellFinder:
                 print(f'No memmap files found at {trial}. Run motion correction before initializing PCF object!')
 
         # find mouse number and session
-        self.params['mouse'] = self.params['root'].split('/')[-3]
-        self.params['session'] = self.params['root'].split('/')[-2]
+        try:
+            self.params['mouse'] = self.params['root'].split(os.sep)[-3]
+            self.params['session'] = self.params['root'].split(os.sep)[-2]
+            self.params['network'] = self.params['root'].split(os.sep)[-1]
+        except IndexError:
+            self.params['mouse'] = self.params['root'].split('/')[-3]
+            self.params['session'] = self.params['root'].split('/')[-2]
+            self.params['network'] = self.params['root'].split('/')[-1]
 
     def split_traces_into_trials(self):
         """
@@ -281,7 +296,7 @@ class PlaceCellFinder:
         for i in range(len(self.params['frame_list'])):
             frame_list_count = self.params['frame_list'][i]
             if frame_list_count != np.sum(bin_frame_count[:, i]):
-                print(f'Frame count not matching in trial {i}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
+                print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
 
         self.behavior = behavior
         self.params['bin_frame_count'] = bin_frame_count
@@ -339,6 +354,8 @@ class PlaceCellFinder:
         self.params['place_results'] = np.zeros((self.params['n_neuron'], 5), dtype='bool')
         for i in range(self.bin_avg_activity.shape[0]):
             self.find_place_field_neuron(self.bin_avg_activity[i, :], i)
+            progress(i, self.bin_avg_activity.shape[0] - 1, status='Processing neurons...', percent=False)
+        print(f'Done! {len(self.place_cells)} place cells found in total!')
 
     def find_place_field_neuron(self, data, neuron_id):
         """
@@ -542,6 +559,37 @@ class PlaceCellFinder:
 
         return p_counter/1000   # return p-value of this neuron (number of place fields after 1000 shuffles)
 
+    def save(self, file_name='pcf_results', overwrite=False):
+        """
+        Saves PCF object as a pickled file to the root directory.
+        :param file_name: str; name of the saved file, defaults to 'pcf_results'
+        :param overwrite: bool, overwrites files automatically if there is one
+        :return:
+        """
+        save_path = os.path.join(self.params['root'], file_name)
+        if os.path.isfile(save_path) and not overwrite:
+            answer = None
+            while answer not in ("y", "n", 'yes', 'no'):
+                answer = input(f"File [...]{save_path[-40:]} already exists!\nOverwrite? [y/n] ")
+                if answer == "yes" or answer == 'y':
+                    print('Saving...')
+                    with open(save_path, 'wb') as file:
+                        self.cnmf.dview = None
+                        pickle.dump(self, file)
+                    print(f'PCF results successfully saved at {save_path}')
+                    return save_path
+                elif answer == "no" or answer == 'n':
+                    print('Saving cancelled.')
+                    return None
+                else:
+                    print("Please enter yes or no.")
+        else:
+            print('Saving...')
+            with open(save_path, 'wb') as file:
+                self.cnmf.dview = None
+                pickle.dump(self, file)
+            print(f'PCF results successfully saved at {save_path}')
+
 #%% Visualization
     def plot_binned_neurons(self, idx=None, sliced=False):
         if idx:
@@ -590,3 +638,94 @@ class PlaceCellFinder:
         if vr_aligned:
             ax[i].set_xlim(0, self.params['n_bins'])
         fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+
+    def plot_single_place_cell(self, idx):
+        """
+        Plots all trials of a single place cell in a line graph and pcolormesh.
+        :param idx: Index of the to-be-plotted place cell (following the indexing of self.place_cells, not cnm indexing,
+                    i.e. idx=0 shows the first place cell, not the first extracted component)
+        :return: figure
+        """
+        if type(idx) != int:
+            return 'Idx has to be a single digit!'
+
+        traces = self.bin_activity[self.place_cells[idx][0]]
+
+        # plot components
+        if len(traces.shape) == 1:
+            nrows = 1
+        else:
+            nrows = traces.shape[0]
+
+        trace_fig, trace_ax = plt.subplots(nrows=nrows, ncols=2, sharex=True, figsize=(18, 10))
+        trace_fig.suptitle(f'Neuron {self.place_cells[idx][0]}', fontsize=16)
+        for i in range(traces.shape[0]):
+            curr_trace = traces[i, np.newaxis]
+            trace_ax[i, 1].pcolormesh(curr_trace)
+            trace_ax[i, 0].plot(traces[i])
+            if i == trace_ax[:, 0].size - 1:
+                trace_ax[i, 0].spines['top'].set_visible(False)
+                trace_ax[i, 0].spines['right'].set_visible(False)
+                trace_ax[i, 0].set_yticks([])
+                trace_ax[i, 1].spines['top'].set_visible(False)
+                trace_ax[i, 1].spines['right'].set_visible(False)
+            else:
+                trace_ax[i, 0].axis('off')
+                trace_ax[i, 1].axis('off')
+            trace_ax[i, 0].set_title(f'Trial {i + 1}', x=-0.1, y=0.3)
+        trace_ax[i, 0].set_xlim(0, traces.shape[1])
+        trace_ax[i, 0].set_xlabel('VR position', fontsize=12)
+        trace_ax[i, 1].set_xlabel('VR position', fontsize=12)
+        trace_fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+        # trace_fig.tight_layout()
+        plt.show()
+
+    def plot_all_place_cells(self, save=False):
+        """
+        Plots all place cells in the data set by line graph and pcolormesh.
+        :param save: bool flag whether the figure should be automatically saved in the root and closed afterwards.
+        :return:
+        """
+        # todo: mark positions of place fields in graph
+        # todo: make x-axis labels reflect actual VR position, not bins
+        # TODO: scale bars?
+
+        place_cell_idx = [x[0] for x in self.place_cells]
+        traces = self.bin_avg_activity[place_cell_idx]
+        n_neurons = traces.shape[0]
+
+        max_bins = []
+        for i in range(n_neurons):
+            max_bins.append((i, np.argmax(traces[i, :])))
+
+        max_bins_sorted = sorted(max_bins, key=lambda tup: tup[1])
+
+        trace_fig, trace_ax = plt.subplots(nrows=n_neurons, ncols=2, sharex=True, figsize=(18, 10))
+        mouse = self.params['mouse']
+        session = self.params['session']
+        network = self.params['network']
+        trace_fig.suptitle(f'All place cells of mouse {mouse}, session {session}, network {network}', fontsize=16)
+        for i in range(n_neurons):
+            curr_neur = max_bins_sorted[i][0]
+            curr_trace = traces[curr_neur, np.newaxis]
+            trace_ax[i, 1].pcolormesh(curr_trace)
+            trace_ax[i, 0].plot(traces[curr_neur])
+            if i == trace_ax[:, 0].size - 1:
+                trace_ax[i, 0].spines['top'].set_visible(False)
+                trace_ax[i, 0].spines['right'].set_visible(False)
+                trace_ax[i, 0].set_yticks([])
+                trace_ax[i, 1].spines['top'].set_visible(False)
+                trace_ax[i, 1].spines['right'].set_visible(False)
+            else:
+                trace_ax[i, 0].axis('off')
+                trace_ax[i, 1].axis('off')
+            trace_ax[i, 0].set_title(f'Neuron {place_cell_idx[curr_neur]}', x=-0.1, y=0)
+        trace_ax[i, 0].set_xlim(0, traces.shape[1])
+        trace_ax[i, 0].set_xlabel('VR position', fontsize=12)
+        trace_ax[i, 1].set_xlabel('VR position', fontsize=12)
+        trace_fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+        plt.show()
+        if save:
+            plt.savefig(os.path.join(self.params['root'], 'place_cells.png'))
+            plt.close()
+

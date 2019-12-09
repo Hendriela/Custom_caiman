@@ -49,12 +49,14 @@ def collect_performance_data(root):
             elif len(dirnames) > 0: # subfolders in one session occur during imaging trials
                 # here, trial times have to be collected across different network folders and added to one array
                 for j in range(len(dirnames)):
-                    if j == 0:
-                        curr_performance = np.loadtxt(os.path.join(path, dirnames[j], 'trial_duration.txt'),
-                                                      skiprows=1)  # load the trial times
+                    curr_file_path = os.path.join(path, dirnames[j], 'trial_duration.txt')
+                    if os.path.isfile(curr_file_path):
+                        if j == 0:
+                            curr_performance = np.loadtxt(curr_file_path, skiprows=1)  # load the trial times
+                        else:
+                            curr_performance = np.hstack((curr_performance, np.loadtxt(curr_file_path, skiprows=1)))
                     else:
-                        curr_performance = np.hstack((curr_performance,
-                                        np.loadtxt(os.path.join(path, dirnames[j], 'trial_duration.txt'), skiprows=1)))
+                        curr_performance = 0
             else:
                 print(f'No performance data available at {path}')
                 break
@@ -65,15 +67,14 @@ def collect_performance_data(root):
             ### COLLECT REWARD ZONE HIT PERCENTAGE ###
             log_file = [i for i in filenames if 'TDT LOG' in i]
 
-            if len(log_file) > 1:
-                print(f'More than one log file in {path}')
-                break
-            elif len(log_file) == 1:
-                log_path = os.path.join(path, log_file[0])
-                zone, all_zones = extract_zone_performance_from_log_file(log_path)
-                zones[i] = (zone, all_zones)
+            if len(log_file) > 0:
+                zone =
+                for file in log_file:
+                    log_path = os.path.join(path, file)
+                    zone, all_zones = extract_zone_performance_from_log_file(log_path)
+                    zones[i] = (zone, all_zones)
             else:
-                zones[i] = (np.zeros(4,2), (0, 0)) # if no log file is present, return a null array
+                zones[i] = np.nan  # if no log file is present, return nan to later filter it out
 
             break # only do one step with os.walk
     return dates, speed, zones
@@ -116,7 +117,7 @@ def extract_zone_performance_from_log_file(path):
                 curr_rew_zone = None  # return reward zone number to None
             # a valve has been opened...
             elif 'Dev1/port0/line0-B' in line[-1]:
-                if in_rew_zone:
+                if in_rew_zone and not already_licked:
                     temp_zones[curr_rew_zone, 1] += 1
     all_zones = (np.sum(zone[:, 0]), np.sum(zone[:, 1]))
 

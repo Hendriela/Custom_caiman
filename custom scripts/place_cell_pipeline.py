@@ -13,6 +13,10 @@ from caiman.source_extraction.cnmf import cnmf
 import re
 import pickle
 import numpy as np
+import matplotlib.pyplot as plt
+import place_cell_class as pc
+
+#%% File and directory handling
 
 
 def set_file_paths():
@@ -26,7 +30,7 @@ def set_file_paths():
     return root_dir
 
 
-def save_cnmf(cnm, root=None, path=None):
+def save_cnmf(cnm, root=None, path=None, overwrite=False, verbose=True):
     if root is None and path is not None:
         save_path = path
     elif root is not None and path is None:
@@ -34,7 +38,7 @@ def save_cnmf(cnm, root=None, path=None):
     else:
         print('Give either a root directory OR a complete path! CNM save directoy ambiguous.')
         return
-    if os.path.isfile(save_path):
+    if os.path.isfile(save_path) and not overwrite:
         answer = None
         while answer not in ("y", "n", 'yes', 'no'):
             answer = input(f"File [...]{save_path[-40:]} already exists!\nOverwrite? [y/n] ")
@@ -48,17 +52,25 @@ def save_cnmf(cnm, root=None, path=None):
                 return None
             else:
                 print("Please enter yes or no.")
+    else:
+        if verbose:
+            print('Saving...')
+            cnm.save(save_path)
+            print(f'CNM results successfully saved at {save_path}')
+        else:
+            cnm.save(save_path)
 
 
 def load_cnmf(root):
-    cnm_filename = 'cnm_results.hdf5'
+    cnm_filename = 'cnm_pre_selection.hdf5'
     cnm_filepath = os.path.join(root, cnm_filename)
     cnm_file = glob(cnm_filepath)
     if len(cnm_file) < 1:
         print(f'No file with the name file found in {root}.')
+        return
     else:
         print(f'Loading file {cnm_file[0]}...')
-    return cnmf.load_CNMF(cnm_file[0])
+        return cnmf.load_CNMF(cnm_file[0])
 
 
 def load_mmap(root):
@@ -71,14 +83,74 @@ def load_mmap(root):
     mmap_file = glob(root + r'\\*.mmap')
     if len(mmap_file) > 1:
         print(f'Found more than one mmap file in {root}. Movie could not be loaded.')
+        return
     elif len(mmap_file) < 1:
         print(f'No mmap file found in {root}.')
+        return
     else:
         print(f'Loading file {mmap_file[0]}...')
         Yr, dims, T = cm.load_memmap(mmap_file[0])
         images = np.reshape(Yr.T, [T] + list(dims), order='F')
-    return mmap_file[0], images
+        return mmap_file[0], images
 
+
+def load_pcf(root):
+    pcf_path = glob(root + r'\\pcf_results')
+    if len(pcf_path) < 1:
+        print(f'No pcf file found in {pcf_path}.')
+        return
+    else:
+        with open(pcf_path[0], 'rb') as file:
+            obj = pickle.load(file)
+        return obj
+
+#%% CNMF wrapper functions
+
+
+def whole_caiman_pipeline(root, cnm_params, pcf_params, dview, make_lcm=False):
+
+    print(f'\nStarting processing of {root}...')
+    mmap_file, images = load_mmap(root)
+    cnm_params = cnm_params.change_params({'fnames': mmap_file})
+    pcf_params['root'] = root
+    cnm = run_source_extraction(images, cnm_params, dview=dview)
+    save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False)
+    if make_lcm:
+        print('\tFinished source extraction, now calculating local correlation map...')
+        if images.shape[0] > 40000:
+            half_images = images[::2]
+            lcm = get_local_correlation(half_images)
+        else:
+            lcm = get_local_correlation(images)
+        cnm.estimates.Cn = lcm
+    print('\tFinished, now evaluating components...')
+    cnm = run_evaluation(images, cnm, dview=dview)
+    save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), overwrite=True, verbose=False)
+    cnm.estimates.select_components(use_object=True)
+    print('\tFinished, now creating dF/F trace...')
+    cnm.estimates.detrend_df_f(quantileMin=8, frames_window=500)
+    if make_lcm:
+        cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
+        plt.tight_layout()
+        fig = plt.gcf()
+        fig.set_size_inches((10, 10))
+        plt.savefig(os.path.join(root, 'components.png'))
+        plt.close()
+    print('\tFinished, now searching for place cells...')
+    pcf = pc.PlaceCellFinder(cnm, pcf_params)
+    # split traces into trials
+    pcf.split_traces_into_trials()
+    # create significant-transient-only traces
+    pcf.create_transient_only_traces()
+    # align the frames to the VR position using merged behavioral data
+    pcf.save()
+    pcf.import_behavior_and_align_traces()
+    # look for place cells
+    pcf.find_place_cells()
+    # save pcf object
+    pcf.plot_all_place_cells(save=True)
+    pcf.save(overwrite=True)
+    print('Finished!')
 
 def get_local_correlation(images):
     """
@@ -95,6 +167,7 @@ def run_evaluation(images, cnm, dview):
     cnm.estimates.evaluate_components(images, params=cnm.params, dview=dview)
     return cnm
 
+
 def run_source_extraction(images, params, dview):
     """
     Wrapper function for CaImAn source extraction. Takes the mmap movie file and the CNMFParams object to perform
@@ -103,12 +176,15 @@ def run_source_extraction(images, params, dview):
     :param params: CNMFParams object holding all required parameters
     :return cnm object with extracted components
     """
-
     params = params.change_params({'p': 0})
     cnm = cnmf.CNMF(params.get('patch', 'n_processes'), params=params, dview=dview)
     cnm = cnm.fit(images)
     cnm.params.change_params({'p': params.get('temporal', 'p')})
-    return cnm.refit(images, dview=dview)
+    cnm2 = cnm.refit(images, dview=dview)
+    cnm2.estimates.dims = (512, 512)
+    return cnm2
+
+#%% Motion correction wrapper functions
 
 
 def motion_correction(root, params, dview, remove_f_order=True):
@@ -138,7 +214,7 @@ def motion_correction(root, params, dview, remove_f_order=True):
     if len(dir_list) > 0:
 
         if remove_f_order:
-            print('F-order files will be removed after processing.')
+            print('\nF-order files will be removed after processing.')
 
         print(f'\nFound {len(dir_list)} sessions that have not yet been motion corrected:')
         for session in dir_list:
@@ -175,26 +251,3 @@ def motion_correction(root, params, dview, remove_f_order=True):
     return mmap_list, dview
 
 
-def save_pcf(pcf):
-    save_path = os.path.join(pcf.params['root'], 'pcf_results')
-    if os.path.isfile(save_path):
-        answer = None
-        while answer not in ("y", "n", 'yes', 'no'):
-            answer = input(f"File [...]{save_path[-40:]} already exists!\nOverwrite? [y/n] ")
-            if answer == "yes" or answer == 'y':
-                print('Saving...')
-                with open(save_path, 'wb') as file:
-                    pickle.dump(pcf, file)
-                print(f'PCF results successfully saved at {save_path}')
-                return save_path
-            elif answer == "no" or answer == 'n':
-                print('Saving cancelled.')
-                return None
-            else:
-                print("Please enter yes or no.")
-
-
-def load_pcf(path):
-    with open(path, 'rb') as file:
-        obj = pickle.load(file)
-    return obj

@@ -24,21 +24,23 @@ def load_file(path):
         return np.loadtxt(file_path[0])
 
 
-def progress(count, total, status=''):
+def progress(count, total, status='', percent=True):
     """
     Displays an automatically updating progress bar in the console, showing progress of a for-loop.
     :param count: int, current iteration of the loop (current progress)
     :param total: int, maximum iteration of the loop (end point)
     :param status: str, status message displayed next to the progress bar
+    :param percent: bool, flag whether progress should be displayed as percentage or absolute fraction
     :return:
     """
     bar_len = 20
     filled_len = int(round(bar_len * count / float(total)))
-
     percents = round(100.0 * count / float(total), 1)
     bar = '=' * filled_len + '-' * (bar_len - filled_len)
-
-    sys.stdout.write('[%s] %s%s ...%s\r' % (bar, percents, '%', status))
+    if percent:
+        sys.stdout.write('[%s] %s%s ...%s\r' % (bar, percents, '%', status))
+    else:
+        sys.stdout.write('[%s] %s%s ...%s\r' % (bar, count, f'/{total}', status))
     sys.stdout.flush()
 
 
@@ -64,17 +66,17 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False)
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
                 if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:  # check if trial folder has been processed
                     if len(glob(step[0] + r'\\*.tif')) > 0:  # check if there is an imaging file for this trial
-                        above_folder = os.path.join(*step[0].split('\\')[:-1])
-                        if above_folder not in processed_sessions:
-                            if len(glob(step[0] + r'\\*.mmap')) > 0:    # check if the movie is been motion corrected
-                                align_folder_files(above_folder, performance_check=performance_check,
+                        above_2_folder = os.path.join(*step[0].split('\\')[:-2])
+                        above_1_folder = os.path.join(*step[0].split('\\')[:-1])
+                        if above_2_folder not in processed_sessions:
+                            if len(glob(above_1_folder + r'\\*.mmap')) > 0:    # check if the movie is been motion corrected
+                                align_folder_files(above_2_folder, performance_check=performance_check,
                                                    verbose=verbose, mmap=True)
-                                processed_sessions.append(above_folder)
-                                print(processed_sessions)
+                                processed_sessions.append(above_2_folder)
                             else:
-                                align_folder_files(above_folder, performance_check=performance_check,
+                                align_folder_files(above_2_folder, performance_check=performance_check,
                                                    verbose=verbose, mmap=False)
-                                processed_sessions.append(above_folder)
+                                processed_sessions.append(above_2_folder)
                     else:
                         if step[0] in processed_sessions:
                             align_nonfolder_files(step[0], performance_check=performance_check, verbose=verbose)
@@ -165,8 +167,9 @@ def align_nonfolder_files(root, performance_check=True, verbose=False):
 def align_folder_files(root, performance_check=True, verbose=False, mmap=False):
     """
     Wrapper for sessions with imaging data structure (one folder per session that includes one folder per trial).
-    :param root: str, path to the session folder (includes folders of individual trials)
+    :param root: str, path to the session folder (includes folders of networks with individual trial folders)
     :param performance_check: boolean flag whether performance should be checked during alignment
+    :param verbose: boolean flag whether unnecessary status updates should be printed to the console
     :param mmap: boolean flag if frame count can be taken from mmap file or if tif file has to be read
     :return: saves merged_behavior.txt for each aligned trial
     """
@@ -177,7 +180,7 @@ def align_folder_files(root, performance_check=True, verbose=False, mmap=False):
     def natural_keys(text):
         return [atoi(c) for c in re.split('(\d+)', text)]
 
-    folder_list = glob(root+'/*/')  # find list of trial folders in root directory
+    folder_list = glob(root+'/*/*/')  # find list of trial folders in root directory
     folder_list.sort(key=natural_keys)
 
     if performance_check:
@@ -271,13 +274,17 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
                (position[0, 0] - earliest_time) / 1000,
                (trigger[0, 0] - earliest_time) / 1000)
     # apply offsets to the data so that millisecond-time stamps are aligned, and remove artifact data points
-    encoder[:, 0] = encoder[:, 0] + offsets[0]
-    encoder[:, 0] = [ceil(x * 1000) / 1000 for x in encoder[:, 0]]
-    encoder = np.delete(encoder, 0, 0)
+    encoder[:, 0] = encoder[:, 0] + offsets[0]  # apply offset
+    encoder[:, 0] = [ceil(x * 1000) / 1000 for x in encoder[:, 0]]  # round up time stamp to ms scale
+    encoder = np.delete(encoder, 0, 0)  # remove first row (master timestamp, unnecessary for further processing)
+
     position[:, 0] = position[:, 0] + offsets[1]
     position[:, 0] = [ceil(x * 1000) / 1000 for x in position[:, 0]]
     pos_to_be_del = np.append([0, 1], np.arange(np.argmax(position[:, 1])+1, position.shape[0]))
-    position = np.delete(position, pos_to_be_del, 0)
+    position = np.delete(position, pos_to_be_del, 0)   # remove all data points after maximum position (end of corridor)
+    position[position[:, 1] < -10] = -10    # cap position values to -10 and 110
+    position[position[:, 1] > 110] = 110
+
     trigger[:, 0] = trigger[:, 0] + offsets[2]
     trigger[:, 0] = [ceil(x * 100000) / 100000 for x in trigger[:, 0]]
     trigger = np.delete(trigger, 0, 0)
