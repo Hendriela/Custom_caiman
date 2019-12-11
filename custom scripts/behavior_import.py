@@ -71,14 +71,13 @@ def align_behavior(root, performance_check=False, overwrite=False, verbose=False
                     else:
                         align_files(step[0], performance_check=performance_check, imaging=False, verbose=verbose)
                         processed_sessions.append(step[0])
-                elif len(glob(step[0] + r'\\merged*.txt')) < len(glob(step[0] + r'\\Encoder*.txt')):
-                    print(f'\nSession {step[0]} has been processed incompletely, remove files and start again!')
                 else:
                     if verbose:
                         print(f'\nSession {step[0]} already processed.')
             else:
                 if verbose:
                     print(f'No behavioral files in {step[0]}.')
+    print('\nEverything processed!')
 
 
 def align_files(root, imaging, performance_check=False, verbose=False):
@@ -95,7 +94,14 @@ def align_files(root, imaging, performance_check=False, verbose=False):
         """
         Finds a file with the same timestamp from a list of files.
         """
-        matched_file = [x for x in file_list if tstamp+3 > int(x.split('_')[-1][:-4]) > tstamp-3]
+        time_format = '%H%M%S'
+        time_stamp = datetime.strptime(str(tstamp), time_format)
+        matched_file = []
+        for filename in file_list:
+            curr_stamp = datetime.strptime(filename.split('_')[-1][:-4], time_format)
+            diff = time_stamp-curr_stamp
+            if abs(diff.total_seconds()) < 2:
+                matched_file.append(filename)
         if len(matched_file) == 0:
             print(f'No files with timestamp {tstamp} found in {file_list}!')
             return
