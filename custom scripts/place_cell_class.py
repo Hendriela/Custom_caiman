@@ -63,7 +63,7 @@ class PlaceCellFinder:
                        'trans_time': 0.2,       # fraction of the (unbinned!) signal while the mouse is located in
                                                 # the place field that should consist of significant transients
                        'split_size': 50,        # size in frames of bootstrapping segments
-                       'track_length': 170,     # length in cm of the VR corridor track
+                       'track_length': 400,     # length in cm of the VR corridor track
                     # The following parameters are calculated during analysis and do not have to be set by the user
                        'frame_list': None,      # list of number of frames in every trial in this session
                        'n_neuron': None,        # number of neurons that were detected in this session

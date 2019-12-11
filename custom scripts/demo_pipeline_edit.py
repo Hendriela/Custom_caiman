@@ -67,33 +67,13 @@ def main():
 
 #%% Select file(s) to be processed (download if not present)
     root = '/Users/hheiser/Desktop/testing data/chronic_M2N3/0d_baseline/channel1'
-    fnames = [r'E:\PhD\Data\FluoCheck_20191029\M19\N2_X490_Y616_Z79.tif']
-"""
-    fnames = [r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00011.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00012.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00013.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00014.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00015.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00016.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00017.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00018.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00019.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00020.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00021.tif',
-              r'E:\PhD\Data\CA1\Maus 3 13.08.2019\file_00022.tif']
+    fnames = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191208\N1\1\file_00003.tif',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191208\N1\2\file_00004.tif',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191208\N1\3\file_00005.tif',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191208\N1\4\file_00006.tif',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191208\N1\5\file_00007.tif',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191208\N1\6\file_00008.tif']
 
-    fnames = [r'E:\PhD\Data\DG\M14_20191014\N1\1\file_00001.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N1\2\file_00002.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N1\3\file_00003.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N1\4\file_00004.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N1\5\file_00005.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N1\6\file_00006.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N1\7\file_00007.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N1\8\file_00008.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N1\9\file_00009.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N1\10\file_00010.tif',
-              r'E:\PhD\Data\DG\M14_20191014\N1\11\file_00011.tif']
-"""
 #%% First setup some parameters for data and motion correction
 
     # dataset dependent parameters

@@ -99,7 +99,7 @@ mmap_files = [[r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20
 #%% Align behavioral data
 #behavior.align_files(folder_list, performance_check=True)
 for root in roots:
-    behavior.align_behavior(root, performance_check=True, overwrite=True, verbose=False)
+    behavior.align_behavior(root, performance_check=False, verbose=False)
 
 # evaluate behavior
 mouse_list = []

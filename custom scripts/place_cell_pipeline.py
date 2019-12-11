@@ -108,7 +108,16 @@ def load_pcf(root):
 
 
 def whole_caiman_pipeline(root, cnm_params, pcf_params, dview, make_lcm=False):
-
+    """
+    Wrapper for the complete caiman and place cell pipeline. Performs source extraction, evaluation and place cell
+    search for one session/network (one mmap file).
+    :param root: directory of the session, has to include the complete mmap file of that session
+    :param cnm_params: CNMFParams object holding all parameters for CaImAn
+    :param pcf_params: dict holding all parameters for the place cell finder
+    :param dview: pointer for the CaImAn cluster. Cluster has to be started before calling this function.
+    :param make_lcm: bool flag whether a local correlation map should be created and saved together with the cnm object.
+    LCM is necessary for plotting, but can take long to compute and runs the system out of memory for files > ~45 GB.
+    """
     print(f'\nStarting processing of {root}...')
     mmap_file, images = load_mmap(root)
     cnm_params = cnm_params.change_params({'fnames': mmap_file})
@@ -187,13 +196,14 @@ def run_source_extraction(images, params, dview):
 #%% Motion correction wrapper functions
 
 
-def motion_correction(root, params, dview, remove_f_order=True):
+def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=True):
     """
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
     to save disk space. Function automatically finds sessions and performs correction on whole sessions separately.
     :param root: str; path in which imaging sessions are searched (files should be in separate trial folders)
     :param params: cnm.params object that holds all parameters necessary for motion correction
     :param remove_f_order: bool flag whether F-order files should be removed to save disk space
+    :param remove_c_order: bool flag whether single-trial C-order files should be removed to save disk space
     :return mmap_list: list that includes paths of mmap files for all processed sessions
     """
     def atoi(text):
@@ -205,9 +215,9 @@ def motion_correction(root, params, dview, remove_f_order=True):
     # First, get a list of all folders that include contiguous imaging sessions (have to be motion corrected together)
     dir_list = []
     for step in os.walk(root):
-        if len(glob(step[0] + r'\\file*.tif')) > 0 and len(glob(step[0] + r'\\*.mmap')) == 0:
+        if len(glob(step[0] + r'\\file*.tif')) > 0:
             up_dir = step[0].rsplit(os.sep, 1)[0]
-            if up_dir not in dir_list:
+            if len(glob(up_dir + r'\\memmap__d1_*.mmap')) == 0 and up_dir not in dir_list:
                 dir_list.append(up_dir)   # this makes a list of all folders that contain single-trial imaging folders
 
     mmap_list = []
@@ -215,6 +225,8 @@ def motion_correction(root, params, dview, remove_f_order=True):
 
         if remove_f_order:
             print('\nF-order files will be removed after processing.')
+        if remove_c_order:
+            print('Single-trial C-order files will be removed after processing.')
 
         print(f'\nFound {len(dir_list)} sessions that have not yet been motion corrected:')
         for session in dir_list:
@@ -222,6 +234,7 @@ def motion_correction(root, params, dview, remove_f_order=True):
 
         # Then, perform motion correction for each of the session
         for session in dir_list:
+
             # restart cluster
             cm.stop_server(dview=dview)
             c, dview, n_processes = cm.cluster.setup_cluster(backend='local', n_processes=None, single_thread=False)
@@ -236,12 +249,15 @@ def motion_correction(root, params, dview, remove_f_order=True):
             border_to_0 = 0 if mc.border_nan == 'copy' else mc.border_to_0
             # memory map the file in order 'C'
             print(f'Finished motion correction. Starting to save files in C-order...')
-            fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C', border_to_0=border_to_0)  # exclude borders
+            fname_new, fnames_single = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C', border_to_0=border_to_0)
             mmap_list.append(fname_new)
 
             if remove_f_order:
                 for file in mc.fname_tot_els:
                     #print(f'Removing file {file}...')
+                    os.remove(file)
+            if remove_c_order:
+                for file in fnames_single:
                     os.remove(file)
             print('Finished!')
 
