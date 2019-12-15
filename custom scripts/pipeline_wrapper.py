@@ -62,7 +62,7 @@ root = pipe.set_file_paths()
 for root in roots:
     if root == r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191129a':
         opts.change_params({'dxy': (0.83, 0.76)})
-    motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True)
+    motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True, remove_c_order=True)
 
 # save C-order files
 mmap_files = [[r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\1\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_3883_.mmap',

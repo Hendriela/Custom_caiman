@@ -148,23 +148,21 @@ def main():
     # during motion correction, although be careful about the components near
     # the boundaries
 
-    mmap_file = [r'E:\PhD\Data\DG\M14_20191014\N1\1\file_00001_els__d1_512_d2_512_d3_1_order_F_frames_900_.mmap',
-                 r'E:\PhD\Data\DG\M14_20191014\N1\2\file_00002_els__d1_512_d2_512_d3_1_order_F_frames_5927_.mmap',
-                 r'E:\PhD\Data\DG\M14_20191014\N1\3\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_2430_.mmap',
-                 r'E:\PhD\Data\DG\M14_20191014\N1\4\file_00004_els__d1_512_d2_512_d3_1_order_F_frames_1814_.mmap',
-                 r'E:\PhD\Data\DG\M14_20191014\N1\5\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_2504_.mmap',
-                 r'E:\PhD\Data\DG\M14_20191014\N1\6\file_00006_els__d1_512_d2_512_d3_1_order_F_frames_4624_.mmap',
-                 r'E:\PhD\Data\DG\M14_20191014\N1\7\file_00007_els__d1_512_d2_512_d3_1_order_F_frames_6132_.mmap',
-                 r'E:\PhD\Data\DG\M14_20191014\N1\8\file_00008_els__d1_512_d2_512_d3_1_order_F_frames_2168_.mmap',
-                 r'E:\PhD\Data\DG\M14_20191014\N1\9\file_00009_els__d1_512_d2_512_d3_1_order_F_frames_1953_.mmap',
-                 r'E:\PhD\Data\DG\M14_20191014\N1\10\file_00010_els__d1_512_d2_512_d3_1_order_F_frames_2670_.mmap',
-                 r'E:\PhD\Data\DG\M14_20191014\N1\11\file_00011_els__d1_512_d2_512_d3_1_order_F_frames_3817_.mmap']
+    mmap_file = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a\N4\1\file_00001_els__d1_512_d2_512_d3_1_order_F_frames_2028_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a\N4\3\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_1398_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a\N4\4\file_00004_els__d1_512_d2_512_d3_1_order_F_frames_1345_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a\N4\5\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_1577_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a\N4\6\file_00006_els__d1_512_d2_512_d3_1_order_F_frames_2205_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a\N4\7\file_00008_els__d1_512_d2_512_d3_1_order_F_frames_2060_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a\N4\8\file_00009_els__d1_512_d2_512_d3_1_order_F_frames_1733_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a\N4\9\file_00010_els__d1_512_d2_512_d3_1_order_F_frames_1813_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191123a\N4\10\file_00011_els__d1_512_d2_512_d3_1_order_F_frames_3006_.mmap']
 
     fname_new = r'E:\PhD\Data\DG\M14_20191014\N1\memmap__d1_512_d2_512_d3_1_order_C_frames_34939_.mmap'
 
     # memory map the file in order 'C'
-    fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C',
-                               border_to_0=border_to_0)  # exclude borders
+    fname_new = cm.save_memmap(mmap_file, base_name='memmap_', order='C',
+                               border_to_0=0)  # exclude borders
 
     # now load the file
     Yr, dims, T = cm.load_memmap(fname_new)

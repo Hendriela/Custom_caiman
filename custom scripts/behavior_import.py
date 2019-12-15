@@ -65,7 +65,7 @@ def align_behavior(root, performance_check=False, overwrite=False, verbose=False
         if len(step[2]) > 0:   # check if there are files in the current folder
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
                 if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite and step[0] not in processed_sessions:  # check if trial folder has been processed
-                    if len(glob(step[0] + r'\\*.tif')) > 0:  # check if there is an imaging file for this trial
+                    if len(glob(step[0] + r'\\file*.tif')) > 0:  # check if there is an imaging file for this trial
                         align_files(step[0], performance_check=performance_check, imaging=True, verbose=verbose)
                         processed_sessions.append(step[0])
                     else:
@@ -111,7 +111,8 @@ def align_files(root, imaging, performance_check=False, verbose=False):
         else:
             return matched_file[0]
 
-    print(f'\nStart processing session {root}...')
+    if not imaging or root.split('\\')[-1] == '1':
+        print(f'\nStart processing session {root}...')
     enc_files = glob(root + r'\\Encoder*.txt')
     pos_files = glob(root + r'\\TCP*.txt')
     trig_files = glob(root + r'\\TDT TASK*.txt')

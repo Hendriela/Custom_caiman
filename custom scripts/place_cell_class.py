@@ -352,6 +352,7 @@ class PlaceCellFinder:
         :return: updated PCF object with place cell results
         """
         self.params['place_results'] = np.zeros((self.params['n_neuron'], 5), dtype='bool')
+        self.place_cells = []
         for i in range(self.bin_avg_activity.shape[0]):
             self.find_place_field_neuron(self.bin_avg_activity[i, :], i)
             progress(i, self.bin_avg_activity.shape[0] - 1, status='Processing neurons...', percent=False)
@@ -361,7 +362,7 @@ class PlaceCellFinder:
         """
         Performs place field analysis (smoothing, pre-screening and criteria application) on a single neuron data set.
 
-        :param data: 1D array, binned and across-trial-averaged dF/F data of one neuron, e.g. from bin_avg_activity
+        :param data: 1D array, binned and across-trial-averaged dF/F data of one neuron, e.g. from bin_avg_activity[i,:]
         :param neuron_id: ID of the neuron that the data belongs to (its index in session list)
         :return: updated PCF object with filled-in place_cells and place_cells_reject
         """
@@ -510,7 +511,7 @@ class PlaceCellFinder:
             curr_place_frames = (np.sum(self.params['bin_frame_count'][:place_field[0], trial]),
                                  np.sum(self.params['bin_frame_count'][:place_field[-1] + 1, trial]))
             # attach the transient-only trace in the place field during this trial to the array
-            place_frames_trace.append(self.session_trans[neuron_id][trial][curr_place_frames[0]:curr_place_frames[1] + 1])
+            place_frames_trace.append(self.session[neuron_id][trial][curr_place_frames[0]:curr_place_frames[1] + 1])
 
         # create one big 1D array that includes all frames where the mouse was located in the place field
         # as this is the transient-only trace, we make it boolean, with False = no transient and True = transient
@@ -680,14 +681,14 @@ class PlaceCellFinder:
         # trace_fig.tight_layout()
         plt.show()
 
-    def plot_all_place_cells(self, save=False):
+    def plot_all_place_cells(self, save=False, show_neuron_id=False, show_place_fields=True):
         """
         Plots all place cells in the data set by line graph and pcolormesh.
         :param save: bool flag whether the figure should be automatically saved in the root and closed afterwards.
+        :param show_neuron_id: bool flag whether neuron ID should be plotted next to the line graphs
+        :param show_place_fields: bool flag whether place fields should be marked red in the line graph
         :return:
         """
-        # todo: mark positions of place fields in graph
-        # todo: make x-axis labels reflect actual VR position, not bins
         # TODO: scale bars?
 
         place_cell_idx = [x[0] for x in self.place_cells]
@@ -710,6 +711,10 @@ class PlaceCellFinder:
             curr_trace = traces[curr_neur, np.newaxis]
             trace_ax[i, 1].pcolormesh(curr_trace)
             trace_ax[i, 0].plot(traces[curr_neur])
+            if show_place_fields:
+                curr_place_fields = self.place_cells[curr_neur][1]
+                for field in curr_place_fields:
+                    trace_ax[i, 0].plot(field, traces[curr_neur][field], color='red')
             if i == trace_ax[:, 0].size - 1:
                 trace_ax[i, 0].spines['top'].set_visible(False)
                 trace_ax[i, 0].spines['right'].set_visible(False)
@@ -719,10 +724,17 @@ class PlaceCellFinder:
             else:
                 trace_ax[i, 0].axis('off')
                 trace_ax[i, 1].axis('off')
-            trace_ax[i, 0].set_title(f'Neuron {place_cell_idx[curr_neur]}', x=-0.1, y=0)
+            if show_neuron_id:
+                trace_ax[i, 0].set_title(f'Neuron {place_cell_idx[curr_neur]}', x=-0.1, y=-0.1)
+
+        # set x ticks to VR position, not bin number
         trace_ax[i, 0].set_xlim(0, traces.shape[1])
-        trace_ax[i, 0].set_xlabel('VR position', fontsize=12)
-        trace_ax[i, 1].set_xlabel('VR position', fontsize=12)
+        x_locs, labels = plt.xticks()
+        plt.xticks(x_locs, (x_locs*self.params['bin_length']).astype(int), fontsize=15)
+        plt.sca(trace_ax[i, 0])
+        plt.xticks(x_locs, (x_locs*self.params['bin_length']).astype(int), fontsize=15)
+        trace_ax[i, 0].set_xlabel('VR position [cm]', fontsize=15)
+        trace_ax[i, 1].set_xlabel('VR position [cm]', fontsize=15)
         trace_fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
         plt.show()
         if save:

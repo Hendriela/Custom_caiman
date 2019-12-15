@@ -249,7 +249,7 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=T
             border_to_0 = 0 if mc.border_nan == 'copy' else mc.border_to_0
             # memory map the file in order 'C'
             print(f'Finished motion correction. Starting to save files in C-order...')
-            fname_new, fnames_single = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C', border_to_0=border_to_0)
+            fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C', border_to_0=border_to_0)
             mmap_list.append(fname_new)
 
             if remove_f_order:
@@ -257,8 +257,13 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=T
                     #print(f'Removing file {file}...')
                     os.remove(file)
             if remove_c_order:
-                for file in fnames_single:
-                    os.remove(file)
+                temp_file = os.path.join(*file_list[0].split('\\')[:-1], 'temp_filenames.txt')
+                with open(temp_file, 'r') as temp:
+                    lines = temp.readlines()
+                    for line in lines:
+                        path = line[:-1]
+                        os.remove(path)
+                os.remove(temp_file)
             print('Finished!')
 
     else:
