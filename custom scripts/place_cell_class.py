@@ -13,6 +13,7 @@ from math import ceil
 import os
 import re
 from behavior_import import progress
+from ScanImageTiffReader import ScanImageTiffReader
 
 
 class PlaceCellFinder:
@@ -53,12 +54,12 @@ class PlaceCellFinder:
                        'trans_length': 0.5,     # minimum length in seconds of a significant transient
                        'trans_thresh': 4,       # factor of sigma above which a transient is significant; int or
                                                 # tuple of int (for different start and end of transients)
-                       'bin_length': 2,         # length in cm VR distance of each bin in which to group the dF/F traces
+                       'bin_length': 5,         # length in cm VR distance of each bin in which to group the dF/F traces
                        'bin_window_avg': 3,     # sliding window of bins (left and right) for trace smoothing
                        'bin_base': 0.25,        # fraction of lowest bins that are averaged for baseline calculation
                        'place_thresh': 0.25,    # threshold of being considered for place fields, calculated
                                                 # from difference between max and baseline dF/F
-                       'min_pf_size_cm': 10,    # minimum size in cm for a place field (should be 15-20 cm)
+                       'min_pf_size': 15,    # minimum size in cm for a place field (should be 15-20 cm)
                        'fluo_infield': 7,       # factor above which the mean DF/F in the place field should lie compared to outside the field
                        'trans_time': 0.2,       # fraction of the (unbinned!) signal while the mouse is located in
                                                 # the place field that should consist of significant transients
@@ -102,15 +103,19 @@ class PlaceCellFinder:
             self.params['n_bins'] = int(self.params['track_length'] / self.params['bin_length'])
         else:
             raise Exception('Bin_length has to be a divisor of track_length!')
-        self.params['min_bin_size'] = int(ceil(self.params['min_pf_size_cm'] / self.params['bin_length']))
+        self.params['min_bin_size'] = int(ceil(self.params['min_pf_size'] / self.params['bin_length']))
 
         # find directories, files and frame counts
         self.params['frame_list'] = []
         for trial in self.params['trial_list']:
-            if len(glob.glob(trial+'//*.mmap')) != 0:
+            if len(glob.glob(trial+'//*.mmap')) == 1:
                 self.params['frame_list'].append(int(glob.glob(trial+'//*.mmap')[0].split('_')[-2]))
+            elif len(glob.glob(trial+'//*.tif')) == 1:
+                with ScanImageTiffReader(glob.glob(trial+'//*.tif')[0]) as tif:
+                    frame_count = tif.shape()[0]
+                self.params['frame_list'].append(frame_count)
             else:
-                print(f'No memmap files found at {trial}. Run motion correction before initializing PCF object!')
+                print(f'No movie files found at {trial}!')
 
         # find mouse number and session
         try:
@@ -121,6 +126,29 @@ class PlaceCellFinder:
             self.params['mouse'] = self.params['root'].split('/')[-3]
             self.params['session'] = self.params['root'].split('/')[-2]
             self.params['network'] = self.params['root'].split('/')[-1]
+
+    def change_param(self, new_params):
+        """
+        :param new_params: Parameter(s) that should be changed in dict form (key: new_value)
+        """
+        changed_params = []
+        if type(new_params) != dict:
+            print('To change a parameter, give the key and the new value in dict form!')
+            return
+        for key in new_params.keys():
+            if self.params[key] != new_params[key]:
+                self.params[key] = new_params[key]
+                changed_params.append(key)
+
+        # check if any further parameters have to be re-calculated
+        if any(key in changed_params for key in ['track_length', 'bin_length', 'min_pf_size']):
+            if self.params['track_length'] % self.params['bin_length'] == 0:
+                self.params['n_bins'] = int(self.params['track_length'] / self.params['bin_length'])
+            else:
+                raise Exception('Bin_length has to be a divisor of track_length!')
+            self.params['min_bin_size'] = int(ceil(self.params['min_pf_size'] / self.params['bin_length']))
+            if self.session is not None:
+                self.import_behavior_and_align_traces()
 
     def split_traces_into_trials(self):
         """
@@ -511,7 +539,7 @@ class PlaceCellFinder:
             curr_place_frames = (np.sum(self.params['bin_frame_count'][:place_field[0], trial]),
                                  np.sum(self.params['bin_frame_count'][:place_field[-1] + 1, trial]))
             # attach the transient-only trace in the place field during this trial to the array
-            place_frames_trace.append(self.session[neuron_id][trial][curr_place_frames[0]:curr_place_frames[1] + 1])
+            place_frames_trace.append(self.session_trans[neuron_id][trial][curr_place_frames[0]:curr_place_frames[1] + 1])
 
         # create one big 1D array that includes all frames where the mouse was located in the place field
         # as this is the transient-only trace, we make it boolean, with False = no transient and True = transient
@@ -681,25 +709,39 @@ class PlaceCellFinder:
         # trace_fig.tight_layout()
         plt.show()
 
-    def plot_all_place_cells(self, save=False, show_neuron_id=False, show_place_fields=True):
+    def plot_all_place_cells(self, save=False, show_neuron_id=False, show_place_fields=True, sort='field'):
         """
         Plots all place cells in the data set by line graph and pcolormesh.
         :param save: bool flag whether the figure should be automatically saved in the root and closed afterwards.
         :param show_neuron_id: bool flag whether neuron ID should be plotted next to the line graphs
         :param show_place_fields: bool flag whether place fields should be marked red in the line graph
+        :param sort: str, how should the place cells be sorted? 'Max' sorts them for the earliest location of the
+        maximum in each trace, 'field' sorts them for the earliest place field.
         :return:
         """
         # TODO: scale bars?
 
         place_cell_idx = [x[0] for x in self.place_cells]
+        #place_cell_idx.remove(548)
+        #place_cell_idx.remove(340)
+        #todo: remove cells that have a outlier-high activity maximum?
         traces = self.bin_avg_activity[place_cell_idx]
         n_neurons = traces.shape[0]
 
-        max_bins = []
-        for i in range(n_neurons):
-            max_bins.append((i, np.argmax(traces[i, :])))
+        # figure out y-axis limit by rounding the maximum value in traces up to the next 0.05 step
+        max_y = 0.05 * ceil(traces.max() / 0.05)
 
-        max_bins_sorted = sorted(max_bins, key=lambda tup: tup[1])
+        # sort neurons after different criteria
+        bins = []
+        if sort == 'max':
+            for i in range(n_neurons):
+                bins.append((i, np.argmax(traces[i, :])))
+        elif sort == 'field':
+            for i in range(n_neurons):
+                bins.append((i, self.place_cells[i][1][0][0])) # get the first index of the first place field
+        else:
+            print(f'Cannot understand sorting command {sort}.')
+        bins_sorted = sorted(bins, key=lambda tup: tup[1])
 
         trace_fig, trace_ax = plt.subplots(nrows=n_neurons, ncols=2, sharex=True, figsize=(18, 10))
         mouse = self.params['mouse']
@@ -707,10 +749,11 @@ class PlaceCellFinder:
         network = self.params['network']
         trace_fig.suptitle(f'All place cells of mouse {mouse}, session {session}, network {network}', fontsize=16)
         for i in range(n_neurons):
-            curr_neur = max_bins_sorted[i][0]
+            curr_neur = bins_sorted[i][0]
             curr_trace = traces[curr_neur, np.newaxis]
-            trace_ax[i, 1].pcolormesh(curr_trace)
+            img = trace_ax[i, 1].pcolormesh(curr_trace, vmax=max_y, cmap='jet')
             trace_ax[i, 0].plot(traces[curr_neur])
+            trace_ax[i, 0].set_ylim(top=max_y)
             if show_place_fields:
                 curr_place_fields = self.place_cells[curr_neur][1]
                 for field in curr_place_fields:
@@ -728,13 +771,18 @@ class PlaceCellFinder:
                 trace_ax[i, 0].set_title(f'Neuron {place_cell_idx[curr_neur]}', x=-0.1, y=-0.1)
 
         # set x ticks to VR position, not bin number
-        trace_ax[i, 0].set_xlim(0, traces.shape[1])
+        trace_ax[-1, 0].set_xlim(0, traces.shape[1])
         x_locs, labels = plt.xticks()
         plt.xticks(x_locs, (x_locs*self.params['bin_length']).astype(int), fontsize=15)
-        plt.sca(trace_ax[i, 0])
+        plt.sca(trace_ax[-1, 0])
         plt.xticks(x_locs, (x_locs*self.params['bin_length']).astype(int), fontsize=15)
-        trace_ax[i, 0].set_xlabel('VR position [cm]', fontsize=15)
-        trace_ax[i, 1].set_xlabel('VR position [cm]', fontsize=15)
+
+        # plot color bar
+        #TODO add color bar
+
+        # set axis labels and tidy up graph
+        trace_ax[-1, 0].set_xlabel('VR position [cm]', fontsize=15)
+        trace_ax[-1, 1].set_xlabel('VR position [cm]', fontsize=15)
         trace_fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
         plt.show()
         if save:

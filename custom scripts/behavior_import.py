@@ -60,17 +60,17 @@ def align_behavior(root, performance_check=False, overwrite=False, verbose=False
     """
     # list that includes session that have been processed to avoid processing a session multiple times
     processed_sessions = []
-
     for step in os.walk(root):
         if len(step[2]) > 0:   # check if there are files in the current folder
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
-                if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite and step[0] not in processed_sessions:  # check if trial folder has been processed
-                    if len(glob(step[0] + r'\\file*.tif')) > 0:  # check if there is an imaging file for this trial
-                        align_files(step[0], performance_check=performance_check, imaging=True, verbose=verbose)
-                        processed_sessions.append(step[0])
-                    else:
-                        align_files(step[0], performance_check=performance_check, imaging=False, verbose=verbose)
-                        processed_sessions.append(step[0])
+                if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:
+                    if step[0] not in processed_sessions:  # check if trial folder has been processed
+                        if len(glob(step[0] + r'\\file*.tif')) > 0:  # check if there is an imaging file for this trial
+                            align_files(step[0], performance_check=performance_check, imaging=True, verbose=verbose)
+                            processed_sessions.append(step[0])
+                        else:
+                            align_files(step[0], performance_check=performance_check, imaging=False, verbose=verbose)
+                            processed_sessions.append(step[0])
                 else:
                     if verbose:
                         print(f'\nSession {step[0]} already processed.')
@@ -133,38 +133,36 @@ def align_files(root, imaging, performance_check=False, verbose=False):
 
     for file in enc_files:
         timestamp = int(file.split('_')[1][:-4])
-        file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
-        if not os.path.isfile(file_path):
-            pos_file = find_file(timestamp, pos_files)
-            trig_file = find_file(timestamp, trig_files)
-            if pos_file is None or trig_file is None:
-                return
+        pos_file = find_file(timestamp, pos_files)
+        trig_file = find_file(timestamp, trig_files)
+        if pos_file is None or trig_file is None:
+            return
+        if verbose:
+            print(f'\nNow processing trial {counter} of {len(enc_files)}, time stamp {timestamp}...')
+        frame_count = None
+        if imaging:
+            movie_path = glob(root + '\*.tif')[0]
+            with ScanImageTiffReader(movie_path) as tif:
+                frame_count = tif.shape()[0]
+        merge, proc_time = align_behavior_files(file, pos_file, trig_file,
+                                                imaging=imaging, frame_count=frame_count, verbose=verbose)
+
+        if merge is not None and proc_time is not None:
+            # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
+            file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
+            np.savetxt(file_path, merge, delimiter='\t',
+                       fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
             if verbose:
-                print(f'\nNow processing trial {counter} of {len(enc_files)}, time stamp {timestamp}...')
-            frame_count = None
-            if imaging:
-                movie_path = glob(root + '\*.tif')[0]
-                with ScanImageTiffReader(movie_path) as tif:
-                    frame_count = tif.shape()[0]
-            merge, proc_time = align_behavior_files(file, pos_file, trig_file,
-                                                    imaging=imaging, frame_count=frame_count, verbose=verbose)
+                print(f'Done! \nSaving merged file to {file_path}...\n')
 
-            if merge is not None and proc_time is not None:
-                # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
-                file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
-                np.savetxt(file_path, merge, delimiter='\t',
-                           fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
-                if verbose:
-                    print(f'Done! \nSaving merged file to {file_path}...\n')
+            if performance_check:
+                # print(f'Trial {counter} was {merge[-1, 0]} s long.')
+                trial_times.append(merge[-1, 0])
 
-                if performance_check:
-                    # print(f'Trial {counter} was {merge[-1, 0]} s long.')
-                    trial_times.append(merge[-1, 0])
-
-                    with open(save_file, 'a') as text_file:
-                        out = text_file.write(f'{int(merge[-1, 0])} \n')
-            else:
-                print(f'Skipped trial {file}, please check!')
+                with open(save_file, 'a') as text_file:
+                    out = text_file.write(f'{int(merge[-1, 0])} \n')
+        else:
+            print(f'Skipped trial {file}, please check!')
 
         counter += 1
     print('Done!\n')

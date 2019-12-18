@@ -5,45 +5,103 @@ from datetime import datetime as dt
 from datetime import timedelta as delta
 from itertools import compress
 import matplotlib.pyplot as plt
+import pandas as pd
+from glob import glob
 
 
-def multi_mouse_performance(mouse_dir_list, precise_duration=True, separate_zones=False, date_0=None):
-    if date_0 is None or date_0 == '0':
-        for mouse in mouse_dir_list:
-            single_mouse_performance(mouse, precise_duration, separate_zones, date_0)
-    elif type(date_0) == list:
-        if len(mouse_dir_list) == len(date_0):
-            for i in range(len(mouse_dir_list)):
-                single_mouse_performance(mouse_dir_list[i], precise_duration, separate_zones, date_0[i])
+def multi_mouse_performance(mouse_dir_list, novel, precise_duration=False, separate_zones=False, date_0='0'):
+    if not precise_duration:
+        plt.figure(figsize=(15, 8))
+        if novel:
+            plt.title(f'Trial duration in novel corridor')
         else:
-            print('If a list, date_0 has to be the same length as mouse_dir_list!')
-    else:
-        print('Date_0 input not understood.')
+            plt.title(f'Trial duration in training corridor')
+
+        mice_dates = []
+        mice_speed = []
+        mice_zones = []
+        for i in range(len(mouse_dir_list)):
+            # get the behavioral data for the current mouse
+            if type(date_0) == list:
+                if len(mouse_dir_list) == len(date_0):
+                    dates, speed, zones = collect_performance_data(mouse_dir_list[i], novel, norm_date=date_0[i])
+                else:
+                    print('If a list, date_0 has to be the same length as mouse_dir_list!')
+            elif date_0 is None or date_0 == '0':
+                dates, speed, zones = collect_performance_data(mouse_dir_list[i], novel, norm_date='0')
+            else:
+                print('Date_0 input not understood.')
+            """
+            # filter out sessions with missing data and get a data-specific date list for x-axis labelling
+            dates_speed = []
+            dates_zones = []
+            filter_zones = []
+            filter_speed = []
+            for j in range(len(dates)):
+                if type(speed[j]) != np.int32 and type(speed[j]) != int:
+                    dates_speed.append(dates[j])
+                    filter_speed.append(speed[j])
+                if type(zones[j]) != np.int32 and type(zones[j]) != int:
+                    dates_zones.append(dates[j])
+                    filter_zones.append(zones[j])
+            """
+            mice_dates.append(dates)
+            mice_speed.append(speed)
+            mice_zones.append(zones)
+
+        data = pd.DataFrame({
+            'Mouse': 'M18',
+            'Date': mice_dates[0],
+            'Speed': mice_speed[0],
+            'Zones': mice_zones[0]})
+
+        data_melt = pd.melt(data, id_vars=['Date'], )
+
+        # plot data of the current mouse
+        sns.pointplot(x=data['Date'], y=['Speed'], data=filter_speed, label=mouse_dir_list[i][-3])
+        sns.pointplot(data=data['Speed'])
 
 
-def single_mouse_performance(root, precise_duration=False, separate_zones=False, date_0=None):
+def single_mouse_performance(root, novel=True, precise_duration=False, separate_zones=False, date_0='0'):
     # get performance data
-    dates, speed, zones = collect_performance_data(root, norm_dates=date_0)
+    dates, speed, zones = collect_performance_data(root, novel, norm_date=date_0)
+
+    # filter out sessions with missing data and get a data-specific date list for x-axis labelling
+    dates_speed = []
+    dates_zones = []
+    filter_zones = []
+    filter_speed = []
+    for i in range(len(dates)):
+        if type(speed[i]) != np.int32 and type(speed[i]) != int:
+            dates_speed.append(dates[i])
+            filter_speed.append(speed[i])
+        if type(zones[i]) != np.int32 and type(zones[i]) != int:
+            dates_zones.append(dates[i])
+            filter_zones.append(zones[i])
 
     # plot trial duration as a line plot (simple) or box plot (precise)
-    plt.figure(figsize=(15, 8))
-    plt.title(f'{root[-3:]}: Trial duration across sessions')
     if precise_duration:
-        ax = sns.boxplot(data=speed)
-    else:
-        ax = sns.pointplot(data=speed)
-    set_xlabels(ax, dates, date_0)
+        plt.figure(figsize=(15, 8))
+        if novel:
+            plt.title(f'{root[-3:]}: Trial duration in novel corridor')
+        else:
+            plt.title(f'{root[-3:]}: Trial duration in training corridor')
+        ax = sns.boxplot(data=filter_speed)
+    else:   # if line plot, no extra figure is drawn, to plot data of multiple mice in one graph
+        ax = sns.pointplot(data=filter_speed)
+    set_xlabels(ax, dates_speed, date_0)
     out = ax.set_ylabel('Trial duration [s]')
+    plt.tight_layout()
 
     # plot hit_zone_ratio as line plot
-    plt.figure()
-    plt.title(f'{root[-3:]}: Reward zone hits [%] across sessions')
+    #plt.figure()
+    #plt.title(f'{root[-3:]}: Reward zone hits [%] across sessions')
     if separate_zones:
         pass
     else:
-        zone_ratio = np.array([(i[1][1]/i[1][0])*100 for i in zones])   # calculate hit ratio of all zones combined
+        zone_ratio = np.array([(i[1][1]/i[1][0])*100 for i in filter_zones])   # calculate hit ratio of all zones combined
         ax_zones = sns.lineplot(data=zone_ratio, marker=True)
-        set_xlabels(ax_zones, dates, date_0)
+        set_xlabels(ax_zones, dates_zones, date_0)
 
     #Todo: implement other performance parameters (licks, stops)
 
@@ -71,75 +129,175 @@ def set_xlabels(axis, x_labels, date_0):
         out = axis.set_xlabel('days after stroke')
 
 
-def collect_performance_data(root, norm_dates='0'):
+def collect_licking_stopping_data(root, novel, norm_date='0'):
+
+    session_list = os.listdir(root)
+    licking = list(np.zeros(len(session_list), dtype=int))
+    stopping = list(np.zeros(len(session_list), dtype=int))
+
+    for i in range(len(session_list)):
+        curr_session = os.path.join(root, session_list[i])
+        if novel == is_session_novel(curr_session): # checks if the session is in the correct corridor
+            file_list = glob(curr_session + '\\merged_behavior*.txt')
+            lick_ratio = []
+            stop_ratio = []
+            for file in file_list:
+                lick, stop = extract_behavior_from_merged(file, novel)
+
+
+def is_session_novel(path):
+    # check whether the current session is in the novel corridor
+    context = None
+    if len(glob(path + '\\TDT LOG*')) == 1:
+        log_path = os.path.join(path, glob(path + '\\TDT LOG*')[0])
+        with open(log_path, 'r') as log:
+            lines = log.readlines()
+            for curr_line in lines:
+                line = curr_line.split('\t')
+                if 'VR enter Reward Zone:-6.05' in line[-1]:
+                    context = 'training'
+                    break
+                elif 'VR enter Reward Zone:8.96' in line[-1]:
+                    context = 'novel'
+    else:
+        context = 'training' # if there is no log file (in first trials), its 'training' by default
+
+    if context == 'training':
+        return False
+    elif context == 'novel':
+        return True
+    else:
+        print(f'Could not determine context in session {path}!\n')
+
+
+def extract_behavior_from_merged(path, novel):
+    # set borders of reward zones
+    if novel:
+        zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
+    else:
+        zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
+    # load merged_behavior file
+    data = np.loadtxt(path)
+
+    ### GET LICKING DATA ###
+    # select only time point where the mouse licked
+    lick_only = data[np.where(data[:, 2] == 1)]
+    # out of these, select only time points where the mouse was in a reward zone
+    lick_zone_only = []
+    for zone in zone_borders:
+        lick_zone_only.append(lick_only[(zone[0] <= lick_only[:, 1]) & (lick_only[:, 1] <= zone[1])])
+    zone_licks = np.vstack(lick_zone_only)
+    # the length of the zone-only licks divided by the all-licks is the zone-lick ratio
+    lick_ratio = zone_licks.shape[0]/lick_only.shape[0]
+
+    ### GET STOPPING DATA ###
+    # select only time points where the mouse was not running (encoder between -2 and 2)
+    stop_only = data[(-2 <= data[:, 4]) & (data[:, 4] <= 2)]
+    # split into discrete stops
+    diff = np.round(np.diff(stop_only[:, 0]) * 10000).astype(int) # get an array of time differences
+    stops = np.split(stop_only, np.where(diff > 5)[0] + 1)  # split at points where difference > 0.5 ms (sample gap)
+    # select only stops that were longer than 100 ms (200 samples)
+    stops = [i for i in stops if i.shape[0] >= 200]
+    # select only stops that were inside a reward zone (min or max position was inside a zone border)
+    zone_stop_only = []
+    for zone in zone_borders:
+        zone_stop_only.append([i for i in stops if zone[0] <= np.max(i[:, 1]) <= zone[1] or zone[0] <= np.min(i[:, 1]) <= zone[1]])
+    # the number of the zone-only stops divided by the number of the total stops is the zone-stop ratio
+    zone_stops = np.sum([len(i) for i in zone_stop_only])
+    stop_ratio = zone_stops/len(stops)
+
+    return lick_ratio, stop_ratio
+
+
+def collect_performance_data(root, novel, norm_date='0'):
     """
-    Gathers and combines performance data from log files (reward zone hit rate) and 'trial_duration' (performance speed)
-    files created during behavioral alignment. Results are returned as one entry per session in three lists that can be
+    Gathers and combines performance data from log files. Results are returned as one entry per session in three lists that can be
     used for plotting: Dates of sessions, performance speed and total and hit zone count.
     Works for folder and nonfolder structures. Called by single_mouse_performance once per mouse.
     :param root: base directory which holds all session folders (usually called M15, M16 etc.)
-    :param norm_dates: str; which date should the time line be normalized to (day 0, all other days calculated
+    :param novel: bool flag whether behavior in the novel or training context should be analysed
+    :param norm_date: str; which date should the time line be normalized to (day 0, all other days calculated
     accordingly). If None, no normalization is performed and dates are returned as folder names. If '0', dates
     are normalized to the first Log file found. If datestr in the format 'YYYYMMDD', dates are normalized to this date.
     :return dates, speed, zones: lists that hold results in one entry per session. Can be indexed equivalently.
     """
+
+    novel_vr = ['20191122a', '20191122b', '20191125', '20191126b', '20191127a', '20191128b', '20191129a',
+                '20191203 prestroke', '20191203 poststroke', '20191204', '20191205', '20191206', '20191207',
+                '20191208', '20191209', '20191210', '20191213', '20191216']
+    #todo: change hard coding of novel vs training sessions (read from TDT files?)
+
     session_list = os.listdir(root)
-    dates = list(np.zeros(len(session_list)))
-    speed = list(np.zeros(len(session_list)))
-    zones = list(np.zeros(len(session_list)))
+    dates = list(np.zeros(len(session_list), dtype=int))
+    speed = list(np.zeros(len(session_list), dtype=int))
+    zones = list(np.zeros(len(session_list), dtype=int))
 
     for i in range(len(session_list)):
-        path = os.path.join(root, session_list[i])
+        if session_list[i] in novel_vr and novel or session_list[i] not in novel_vr and not novel:
+            path = os.path.join(root, session_list[i])
+            for (dirpath, dirnames, filenames) in os.walk(path):
+                ### COLLECT TRIAL DURATION TIMES AND REWARD ZONE PERFORMANCE ###
+                if len(filenames) > 0:
+                    log_name = [s for s in filenames if 'TDT LOG' in s]
+                    if len(log_name) == 1:
+                        log_path = os.path.join(dirpath, log_name[0])
+                        zone, all_zones, durations = extract_zone_performance_from_log_file(log_path)
+                        speed[i] = durations
+                        zones[i] = (zone, all_zones)
+                    else:               # if no log file is present, try to find trial_duration files
+                        dur_files = []
+                        for step in os.walk(dirpath):   # go through all subfolders and look for trial_duration files
+                            dur_file = [s for s in step[2] if 'trial_duration' in s]
+                            if len(dur_file) == 1 and os.path.join(step[0], dur_file[0]) not in dur_files:
+                                # if a new file is found, append it to the list
+                                dur_files.append(os.path.join(step[0], dur_file[0]))
+                        zones[i] = 0
+                        if len(dur_files) > 0:
+                            speed[i] = get_trial_duration(dur_files)
+                        else:
+                            print(f'No Log or trial_duration file found in {dirpath}!')
+                            speed[i] = 0
+                dates[i] = session_list[i]
+                break  # only do one step with os.walk
 
-        for (dirpath, dirnames, filenames) in os.walk(path):
-            ### COLLECT TRIAL DURATION TIMES AND REWARD ZONE PERFORMANCE ###
-            if len(filenames) > 0:
-                log_name = [s for s in filenames if 'TDT LOG' in s]
-                if len(log_name) == 1:
-                    log_path = os.path.join(dirpath, log_name[0])
-                    zone, all_zones, durations = extract_zone_performance_from_log_file(log_path)
-                    speed[i] = durations
-                    zones[i] = (zone, all_zones)
-                else:               # if no log file is present, return nan to later filter it out
-                    zones[i] = 0
-                    speed[i] = 0
-
-            dates[i] = session_list[i]
-
-            break # only do one step with os.walk
-
-    # filter out sessions without data
+    # only keep sessions with a date (only sessions with the correct corridor)
     mask = [True for i in range(len(dates))]
-    for i in range(len(speed)):
-        if type(speed[i]) == int:
+    for i in range(len(dates)):
+        if type(dates[i]) == np.int32:
             mask[i] = False
     speed = list(compress(speed, mask))
     dates = list(compress(dates, mask))
     zones = list(compress(zones, mask))
 
     # normalize session dates
-    if norm_dates is not None:
+    if norm_date is not None:
         day_0_idx = None
         #first, transform folder names to datetime objects that can be calculated with
         date_format = '%Y%m%d'
         days = []
         for date in dates:
-            if norm_dates != '0' and date[:8] == norm_dates:
-                day_0_idx = dates.index(date)   # if this day is the desired day0, remember its index
-            curr_day = dt.strptime(date[:8], date_format)
-            if date[-1] == 'b':
-                curr_day = curr_day + delta(hours=12)   # add half a day for two-session days
-            days.append(curr_day)
+            if type(date) == str:
+                if norm_date != '0' and date[:8] == norm_date:
+                    day_0_idx = dates.index(date)   # if this day is the desired day0, remember its index
+                curr_day = dt.strptime(date[:8], date_format)
+                if date[-1] == 'b':
+                    curr_day = curr_day + delta(hours=12)   # add half a day for two-session days
+                days.append(curr_day)
+            else:
+                days.append(np.nan)
 
         #normalize days depending on the desired day 0
-        if norm_dates == '0':
+        if norm_date == '0':
             day_0_idx = 0   # if norm_dates was 0, dates are normalized to the first date
         if day_0_idx is None:
             print('Could not find normalization date! No normalization possible.')
             norm_days = dates
         else:
-            day_0 = days[day_0_idx]
-            norm_days = [(day - day_0)/delta(days=1) for day in days]
+            day_0 = days[day_0_idx]     # find the date of the day_0
+            norm_days = [(day - day_0)/delta(days=1) for day in days]    # set dates as differences from day_0 date
+            for i in range(len(norm_days)):
+                if norm_days[i] % 1 == 0: # make whole days int to save space
+                    norm_days[i] = int(norm_days[i])
     else:
         norm_days = dates
 
@@ -203,3 +361,22 @@ def extract_zone_performance_from_log_file(path):
     all_zones = (np.sum(zone[:, 0]), np.sum(zone[:, 1]))    # tuple that includes sums of all passed reward zones
 
     return zone, all_zones, np.asarray(duration)
+
+
+def get_trial_duration(file_list):
+    """
+    Extracts trial durations from trial_duration files (created during behavioral alignment).
+    :param file_list: list of file paths of trial_duration.txt files, usually all files in one session
+    :return dur: np.array of duration times of all trials in this session
+    """
+    dur = []
+    for file in file_list:
+        with open(file, 'r') as f:
+            lines = f.readlines()
+            for curr_line in lines:
+                line = curr_line.split(':')
+                try:
+                    dur.append(int(line[-1]))
+                except ValueError:
+                    pass
+    return np.array(dur)

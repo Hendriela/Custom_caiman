@@ -62,11 +62,11 @@ def save_cnmf(cnm, root=None, path=None, overwrite=False, verbose=True):
 
 
 def load_cnmf(root):
-    cnm_filename = 'cnm_pre_selection.hdf5'
+    cnm_filename = 'cnm_results.hdf5'
     cnm_filepath = os.path.join(root, cnm_filename)
     cnm_file = glob(cnm_filepath)
     if len(cnm_file) < 1:
-        print(f'No file with the name file found in {root}.')
+        print(f'No file with the name {cnm_filepath} found.')
         return
     else:
         print(f'Loading file {cnm_file[0]}...')
