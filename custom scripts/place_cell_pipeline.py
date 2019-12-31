@@ -97,7 +97,7 @@ def load_mmap(root):
 def load_pcf(root):
     pcf_path = glob(root + r'\\pcf_results')
     if len(pcf_path) < 1:
-        print(f'No pcf file found in {pcf_path}.')
+        print(f'No pcf file found in {root}.')
         return
     else:
         with open(pcf_path[0], 'rb') as file:
@@ -106,8 +106,15 @@ def load_pcf(root):
 
 #%% CNMF wrapper functions
 
+def whole_caiman_pipeline_mouse(root, cnm_params, pcf_params, dview, make_lcm=True, network='all', overwrite=False):
 
-def whole_caiman_pipeline(root, cnm_params, pcf_params, dview, make_lcm=False):
+    for step in os.walk(root):
+        if len([s for s in step[2] if 'memmap__d1_' in s]) == 1:    # is there a session memory map?
+            if len([s for s in step[2] if 'pcf_results' in s]) == 0 or overwrite:    # has it already been processed?
+                if network == 'all' or network == step[0][-2:]:     # is it the correct network?
+                    whole_caiman_pipeline_session(step[0], cnm_params, pcf_params, dview, make_lcm)
+
+def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=False):
     """
     Wrapper for the complete caiman and place cell pipeline. Performs source extraction, evaluation and place cell
     search for one session/network (one mmap file).
@@ -157,7 +164,8 @@ def whole_caiman_pipeline(root, cnm_params, pcf_params, dview, make_lcm=False):
     # look for place cells
     pcf.find_place_cells()
     # save pcf object
-    pcf.plot_all_place_cells(save=True)
+    if len(pcf.place_cells) > 0:
+        pcf.plot_all_place_cells(save=True, show_neuron_id=True)
     pcf.save(overwrite=True)
     print('Finished!')
 
@@ -244,6 +252,13 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=T
             file_list.sort(key=natural_keys)
             print(f'\nNow starting to motion correct session {session} ({len(file_list)} trials).')
             # perform motion correction
+
+            ### FOR M25 ###
+            if session[-2:] == r'N3':
+                params.change_params({'dxy': (0.83, 0.76)})
+            else:
+                params.change_params({'dxy': (1.66, 1.52)})
+            ###
             mc = MotionCorrect(file_list, dview=dview, **params.get_group('motion'))
             mc.motion_correct(save_movie=True)
             border_to_0 = 0 if mc.border_nan == 'copy' else mc.border_to_0

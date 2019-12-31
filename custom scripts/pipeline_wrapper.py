@@ -21,7 +21,7 @@ c, dview, n_processes = cm.cluster.setup_cluster(
 # dataset dependent parameters
 fr = 30  # imaging rate in frames per second
 decay_time = 0.4  # length of a typical transient in seconds (0.4)
-dxy = (0.83, 0.76)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+dxy = (1.2, 1.2)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
 # note the lower than usual spatial resolution here
 max_shift_um = (50., 50.)  # maximum shift in um
 patch_motion_um = (100., 100.)  # patch size for non-rigid correction in um
@@ -58,50 +58,9 @@ opts = cnmf.params.CNMFParams(params_dict=mc_dict)
 
 root = pipe.set_file_paths()
 
-#%% Perform motion correction
-
-
-for root in roots:
-    if root == r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191129a':
-        opts.change_params({'dxy': (0.83, 0.76)})
-    motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True, remove_c_order=True)
-
-# save C-order files
-mmap_files = [[r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\1\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_3883_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\2\file_00004_els__d1_512_d2_512_d3_1_order_F_frames_2024_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\3\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_1769_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\4\file_00006_els__d1_512_d2_512_d3_1_order_F_frames_2844_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\5\file_00007_els__d1_512_d2_512_d3_1_order_F_frames_2970_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\6\file_00008_els__d1_512_d2_512_d3_1_order_F_frames_3195_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\7\file_00009_els__d1_512_d2_512_d3_1_order_F_frames_6646_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\8\file_00010_els__d1_512_d2_512_d3_1_order_F_frames_3033_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\9\file_00011_els__d1_512_d2_512_d3_1_order_F_frames_2641_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\10\file_00012_els__d1_512_d2_512_d3_1_order_F_frames_3796_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\11\file_00013_els__d1_512_d2_512_d3_1_order_F_frames_2862_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\12\file_00014_els__d1_512_d2_512_d3_1_order_F_frames_4811_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\13\file_00015_els__d1_512_d2_512_d3_1_order_F_frames_3018_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\14\file_00016_els__d1_512_d2_512_d3_1_order_F_frames_1696_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\15\file_00017_els__d1_512_d2_512_d3_1_order_F_frames_1923_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\16\file_00018_els__d1_512_d2_512_d3_1_order_F_frames_2338_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\17\file_00019_els__d1_512_d2_512_d3_1_order_F_frames_1693_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\18\file_00020_els__d1_512_d2_512_d3_1_order_F_frames_1662_.mmap',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191121b\N1\19\file_00021_els__d1_512_d2_512_d3_1_order_F_frames_2575_.mmap'],
-              [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\1\file_00001_els__d1_512_d2_512_d3_1_order_F_frames_9889_.mmap',
-               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\2\file_00002_els__d1_512_d2_512_d3_1_order_F_frames_1998_.mmap',
-               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\3\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_8622_.mmap',
-               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\4\file_00004_els__d1_512_d2_512_d3_1_order_F_frames_1950_.mmap',
-               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\5\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_7251_.mmap',
-               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\6\file_00006_els__d1_512_d2_512_d3_1_order_F_frames_4729_.mmap',
-               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\7\file_00007_els__d1_512_d2_512_d3_1_order_F_frames_532_.mmap',
-               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\8\file_00008_els__d1_512_d2_512_d3_1_order_F_frames_310_.mmap',
-               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\9\file_00009_els__d1_512_d2_512_d3_1_order_F_frames_319_.mmap',
-               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191120\N1\10\file_00010_els__d1_512_d2_512_d3_1_order_F_frames_397_.mmap']]
-
-
 #%% Align behavioral data
-#behavior.align_files(folder_list, performance_check=True)
-for root in roots:
-    behavior.align_behavior(root, performance_check=True, verbose=False, overwrite=True)
+
+behavior.align_behavior(root, performance_check=True, verbose=False, overwrite=False)
 
 # evaluate behavior
 mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18',
@@ -111,6 +70,16 @@ mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18
 date_0 = ['20191203', '20191204', '20191204', '20191204']
 
 performance.multi_mouse_performance(mouse_list, precise_duration=False, separate_zones=True, date_0=date_0)
+
+#%% Perform motion correction
+
+
+for root in roots:
+    if root == r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191129a':
+        opts.change_params({'dxy': (0.83, 0.76)})
+    motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True, remove_c_order=True)
+
+
 
 
 #%% CaImAn source extraction
@@ -152,7 +121,7 @@ opts = opts.change_params(params_dict=opts_dict)
 # dataset dependent parameters
 fr = 30  # imaging rate in frames per second
 decay_time = 0.4  # length of a typical transient in seconds (0.4)
-dxy = (0.83, 0.76)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+dxy = (1.66, 1.52)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
 # note the lower than usual spatial resolution here
 max_shift_um = (50., 50.)  # maximum shift in um
 patch_motion_um = (100., 100.)  # patch size for non-rigid correction in um
@@ -192,7 +161,7 @@ rf = 25
 # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
 stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
 K = 20  # number of components per patch (10)
-gSig = [10, 10]
+gSig = [6, 6]
 # initialization method (if analyzing dendritic data using 'sparse_nmf')
 method_init = 'greedy_roi'
 ssub = 2  # spatial subsampling during initialization
@@ -232,20 +201,21 @@ opts = opts.change_params(params_dict=opts_dict)
 params = {'root': None,                  # main directory of this session
           'trans_length': 0.5,           # minimum length in seconds of a significant transient
           'trans_thresh': 4,             # factor of sigma above which a transient is significant
-          'bin_length': 2,               # length in cm VR distance of each bin in which to group the dF/F traces (has to be divisor of track_length
+          'bin_length': 5,               # length in cm VR distance of each bin in which to group the dF/F traces (has to be divisor of track_length
           'bin_window_avg': 3,           # sliding window of bins (left and right) for trace smoothing
           'bin_base': 0.25,              # fraction of lowest bins that are averaged for baseline calculation
           'place_thresh': 0.25,          # threshold of being considered for place fields, calculated
                                          # from difference between max and baseline dF/F
-          'min_pf_size_cm': 10,          # minimum size in cm for a place field (should be 15-20 cm)
+          'min_pf_size': 15,             # minimum size in cm for a place field (should be 15-20 cm)
           'fluo_infield': 7,             # factor above which the mean DF/F in the place field should lie compared to outside the field
           'trans_time': 0.2,             # fraction of the (unbinned!) signal while the mouse is located in
                                          # the place field that should consist of significant transients
           'track_length': 400,           # length in cm of the virtual reality corridor
           'split_size': 10}              # size in frames of bootstrapping segments
 
-root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191129a\N1'
-pipe.whole_caiman_pipeline(root, opts, params, dview)
+#%%
+root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25'
+pipe.whole_caiman_pipeline_mouse(root, opts, params, dview, make_lcm=True, network='N1')
 
 #%% separate functions
 cnm = pipe.run_source_extraction(images, opts, dview=dview)
@@ -310,6 +280,7 @@ params = {'root': root,                  # main directory of this session
           'track_length': 400,           # length in cm of the virtual reality corridor
           'split_size': 10}              # size in frames of bootstrapping segments
 
+#%%
 pcf = pc.PlaceCellFinder(cnm, params)
 
 # split traces into trials

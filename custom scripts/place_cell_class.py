@@ -86,6 +86,8 @@ class PlaceCellFinder:
         for key in param_dict.keys():
             if key in self.params.keys():
                 self.params[key] = param_dict[key]
+            elif key == 'min_pf_size_cm':
+                self.params['min_pf_size'] = param_dict[key]
             else:
                 print(f'Parameter {key} was not recognized!')
 
@@ -296,14 +298,18 @@ class PlaceCellFinder:
         count = 0
         if self.params['trial_list'] is not None:
             for trial in self.params['trial_list']:
-                behavior.append(np.loadtxt(trial+'//merged_behavior.txt', delimiter='\t'))
-                count_list = int(self.params['frame_list'][count])
-                count_imp = int(np.sum(behavior[-1][:, 3]))
-                if count_imp != count_list:
-                    print(f'Contradicting frame counts in trial {trial} (no. {count}):\n'
-                          f'\tExpected {count_list} frames, imported {count_imp} frames...')
-                    is_faulty = True
-                count += 1
+                path = glob.glob(trial+'//merged_behavior*.txt')
+                if len(path) == 1:
+                    behavior.append(np.loadtxt(path[0], delimiter='\t'))
+                    count_list = int(self.params['frame_list'][count])
+                    count_imp = int(np.sum(behavior[-1][:, 3]))
+                    if count_imp != count_list:
+                        print(f'Contradicting frame counts in trial {trial} (no. {count}):\n'
+                              f'\tExpected {count_list} frames, imported {count_imp} frames...')
+                        is_faulty = True
+                    count += 1
+                else:
+                    print(f'Couldnt find behavior file at {trial}')
             if is_faulty:
                 raise Exception('Frame count mismatch detected, stopping analysis.')
         else:

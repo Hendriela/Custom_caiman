@@ -130,7 +130,14 @@ def set_xlabels(axis, x_labels, date_0):
 
 
 def collect_licking_stopping_data(root, novel, norm_date='0'):
-
+    """
+    Collects licking and stopping data from merged_behavior.txt files for one mouse.
+    :param root: str, path to the mouse folder (contains folders for each session)
+    :param novel: bool, whether novel or training sessions should be analysed
+    :param norm_date: str, where the session dates should be normalized. 'None' = no normalization (dates labelled with
+                    session folder name), '0' = normalization to the first session, str in format 'YYYYMMDD' = norm. to
+                    the session of the respective day (sessions before labelled with negative numbers).
+    """
     session_list = os.listdir(root)
     licking = list(np.zeros(len(session_list), dtype=int))
     stopping = list(np.zeros(len(session_list), dtype=int))
@@ -138,11 +145,18 @@ def collect_licking_stopping_data(root, novel, norm_date='0'):
     for i in range(len(session_list)):
         curr_session = os.path.join(root, session_list[i])
         if novel == is_session_novel(curr_session): # checks if the session is in the correct corridor
-            file_list = glob(curr_session + '\\merged_behavior*.txt')
+            file_list = glob(curr_session + '\\*\\merged_behavior*.txt')
+            file_list_2 = glob(curr_session + '\\merged_behavior*.txt')
+            file_list.extend(file_list_2)
             lick_ratio = []
             stop_ratio = []
             for file in file_list:
-                lick, stop = extract_behavior_from_merged(file, novel)
+                lick, stop = extract_behavior_from_merged(file, novel)  # get lick and stop data from each trial
+                lick_ratio.append(lick)
+                stop_ratio.append(stop)
+            licking[i] = lick_ratio     # add data of this session as an entry of the list
+            stopping[i] = stop_ratio
+
 
 
 def is_session_novel(path):
@@ -154,11 +168,11 @@ def is_session_novel(path):
             lines = log.readlines()
             for curr_line in lines:
                 line = curr_line.split('\t')
-                if 'VR enter Reward Zone:-6.05' in line[-1]:
-                    context = 'training'
-                    break
-                elif 'VR enter Reward Zone:8.96' in line[-1]:
-                    context = 'novel'
+                if 'VR enter Reward Zone:' in line[-1]:
+                    if int(np.round(float(line[-1][-5:-1]))) == 6:
+                        context = 'training'
+                    elif int(np.round(float(line[-1][-5:-1]))) == 9:
+                        context = 'novel'
     else:
         context = 'training' # if there is no log file (in first trials), its 'training' by default
 
@@ -171,6 +185,9 @@ def is_session_novel(path):
 
 
 def extract_behavior_from_merged(path, novel):
+    """
+    Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
+    """
     # set borders of reward zones
     if novel:
         zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
@@ -182,13 +199,22 @@ def extract_behavior_from_merged(path, novel):
     ### GET LICKING DATA ###
     # select only time point where the mouse licked
     lick_only = data[np.where(data[:, 2] == 1)]
-    # out of these, select only time points where the mouse was in a reward zone
-    lick_zone_only = []
-    for zone in zone_borders:
-        lick_zone_only.append(lick_only[(zone[0] <= lick_only[:, 1]) & (lick_only[:, 1] <= zone[1])])
-    zone_licks = np.vstack(lick_zone_only)
-    # the length of the zone-only licks divided by the all-licks is the zone-lick ratio
-    lick_ratio = zone_licks.shape[0]/lick_only.shape[0]
+
+    if lick_only.shape[0] == 0:
+        lick_ratio = np.nan # set nan, if there was no licking during the trial
+    else:
+        # remove continuous licks that were longer than 5 seconds
+        diff = np.round(np.diff(lick_only[:, 0]) * 10000).astype(int)  # get an array of time differences
+        licks = np.split(lick_only, np.where(diff > 5)[0] + 1)  # split at points where difference > 0.5 ms (sample gap)
+        licks = [i for i in licks if i.shape[0] <= 10000] # only keep licks shorter than 5 seconds (10,000 samples)
+        licks = np.vstack(licks)    # put list of arrays together to one array
+        # out of these, select only time points where the mouse was in a reward zone
+        lick_zone_only = []
+        for zone in zone_borders:
+            lick_zone_only.append(licks[(zone[0] <= licks[:, 1]) & (licks[:, 1] <= zone[1])])
+        zone_licks = np.vstack(lick_zone_only)
+        # the length of the zone-only licks divided by the all-licks is the zone-lick ratio
+        lick_ratio = zone_licks.shape[0]/lick_only.shape[0]
 
     ### GET STOPPING DATA ###
     # select only time points where the mouse was not running (encoder between -2 and 2)
