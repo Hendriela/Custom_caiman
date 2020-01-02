@@ -167,6 +167,8 @@ def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=
     if len(pcf.place_cells) > 0:
         pcf.plot_all_place_cells(save=True, show_neuron_id=True)
     pcf.save(overwrite=True)
+    # delete cnmf object if pcf object could be saved successfully (cnmf is included in pcf)
+    os.remove(os.path.join(root, 'cnm_pre_selection.hdf5'))
     print('Finished!')
 
 def get_local_correlation(images):

@@ -119,9 +119,11 @@ class PlaceCellFinder:
             else:
                 print(f'No movie files found at {trial}!')
 
-        # find mouse number and session
+        # find mouse number, session and network
         try:
             self.params['mouse'] = self.params['root'].split(os.sep)[-3]
+            if len(self.params['mouse']) > 3:
+                self.params['mouse'] = self.params['mouse'][-3:]
             self.params['session'] = self.params['root'].split(os.sep)[-2]
             self.params['network'] = self.params['root'].split(os.sep)[-1]
         except IndexError:
@@ -728,70 +730,73 @@ class PlaceCellFinder:
         # TODO: scale bars?
 
         place_cell_idx = [x[0] for x in self.place_cells]
-        #place_cell_idx.remove(548)
-        #place_cell_idx.remove(340)
         #todo: remove cells that have a outlier-high activity maximum?
         traces = self.bin_avg_activity[place_cell_idx]
         n_neurons = traces.shape[0]
+        if n_neurons > 0:
+            # figure out y-axis limit by rounding the maximum value in traces up to the next 0.05 step
+            max_y = 0.05 * ceil(traces.max() / 0.05)
 
-        # figure out y-axis limit by rounding the maximum value in traces up to the next 0.05 step
-        max_y = 0.05 * ceil(traces.max() / 0.05)
-
-        # sort neurons after different criteria
-        bins = []
-        if sort == 'max':
-            for i in range(n_neurons):
-                bins.append((i, np.argmax(traces[i, :])))
-        elif sort == 'field':
-            for i in range(n_neurons):
-                bins.append((i, self.place_cells[i][1][0][0])) # get the first index of the first place field
-        else:
-            print(f'Cannot understand sorting command {sort}.')
-        bins_sorted = sorted(bins, key=lambda tup: tup[1])
-
-        trace_fig, trace_ax = plt.subplots(nrows=n_neurons, ncols=2, sharex=True, figsize=(18, 10))
-        mouse = self.params['mouse']
-        session = self.params['session']
-        network = self.params['network']
-        trace_fig.suptitle(f'All place cells of mouse {mouse}, session {session}, network {network}', fontsize=16)
-        for i in range(n_neurons):
-            curr_neur = bins_sorted[i][0]
-            curr_trace = traces[curr_neur, np.newaxis]
-            img = trace_ax[i, 1].pcolormesh(curr_trace, vmax=max_y, cmap='jet')
-            trace_ax[i, 0].plot(traces[curr_neur])
-            trace_ax[i, 0].set_ylim(top=max_y)
-            if show_place_fields:
-                curr_place_fields = self.place_cells[curr_neur][1]
-                for field in curr_place_fields:
-                    trace_ax[i, 0].plot(field, traces[curr_neur][field], color='red')
-            if i == trace_ax[:, 0].size - 1:
-                trace_ax[i, 0].spines['top'].set_visible(False)
-                trace_ax[i, 0].spines['right'].set_visible(False)
-                trace_ax[i, 0].set_yticks([])
-                trace_ax[i, 1].spines['top'].set_visible(False)
-                trace_ax[i, 1].spines['right'].set_visible(False)
+            # sort neurons after different criteria
+            bins = []
+            if sort == 'max':
+                for i in range(n_neurons):
+                    bins.append((i, np.argmax(traces[i, :])))
+            elif sort == 'field':
+                for i in range(n_neurons):
+                    bins.append((i, self.place_cells[i][1][0][0])) # get the first index of the first place field
             else:
-                trace_ax[i, 0].axis('off')
-                trace_ax[i, 1].axis('off')
-            if show_neuron_id:
-                trace_ax[i, 0].set_title(f'Neuron {place_cell_idx[curr_neur]}', x=-0.1, y=-0.1)
+                print(f'Cannot understand sorting command {sort}.')
+            bins_sorted = sorted(bins, key=lambda tup: tup[1])
 
-        # set x ticks to VR position, not bin number
-        trace_ax[-1, 0].set_xlim(0, traces.shape[1])
-        x_locs, labels = plt.xticks()
-        plt.xticks(x_locs, (x_locs*self.params['bin_length']).astype(int), fontsize=15)
-        plt.sca(trace_ax[-1, 0])
-        plt.xticks(x_locs, (x_locs*self.params['bin_length']).astype(int), fontsize=15)
+            trace_fig, trace_ax = plt.subplots(nrows=n_neurons, ncols=2, sharex=True, figsize=(18, 10))
+            mouse = self.params['mouse']
+            session = self.params['session']
+            network = self.params['network']
+            trace_fig.suptitle(f'All place cells of mouse {mouse}, session {session}, network {network}', fontsize=16)
+            for i in range(n_neurons):
+                curr_neur = bins_sorted[i][0]
+                curr_trace = traces[curr_neur, np.newaxis]
+                img = trace_ax[i, 1].pcolormesh(curr_trace, vmax=max_y, cmap='jet')
+                trace_ax[i, 0].plot(traces[curr_neur])
+                trace_ax[i, 0].set_ylim(top=max_y)
+                if show_place_fields:
+                    curr_place_fields = self.place_cells[curr_neur][1]
+                    for field in curr_place_fields:
+                        trace_ax[i, 0].plot(field, traces[curr_neur][field], color='red')
+                if i == trace_ax[:, 0].size - 1:
+                    trace_ax[i, 0].spines['top'].set_visible(False)
+                    trace_ax[i, 0].spines['right'].set_visible(False)
+                    trace_ax[i, 0].set_yticks([])
+                    trace_ax[i, 1].spines['top'].set_visible(False)
+                    trace_ax[i, 1].spines['right'].set_visible(False)
+                else:
+                    trace_ax[i, 0].axis('off')
+                    trace_ax[i, 1].axis('off')
+                if show_neuron_id:
+                    trace_ax[i, 0].set_title(f'Neuron {place_cell_idx[curr_neur]}', x=-0.1, y=-0.1)
 
-        # plot color bar
-        #TODO add color bar
+            # set x ticks to VR position, not bin number
+            trace_ax[-1, 0].set_xlim(0, traces.shape[1])
+            x_locs, labels = plt.xticks()
+            plt.xticks(x_locs, (x_locs*self.params['bin_length']).astype(int), fontsize=15)
+            plt.sca(trace_ax[-1, 0])
+            plt.xticks(x_locs, (x_locs*self.params['bin_length']).astype(int), fontsize=15)
 
-        # set axis labels and tidy up graph
-        trace_ax[-1, 0].set_xlabel('VR position [cm]', fontsize=15)
-        trace_ax[-1, 1].set_xlabel('VR position [cm]', fontsize=15)
-        trace_fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
-        plt.show()
-        if save:
-            plt.savefig(os.path.join(self.params['root'], 'place_cells.png'))
-            plt.close()
+            # plot color bar
+            #TODO add color bar
 
+            # set axis labels and tidy up graph
+            trace_ax[-1, 0].set_xlabel('VR position [cm]', fontsize=15)
+            trace_ax[-1, 1].set_xlabel('VR position [cm]', fontsize=15)
+            trace_fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+            plt.show()
+            if save:
+                plt.savefig(os.path.join(self.params['root'], 'place_cells.png'))
+                plt.close()
+        else:
+            fig = plt.figure()
+            mouse = self.params['mouse']
+            session = self.params['session']
+            network = self.params['network']
+            plt.title(f'All place cells of mouse {mouse}, session {session}, network {network}', fontsize=16)
