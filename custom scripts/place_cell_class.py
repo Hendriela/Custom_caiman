@@ -9,7 +9,7 @@ import seaborn as sns
 import random
 import copy
 import glob
-from math import ceil
+from math import ceil, floor
 import os
 import re
 from behavior_import import progress
@@ -678,16 +678,17 @@ class PlaceCellFinder:
 
     def plot_single_place_cell(self, idx):
         """
-        Plots all trials of a single place cell in a line graph and pcolormesh.
+        Plots all trials of a single place cell in a line graph and pcolormesh. The location of the accepted place
+        fields of the cell is shaded red in the line plot.
         :param idx: Index of the to-be-plotted place cell (following the indexing of self.place_cells, not cnm indexing,
                     i.e. idx=0 shows the first place cell, not the first extracted component)
-        :return: figure
+        :return:
         """
         if type(idx) != int:
             return 'Idx has to be a single digit!'
 
         traces = self.bin_activity[self.place_cells[idx][0]]
-
+        place_fields = self.place_cells[idx][1]
         # plot components
         if len(traces.shape) == 1:
             nrows = 1
@@ -697,23 +698,42 @@ class PlaceCellFinder:
         trace_fig, trace_ax = plt.subplots(nrows=nrows, ncols=2, sharex=True, figsize=(18, 10))
         trace_fig.suptitle(f'Neuron {self.place_cells[idx][0]}', fontsize=16)
         for i in range(traces.shape[0]):
+
+            max_y = 0.05 * ceil(traces.max() / 0.05)
+            min_y = 0.05 * floor(traces.min() / 0.05)
+
             curr_trace = traces[i, np.newaxis]
-            trace_ax[i, 1].pcolormesh(curr_trace)
+            img = trace_ax[i, 1].pcolormesh(curr_trace, vmax=max_y, vmin=min_y, cmap='jet')
             trace_ax[i, 0].plot(traces[i])
+            trace_ax[i, 0].set_ylim(bottom=min_y, top=max_y)
+
+            # shade locations of place fields
+            for field in place_fields:
+                trace_ax[i,0].axvspan(field.min(), field.max(), facecolor='r', alpha=0.2)
+
             if i == trace_ax[:, 0].size - 1:
                 trace_ax[i, 0].spines['top'].set_visible(False)
                 trace_ax[i, 0].spines['right'].set_visible(False)
-                trace_ax[i, 0].set_yticks([])
+                trace_ax[i, 1].set_yticks([])
                 trace_ax[i, 1].spines['top'].set_visible(False)
                 trace_ax[i, 1].spines['right'].set_visible(False)
             else:
                 trace_ax[i, 0].axis('off')
                 trace_ax[i, 1].axis('off')
             trace_ax[i, 0].set_title(f'Trial {i + 1}', x=-0.1, y=0.3)
+
+        # plot color bar
+        fraction = 0.10  # fraction of original axes to use for colorbar
+        half_size = int(np.round(trace_ax.shape[0] / 2))  # plot colorbar in half of the figure
+        cbar = trace_fig.colorbar(img, ax=trace_ax[half_size:, 1],
+                                  fraction=fraction, label=r'$\Delta$F/F')  # draw color bar
+        cbar.ax.tick_params(labelsize=12)
+        cbar.ax.yaxis.label.set_size(15)
+
         trace_ax[i, 0].set_xlim(0, traces.shape[1])
         trace_ax[i, 0].set_xlabel('VR position', fontsize=12)
         trace_ax[i, 1].set_xlabel('VR position', fontsize=12)
-        trace_fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+        trace_fig.subplots_adjust(left=0.1, right=1-(fraction+0.05), top=0.9, bottom=0.1)
         # trace_fig.tight_layout()
         plt.show()
 
@@ -727,15 +747,15 @@ class PlaceCellFinder:
         maximum in each trace, 'field' sorts them for the earliest place field.
         :return:
         """
-        # TODO: scale bars?
 
         place_cell_idx = [x[0] for x in self.place_cells]
         #todo: remove cells that have a outlier-high activity maximum?
         traces = self.bin_avg_activity[place_cell_idx]
         n_neurons = traces.shape[0]
         if n_neurons > 0:
-            # figure out y-axis limit by rounding the maximum value in traces up to the next 0.05 step
+            # figure out y-axis limits by rounding the maximum value in traces up to the next 0.05 step
             max_y = 0.05 * ceil(traces.max() / 0.05)
+            min_y = 0.05 * floor(traces.min() / 0.05)
 
             # sort neurons after different criteria
             bins = []
@@ -757,9 +777,9 @@ class PlaceCellFinder:
             for i in range(n_neurons):
                 curr_neur = bins_sorted[i][0]
                 curr_trace = traces[curr_neur, np.newaxis]
-                img = trace_ax[i, 1].pcolormesh(curr_trace, vmax=max_y, cmap='jet')
+                img = trace_ax[i, 1].pcolormesh(curr_trace, vmax=max_y, vmin=min_y, cmap='jet')
                 trace_ax[i, 0].plot(traces[curr_neur])
-                trace_ax[i, 0].set_ylim(top=max_y)
+                trace_ax[i, 0].set_ylim(bottom=min_y, top=max_y)
                 if show_place_fields:
                     curr_place_fields = self.place_cells[curr_neur][1]
                     for field in curr_place_fields:
@@ -767,7 +787,8 @@ class PlaceCellFinder:
                 if i == trace_ax[:, 0].size - 1:
                     trace_ax[i, 0].spines['top'].set_visible(False)
                     trace_ax[i, 0].spines['right'].set_visible(False)
-                    trace_ax[i, 0].set_yticks([])
+                    trace_ax[i, 0].tick_params(axis='y', which='major', labelsize=15)
+                    trace_ax[i, 1].set_yticks([])
                     trace_ax[i, 1].spines['top'].set_visible(False)
                     trace_ax[i, 1].spines['right'].set_visible(False)
                 else:
@@ -783,20 +804,32 @@ class PlaceCellFinder:
             plt.sca(trace_ax[-1, 0])
             plt.xticks(x_locs, (x_locs*self.params['bin_length']).astype(int), fontsize=15)
 
-            # plot color bar
-            #TODO add color bar
-
             # set axis labels and tidy up graph
             trace_ax[-1, 0].set_xlabel('VR position [cm]', fontsize=15)
             trace_ax[-1, 1].set_xlabel('VR position [cm]', fontsize=15)
-            trace_fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+
+            # plot color bar
+            fraction = 0.10  # fraction of original axes to use for colorbar
+            half_size = int(np.round(trace_ax.shape[0]/2))  # plot colorbar in half of the figure
+            cbar = trace_fig.colorbar(img, ax=trace_ax[half_size:, 1],
+                                      fraction=fraction, label=r'$\Delta$F/F')  # draw color bar
+            cbar.ax.tick_params(labelsize=12)
+            cbar.ax.yaxis.label.set_size(15)
+
+            # align all plots
+            trace_fig.subplots_adjust(left=0.1, right=1-(fraction+0.05), top=0.9, bottom=0.1)
             plt.show()
+
             if save:
                 plt.savefig(os.path.join(self.params['root'], 'place_cells.png'))
                 plt.close()
         else:
-            fig = plt.figure()
+            plt.figure()
             mouse = self.params['mouse']
             session = self.params['session']
             network = self.params['network']
             plt.title(f'All place cells of mouse {mouse}, session {session}, network {network}', fontsize=16)
+            if save:
+                plt.savefig(os.path.join(self.params['root'], 'place_cells.png'))
+                plt.close()
+
