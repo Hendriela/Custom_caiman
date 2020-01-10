@@ -3,11 +3,19 @@ import numpy as np
 import seaborn as sns
 from datetime import datetime as dt
 from datetime import timedelta as delta
-from itertools import compress
+from itertools import compress, chain
 import matplotlib.pyplot as plt
 import pandas as pd
 from glob import glob
 
+mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18',
+                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19',
+                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22',
+                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25']
+
+mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18',
+                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22']
+date_0 = ['20191204', '20191204']
 
 def multi_mouse_performance(mouse_dir_list, novel, precise_duration=False, separate_zones=False, date_0='0'):
     if not precise_duration:
@@ -18,17 +26,17 @@ def multi_mouse_performance(mouse_dir_list, novel, precise_duration=False, separ
             plt.title(f'Trial duration in training corridor')
 
         mice_dates = []
-        mice_speed = []
-        mice_zones = []
+        mice_licks = []
+        mice_stops = []
         for i in range(len(mouse_dir_list)):
             # get the behavioral data for the current mouse
             if type(date_0) == list:
                 if len(mouse_dir_list) == len(date_0):
-                    dates, speed, zones = collect_performance_data(mouse_dir_list[i], novel, norm_date=date_0[i])
+                    dates, licks, stops = collect_licking_stopping_data(mouse_dir_list[i], novel, norm_date=date_0[i])
                 else:
                     print('If a list, date_0 has to be the same length as mouse_dir_list!')
             elif date_0 is None or date_0 == '0':
-                dates, speed, zones = collect_performance_data(mouse_dir_list[i], novel, norm_date='0')
+                dates, licks, stops = collect_licking_stopping_data(mouse_dir_list[i], novel, norm_date='0')
             else:
                 print('Date_0 input not understood.')
             """
@@ -46,23 +54,100 @@ def multi_mouse_performance(mouse_dir_list, novel, precise_duration=False, separ
                     filter_zones.append(zones[j])
             """
             mice_dates.append(dates)
-            mice_speed.append(speed)
-            mice_zones.append(zones)
+            mice_licks.append(licks)
+            mice_stops.append(stops)
+
+        # save data
+        data = pd.DataFrame({
+            'Mouse': ['M18', 'M22'],
+            'Date': mice_dates,
+            'Licks': mice_licks,
+            'Stops': mice_stops})
+        data.to_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\all_mice_licking_stopping_novel_nostroke')
+
+        # recover data
+        data = pd.read_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\all_mice_licking_stopping')
+        mice_dates = list(data['Date'])
+        mice_licks = list(data['Licks'])
+        mice_stops = list(data['Stops'])
+
+        mice_licks_avg = [[], [], [], []]
+        mice_stops_avg = [[], [], [], []]
+
+        # get mean of sessions
+        for mouse in range(len(mice_licks)):
+            for session in mice_licks[mouse]:
+                mice_licks_avg[mouse].append(np.nanmean(session))
+            for session in mice_stops[mouse]:
+                mice_stops_avg[mouse].append(np.nanmean(session))
+
+        # combine all dates to have a global list of sessions
+        glob_dates = np.unique([item for sublist in mice_dates for item in sublist])
+        # insert None for sessions that did not have data
+        for i in range(len(mice_licks)):
+            for j in range(len(glob_dates)):
+                try:
+                    if glob_dates[j] != mice_dates[i][j]:
+                        mice_dates[i].insert(j, None)
+                        mice_licks_avg[i].insert(j, None)
+                        mice_stops_avg[i].insert(j, None)
+                except IndexError:
+                    mice_dates[i].append(None)
+                    mice_licks_avg[i].append(None)
+                    mice_stops_avg[i].append(None)
+
+
+        # make mask for plotting
+        lick_mask = []
+        stop_mask = []
+        for i in range(len(mice_licks_avg)):
+            mice_licks_avg[i] = np.array(mice_licks_avg[i]).astype(np.double)
+            lick_mask.append(np.isfinite(mice_licks_avg[i]))
+            mice_stops_avg[i] = np.array(mice_stops_avg[i]).astype(np.double)
+            stop_mask.append(np.isfinite(mice_stops_avg[i]))
+
+        # mouse list for legend labels
+        labels = ['M18', 'M22']
+
+
+        # plot licking and stopping data
+        fig, ax = plt.subplots(1, 2, sharey=True, figsize=(15, 4))
+        fig.suptitle('Behavioral performance of all mice in novel corridor')
+        # plot licking data
+        ax[0].set_title('Lick ratio')
+        ax[1].set_title('Stop ratio')
+        ax[0].set_xlabel('days after stroke')
+        ax[1].set_xlabel('days after stroke')
+        for i in range(len(mice_dates)):
+            ax[0].plot(glob_dates[lick_mask[i]], mice_licks_avg[i][lick_mask[i]], linestyle='-', label=labels[i])
+            ax[1].plot(glob_dates[stop_mask[i]], mice_stops_avg[i][stop_mask[i]], linestyle='-', label=labels[i])
+        ax[0].legend()
+        ax[1].legend()
+        fig.tight_layout()
 
         data = pd.DataFrame({
-            'Mouse': 'M18',
-            'Date': mice_dates[0],
-            'Speed': mice_speed[0],
-            'Zones': mice_zones[0]})
+            'Mouse': ['M18', 'M19', 'M22', 'M25'],
+            'Date': mice_dates,
+            'Licks': mice_licks,
+            'Stops': mice_stops})
 
-        data_melt = pd.melt(data, id_vars=['Date'], )
+        data_melt = pd.melt(data, id_vars=['Date'])
 
         # plot data of the current mouse
         sns.pointplot(x=data['Date'], y=['Speed'], data=filter_speed, label=mouse_dir_list[i][-3])
         sns.pointplot(data=data['Speed'])
 
 
-def single_mouse_performance(root, novel=True, precise_duration=False, separate_zones=False, date_0='0'):
+def single_mouse_performance(root, novel=True, precise=False, separate_zones=False, date_0='0'):
+    """
+    :param root: str, path to the mouse folder (contains folders for each session)
+    :param novel: bool, whether novel or novel corridor sessions should be analysed
+    :param precise: bool, whether data should be shown precise (boxplot) or only mean (pointplot)
+    :param date_0: str, where the session dates should be normalized. 'None' = no normalization (dates labelled with
+                    session folder name), '0' = normalization to the first session, str in format 'YYYYMMDD' = norm. to
+                    the session of the respective day (sessions before labelled with negative numbers). If not None or
+                    '0', date_0 has to be a folder name of a session of this mouse.
+    """
     # get performance data
     dates, speed, zones = collect_performance_data(root, novel, norm_date=date_0)
 
@@ -80,7 +165,7 @@ def single_mouse_performance(root, novel=True, precise_duration=False, separate_
             filter_zones.append(zones[i])
 
     # plot trial duration as a line plot (simple) or box plot (precise)
-    if precise_duration:
+    if precise:
         plt.figure(figsize=(15, 8))
         if novel:
             plt.title(f'{root[-3:]}: Trial duration in novel corridor')
@@ -103,7 +188,40 @@ def single_mouse_performance(root, novel=True, precise_duration=False, separate_
         ax_zones = sns.lineplot(data=zone_ratio, marker=True)
         set_xlabels(ax_zones, dates_zones, date_0)
 
-    #Todo: implement other performance parameters (licks, stops)
+
+    ### LICKING AND STOPPING PERFORMANCE ###
+    days, licking, stopping = collect_licking_stopping_data(root, novel, date_0)
+
+    # separate figures for licking and stopping
+    if precise:
+        # plot licking
+        fig_lick, ax_lick = plt.figure(figsize=(15, 8))
+        if novel:
+            fig_lick.title(f'{root[-3:]}: Lick ratio in novel corridor')
+        else:
+            fig_lick.title(f'{root[-3:]}: Lick ratio in training corridor')
+        sns.boxplot(ax=ax_lick, data=licking)
+        set_xlabels(ax_lick, days, date_0)
+        ax_lick.set_ylabel('Lick ratio')
+        # plot stopping
+        fig_stop, ax_stop = plt.figure(figsize=(15, 8))
+        if novel:
+            fig_stop.title(f'{root[-3:]}: Stop ratio in novel corridor')
+        else:
+            fig_stop.title(f'{root[-3:]}: Stop ratio in training corridor')
+        sns.boxplot(ax=ax_stop, data=licking)
+        set_xlabels(ax_stop, days, date_0)
+        ax_stop.set_ylabel('Stop ratio')
+    # one plot for licking and stopping
+    else:
+        fig = plt.figure(figsize=(15, 8))
+        lick_line = sns.pointplot(data=licking)
+        lick_line.set_label('Licks')
+        stop_line = sns.pointplot(data=stopping, color='red')
+        stop_line.set_label('Stops')
+        # TODO: make labels work
+
+
 
 def set_xlabels(axis, x_labels, date_0):
     adapt_xlabels = []
@@ -129,7 +247,7 @@ def set_xlabels(axis, x_labels, date_0):
         out = axis.set_xlabel('days after stroke')
 
 
-def collect_licking_stopping_data(root, novel, norm_date='0'):
+def collect_licking_stopping_data(root, novel, norm_date):
     """
     Collects licking and stopping data from merged_behavior.txt files for one mouse.
     :param root: str, path to the mouse folder (contains folders for each session)
@@ -142,12 +260,15 @@ def collect_licking_stopping_data(root, novel, norm_date='0'):
     licking = list(np.zeros(len(session_list), dtype=int))
     stopping = list(np.zeros(len(session_list), dtype=int))
 
+    ### COLLECT DATA FROM ALL SESSIONS OF THIS MOUSE ###
     for i in range(len(session_list)):
         curr_session = os.path.join(root, session_list[i])
         if novel == is_session_novel(curr_session): # checks if the session is in the correct corridor
-            file_list = glob(curr_session + '\\*\\merged_behavior*.txt')
-            file_list_2 = glob(curr_session + '\\merged_behavior*.txt')
+            file_list = glob(curr_session + '\\merged_behavior*.txt')
+            file_list_2 = glob(curr_session + '\\*\\merged_behavior*.txt')
+            file_list_3 = glob(curr_session + '\\*\\*\\merged_behavior*.txt')
             file_list.extend(file_list_2)
+            file_list.extend(file_list_3) # get a full list of merged_behavior files (in and outside of trial folders)
             lick_ratio = []
             stop_ratio = []
             for file in file_list:
@@ -157,7 +278,28 @@ def collect_licking_stopping_data(root, novel, norm_date='0'):
             licking[i] = lick_ratio     # add data of this session as an entry of the list
             stopping[i] = stop_ratio
 
+    # create mask that filters out all false sessions
+    mask = [True for i in range(len(session_list))]
+    for i in range(len(session_list)):    # remove a session if the entry is an int (0, no values) or an empty list
+        if type(licking[i]) == np.int32 or type(stopping[i]) == np.int32:
+            mask[i] = False
+        if type(licking[i]) == list:
+            if len(licking[i]) == 0:
+                mask[i] = False
+        if type(stopping[i]) == list:
+            if len(stopping[i]) == 0:
+                mask[i] = False
+    session_list_filtered = list(compress(session_list, mask))
+    licking_filtered = list(compress(licking, mask))
+    stopping_filtered = list(compress(stopping, mask))
 
+    # normalize days if necessary
+    if norm_date is not None:
+        days = normalize_dates(session_list_filtered, norm_date)
+    else:
+        days = session_list_filtered
+
+    return days, licking_filtered, stopping_filtered
 
 def is_session_novel(path):
     # check whether the current session is in the novel corridor
@@ -187,6 +329,10 @@ def is_session_novel(path):
 def extract_behavior_from_merged(path, novel):
     """
     Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
+    :param path: str, file path of the merged_behavior*.txt file
+    :param novel: bool, flag whether file was performed in novel corridor (changes reward zone location)
+    :returns lick_ratio: float, ratio between individual licking bouts that occurred in reward zones div. by all licks
+    :returns stop_ratio: float, ratio between stops in reward zones divided by total number of stops
     """
     # set borders of reward zones
     if novel:
@@ -207,14 +353,17 @@ def extract_behavior_from_merged(path, novel):
         diff = np.round(np.diff(lick_only[:, 0]) * 10000).astype(int)  # get an array of time differences
         licks = np.split(lick_only, np.where(diff > 5)[0] + 1)  # split at points where difference > 0.5 ms (sample gap)
         licks = [i for i in licks if i.shape[0] <= 10000] # only keep licks shorter than 5 seconds (10,000 samples)
-        licks = np.vstack(licks)    # put list of arrays together to one array
-        # out of these, select only time points where the mouse was in a reward zone
-        lick_zone_only = []
-        for zone in zone_borders:
-            lick_zone_only.append(licks[(zone[0] <= licks[:, 1]) & (licks[:, 1] <= zone[1])])
-        zone_licks = np.vstack(lick_zone_only)
-        # the length of the zone-only licks divided by the all-licks is the zone-lick ratio
-        lick_ratio = zone_licks.shape[0]/lick_only.shape[0]
+        if len(licks) > 0:
+            licks = np.vstack(licks)    # put list of arrays together to one array
+            # out of these, select only time points where the mouse was in a reward zone
+            lick_zone_only = []
+            for zone in zone_borders:
+                lick_zone_only.append(licks[(zone[0] <= licks[:, 1]) & (licks[:, 1] <= zone[1])])
+            zone_licks = np.vstack(lick_zone_only)
+            # the length of the zone-only licks divided by the all-licks is the zone-lick ratio
+            lick_ratio = zone_licks.shape[0]/lick_only.shape[0]
+        else:
+            lick_ratio = np.nan
 
     ### GET STOPPING DATA ###
     # select only time points where the mouse was not running (encoder between -2 and 2)
@@ -297,33 +446,7 @@ def collect_performance_data(root, novel, norm_date='0'):
 
     # normalize session dates
     if norm_date is not None:
-        day_0_idx = None
-        #first, transform folder names to datetime objects that can be calculated with
-        date_format = '%Y%m%d'
-        days = []
-        for date in dates:
-            if type(date) == str:
-                if norm_date != '0' and date[:8] == norm_date:
-                    day_0_idx = dates.index(date)   # if this day is the desired day0, remember its index
-                curr_day = dt.strptime(date[:8], date_format)
-                if date[-1] == 'b':
-                    curr_day = curr_day + delta(hours=12)   # add half a day for two-session days
-                days.append(curr_day)
-            else:
-                days.append(np.nan)
-
-        #normalize days depending on the desired day 0
-        if norm_date == '0':
-            day_0_idx = 0   # if norm_dates was 0, dates are normalized to the first date
-        if day_0_idx is None:
-            print('Could not find normalization date! No normalization possible.')
-            norm_days = dates
-        else:
-            day_0 = days[day_0_idx]     # find the date of the day_0
-            norm_days = [(day - day_0)/delta(days=1) for day in days]    # set dates as differences from day_0 date
-            for i in range(len(norm_days)):
-                if norm_days[i] % 1 == 0: # make whole days int to save space
-                    norm_days[i] = int(norm_days[i])
+        norm_days = normalize_dates(dates, norm_date)
     else:
         norm_days = dates
 
@@ -406,3 +529,51 @@ def get_trial_duration(file_list):
                 except ValueError:
                     pass
     return np.array(dur)
+
+
+def normalize_dates(date_list, norm_date):
+    """
+    Normalizes a list of dates by a given day_0 normalization date.
+    :param date_list: list, contains strings of dates in format 'YYYYMMDD(X)',
+                            X being a possible 'a' or 'b' for 2 sessions per day. If b, date is counted as 0.5 d later
+    :param norm_date: str, shows the date to with all dates should be normalized to. If '0', dates are normalized to the
+                            first date found. Otherwise, norm_date should be included in date_list.
+    :return norm_days: list of numbers signalling the difference in days to the norm_date
+    """
+
+    day_0_idx = None
+    # first, transform folder names to datetime objects that can be calculated with
+    date_format = '%Y%m%d'
+    days = []
+    for date in date_list:
+        if type(date) == str:
+            if norm_date != '0' and date[:8] == norm_date:
+                day_0_idx = date_list.index(date)  # if this day is the desired day0, remember its index
+            curr_day = dt.strptime(date[:8], date_format)
+            if date[-1] == 'b':
+                curr_day = curr_day + delta(hours=12)  # add half a day for two-session days
+            days.append(curr_day)
+        else:
+            days.append(np.nan)
+
+    # if norm_date is 0, dates are normalized to the first date
+    if norm_date == '0':
+        day_0_idx = 0
+
+    # if day_0_idx is still None, a normalization date could not be found and the raw list is returned
+    if day_0_idx is None:
+        print(f'Could not find normalization date of {norm_date}! No normalization possible.')
+        return date_list
+    # normalize days depending on the desired day 0
+    else:
+        day_0 = days[day_0_idx]  # find the date of the day_0
+        norm_days = [(day - day_0) / delta(days=1) for day in days]  # set dates as differences from day_0 date
+        for i in range(len(norm_days)):
+            if norm_days[i] % 1 == 0:  # make whole days int to save space
+                norm_days[i] = int(norm_days[i])
+
+    if len(date_list) != len(norm_days):    # small sanity check
+        print('Normalized date list is not the same length as initial date list. Something went wrong!')
+    else:
+        return norm_days
+
