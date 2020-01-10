@@ -265,8 +265,8 @@ def main():
     min_SNR = 6  # signal to noise ratio for accepting a component (default 2)
     SNR_lowest = 3
     rval_thr = 0.7 # space correlation threshold for accepting a component (default 0.85)
-    cnn_thr = 0.4  # threshold for CNN based classifier (default 0.99)
-    cnn_lowest = 0.01 # neurons with cnn probability lower than this value are rejected (default 0.1)
+    cnn_thr = 0.6  # threshold for CNN based classifier (default 0.99)
+    cnn_lowest = 0.1 # neurons with cnn probability lower than this value are rejected (default 0.1)
 
     cnm2.params.set('quality', {'decay_time': decay_time,
                                'SNR_lowest': SNR_lowest,

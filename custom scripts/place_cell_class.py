@@ -750,6 +750,9 @@ class PlaceCellFinder:
 
         place_cell_idx = [x[0] for x in self.place_cells]
         #todo: remove cells that have a outlier-high activity maximum?
+        place_cell_idx.remove(548)
+        place_cell_idx.remove(340)
+
         traces = self.bin_avg_activity[place_cell_idx]
         n_neurons = traces.shape[0]
         if n_neurons > 0:

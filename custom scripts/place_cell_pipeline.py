@@ -110,7 +110,7 @@ def whole_caiman_pipeline_mouse(root, cnm_params, pcf_params, dview, make_lcm=Tr
 
     for step in os.walk(root):
         if len([s for s in step[2] if 'memmap__d1_' in s]) == 1:    # is there a session memory map?
-            if len([s for s in step[2] if 'pcf_results' in s]) == 0 or overwrite:    # has it already been processed?
+            if len([s for s in step[2] if 'place_cells' in s]) == 0 or overwrite:    # has it already been processed?
                 if network == 'all' or network == step[0][-2:]:     # is it the correct network?
                     whole_caiman_pipeline_session(step[0], cnm_params, pcf_params, dview, make_lcm)
 

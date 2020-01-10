@@ -21,7 +21,7 @@ c, dview, n_processes = cm.cluster.setup_cluster(
 # dataset dependent parameters
 fr = 30  # imaging rate in frames per second
 decay_time = 0.4  # length of a typical transient in seconds (0.4)
-dxy = (1.2, 1.2)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+dxy = (1.66, 1.52)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
 # note the lower than usual spatial resolution here
 max_shift_um = (50., 50.)  # maximum shift in um
 patch_motion_um = (100., 100.)  # patch size for non-rigid correction in um
@@ -185,8 +185,8 @@ opts = opts.change_params(params_dict=opts_dict)
 min_SNR = 6  # signal to noise ratio for accepting a component (default 2)
 SNR_lowest = 3
 rval_thr = 0.7  # space correlation threshold for accepting a component (default 0.85)
-cnn_thr = 0.4  # threshold for CNN based classifier (default 0.99)
-cnn_lowest = 0.01  # neurons with cnn probability lower than this value are rejected (default 0.1)
+cnn_thr = 0.6  # threshold for CNN based classifier (default 0.99)
+cnn_lowest = 0.1  # neurons with cnn probability lower than this value are rejected (default 0.1)
 
 opts_dict = {'decay_time': decay_time,
              'SNR_lowest': SNR_lowest,
@@ -214,8 +214,8 @@ params = {'root': None,                  # main directory of this session
           'split_size': 10}              # size in frames of bootstrapping segments
 
 #%%
-root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25'
-pipe.whole_caiman_pipeline_mouse(root, opts, params, dview, make_lcm=True, network='N1')
+root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19'
+pipe.whole_caiman_pipeline_mouse(root, opts, params, dview, make_lcm=True, network='N2')
 
 #%% separate functions
 cnm = pipe.run_source_extraction(images, opts, dview=dview)
