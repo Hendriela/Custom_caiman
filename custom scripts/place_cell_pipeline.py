@@ -66,8 +66,7 @@ def load_cnmf(root):
     cnm_filepath = os.path.join(root, cnm_filename)
     cnm_file = glob(cnm_filepath)
     if len(cnm_file) < 1:
-        print(f'No file with the name {cnm_filepath} found.')
-        return
+        raise FileNotFoundError(f'No file with the name {cnm_filepath} found.')
     else:
         print(f'Loading file {cnm_file[0]}...')
         return cnmf.load_CNMF(cnm_file[0])
@@ -82,11 +81,9 @@ def load_mmap(root):
     """
     mmap_file = glob(root + r'\\*.mmap')
     if len(mmap_file) > 1:
-        print(f'Found more than one mmap file in {root}. Movie could not be loaded.')
-        return
+        raise FileNotFoundError(f'Found more than one mmap file in {root}. Movie could not be loaded.')
     elif len(mmap_file) < 1:
-        print(f'No mmap file found in {root}.')
-        return
+        raise FileNotFoundError(f'No mmap file found in {root}.')
     else:
         print(f'Loading file {mmap_file[0]}...')
         Yr, dims, T = cm.load_memmap(mmap_file[0])
@@ -97,8 +94,7 @@ def load_mmap(root):
 def load_pcf(root):
     pcf_path = glob(root + r'\\pcf_results')
     if len(pcf_path) < 1:
-        print(f'No pcf file found in {root}.')
-        return
+        raise FileNotFoundError(f'No pcf file found in {root}.')
     else:
         with open(pcf_path[0], 'rb') as file:
             obj = pickle.load(file)
