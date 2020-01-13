@@ -14,6 +14,7 @@ import os
 import re
 from behavior_import import progress
 from ScanImageTiffReader import ScanImageTiffReader
+import gui_without_movie as gui
 
 
 class PlaceCellFinder:
@@ -603,7 +604,12 @@ class PlaceCellFinder:
         :param overwrite: bool, overwrites files automatically if there is one
         :return:
         """
-        save_path = os.path.join(self.params['root'], file_name)
+
+        if '.' not in file_name:
+            save_path = os.path.join(self.params['root'], file_name + '.pickle')
+        else:
+            save_path = os.path.join(self.params['root'], file_name)
+
         if os.path.isfile(save_path) and not overwrite:
             answer = None
             while answer not in ("y", "n", 'yes', 'no'):
@@ -628,6 +634,10 @@ class PlaceCellFinder:
             print(f'PCF results successfully saved at {save_path}')
 
 #%% Visualization
+
+    def load_gui(self):
+        gui.run_gui(data=self.cnmf)
+
     def plot_binned_neurons(self, idx=None, sliced=False):
         if idx:
             if sliced:
