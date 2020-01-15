@@ -156,12 +156,12 @@ opts = cnmf.params.CNMFParams(params_dict=mc_dict)
 # extraction parameters
 p = 1  # order of the autoregressive system
 gnb = 3  # number of global background components (3)
-merge_thr = 0.70  # merging threshold, max correlation allowed (0.86)
+merge_thr = 0.86  # merging threshold, max correlation allowed (0.86)
 rf = 25
 # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
 stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
 K = 20  # number of components per patch (10)
-gSig = [6, 6]
+gSig = [4, 4] # expected half-size of neurons in pixels
 # initialization method (if analyzing dendritic data using 'sparse_nmf')
 method_init = 'greedy_roi'
 ssub = 2  # spatial subsampling during initialization

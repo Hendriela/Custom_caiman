@@ -20,10 +20,18 @@ dims = templates[0].shape
 
 spatial_union, assignments, matchings = register_multisession(spatial, dims=dims, templates=templates)
 
+
+
 n_sess = len(spatial)
-fig, ax = plt.subplots(nrows=2, ncols=3)
-plt.sca(ax[0,0])
-visualization.plot_contours(spatial[0], templates[0])
+fig, ax = plt.subplots(nrows=1, ncols=2)
+plt.sca(ax[0])
+
+
+
+
+
+
+
 plt.sca(ax[0,1])
 visualization.plot_contours(spatial[1], templates[1])
 plt.sca(ax[0,2])

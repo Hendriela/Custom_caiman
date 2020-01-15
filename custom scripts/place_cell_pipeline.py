@@ -92,7 +92,7 @@ def load_mmap(root):
 
 
 def load_pcf(root):
-    pcf_path = glob(root + r'\\pcf_results')
+    pcf_path = glob(root + r'\\pcf_results*')
     if len(pcf_path) < 1:
         raise FileNotFoundError(f'No pcf file found in {root}.')
     else:
@@ -110,7 +110,7 @@ def whole_caiman_pipeline_mouse(root, cnm_params, pcf_params, dview, make_lcm=Tr
                 if network == 'all' or network == step[0][-2:]:     # is it the correct network?
                     whole_caiman_pipeline_session(step[0], cnm_params, pcf_params, dview, make_lcm)
 
-def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=False):
+def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=False, save_pre_sel_img=True):
     """
     Wrapper for the complete caiman and place cell pipeline. Performs source extraction, evaluation and place cell
     search for one session/network (one mmap file).
@@ -135,6 +135,13 @@ def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=
         else:
             lcm = get_local_correlation(images)
         cnm.estimates.Cn = lcm
+    if save_pre_sel_img:
+        cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
+        plt.tight_layout()
+        fig = plt.gcf()
+        fig.set_size_inches((10, 10))
+        plt.savefig(os.path.join(root, 'pre_sel_components.png'))
+        plt.close()
     print('\tFinished, now evaluating components...')
     cnm = run_evaluation(images, cnm, dview=dview)
     save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), overwrite=True, verbose=False)
@@ -202,7 +209,7 @@ def run_source_extraction(images, params, dview):
 #%% Motion correction wrapper functions
 
 
-def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=True):
+def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=False):
     """
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
     to save disk space. Function automatically finds sessions and performs correction on whole sessions separately.

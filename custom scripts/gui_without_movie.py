@@ -22,8 +22,6 @@ def run_gui(path=None, data=None):
     :return:
     """
 
-    # Always start by initializing Qt (only once per application)
-    app = QtGui.QApplication([])
 
     try:
         cv2.setNumThreads(1)
@@ -32,7 +30,7 @@ def run_gui(path=None, data=None):
 
     try:
         if __IPYTHON__:
-            print(1)
+            # print(1)
             # this is used for debugging purposes only. allows to reload classes
             # when changed
             get_ipython().magic('load_ext autoreload')
@@ -60,9 +58,8 @@ def run_gui(path=None, data=None):
             # load object saved by CNMF
             path = F.getExistingDirectory(caption='Select folder from which to load a PCF or CNMF file')
 
-        try:    # first try to load a PCF object (should be most up-to-date)
-            pcf_obj = pipe.load_pcf(path)
-            cnm_obj = pcf_obj.cnmf
+        try:    # first try to get CNMF data from a PCF object (should be most up-to-date)
+            cnm_obj = pipe.load_pcf(path).cnmf
         except FileNotFoundError:
             try:
                 cnm_obj = pipe.load_cnmf(path)
@@ -213,14 +210,15 @@ def run_gui(path=None, data=None):
 
 
 
+#%% START BUILDING THE APPLICATION WINDOW
 
-    #%%
+    # Always start by initializing Qt (only once per application)
+    app = QtGui.QApplication([])
 
-
-    ## Define a top-level widget to hold everything
+    # Define a top-level widget to hold everything
     w = QtGui.QWidget()
 
-    ## Create some widgets to be placed inside
+    # Create some widgets to be placed inside
     btn = QtGui.QPushButton('press me')
     text = QtGui.QLineEdit('enter text')
 
@@ -279,9 +277,15 @@ def run_gui(path=None, data=None):
 
     #enable only horizontal zoom for the traces component
     p2.setMouseEnabled(x=True, y=False)
+    ## Display the widget as a new window
+    w.show()
 
+    ## Start the Qt event loop
+    app.exec_()
 
     draw_contours()
+
+
 
     hist.setLevels(estimates.background_image.min(), estimates.background_image.max())
 
