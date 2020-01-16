@@ -149,15 +149,28 @@ def shift_com(com, shift, dims):
 
 def manual_place_cell_alignment(pcf_sessions, ref_session=0):
 
-    def adj_idx(idx):
+    def targ_to_real_idx(idx):
         """
-        Adjusts index of pcf_sessions list to avoid referring to the reference session.
+        Adjusts non-reference pcf_sessions idx to real pcf_sessions idx to avoid referring to the reference session.
         :param idx: Index of non-reference session
         :return: adj_idx, actual index of requested session in pcf_sessions
         """
         adj_idx = idx
         if adj_idx >= ref_session:
             adj_idx += 1
+        return adj_idx
+
+    def real_to_targ_idx(idx):
+        """
+        Adjusts real pcf_sessions idx to non-reference pcf_sessions idx to avoid IndexError when indexing target list.
+        :param idx: Index of complete pcf_sessions list
+        :return: adj_idx, index of requested session in pcf_sessions without reference session
+        """
+        adj_idx = idx
+        if adj_idx > ref_session:
+            adj_idx -= 1
+        elif adj_idx == ref_session:
+            raise IndexError('Cant find index of reference session in target list.')
         return adj_idx
 
     def draw_reference(ax, pcf, idx):
@@ -202,14 +215,14 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
         # return contours sorted by their distance to the reference CoM
         return [x for _, x in sorted(zip(distances, near_contours), key=lambda pair: pair[0])]
 
-    def draw_target_cells(near_contours_sort, idx, update=False):
+    def draw_target_cells(near_contours_sort, idx):
         """
         Draws target cells in the right part of the figure.
         :param near_contours_sort: list, contains contour data of target cells (from find_target_cells)
         :param idx: int, index of the target session the target cells belong to
         :return:
         """
-        real_idx = adj_idx(idx) # exchange the target-session specific idx into a pcf_sessions index
+        real_idx = targ_to_real_idx(idx) # exchange the target-session specific idx into a pcf_sessions index
         # draw possible matching cells in the plots on the right
         if len(near_contours_sort)+1 <= 9:  # the +1 is for the button "no matches"
             n_rows = ceil((len(near_contours_sort)+1)/3)    # number of rows needed to plot near contours into 3 columns
@@ -246,12 +259,6 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
 
     def draw_both_sides(ref_idx, targ_sess_idx):
 
-        # build figure
-        fig = plt.figure(figsize=(15, 8))  # draw figure
-        outer = grid.GridSpec(1, 2)  # initialize outer structure (two fields horizontally)
-        ref = grid.GridSpecFromSubplotSpec(1, 1, subplot_spec=outer[0])  # initialize reference plot
-        ref_ax = fig.add_subplot(ref[0])  # draw reference plot
-
         # first draw the reference cell
         ref_com = draw_reference(ref_ax, pcf_sessions[ref_session], ref_idx)
 
@@ -259,11 +266,9 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
         nearby_contours = find_target_cells(ref_com, all_contours[targ_sess_idx],
                                             pcf_sessions[ref_idx].cnmf.estimates.Cn.shape,
                                             all_shifts[targ_sess_idx])
-
         # Draw target cells in the right plots
         draw_target_cells(nearby_contours, targ_sess_idx)
-
-        return nearby_contours, ref_ax, fig
+        return nearby_contours
 
     #######################################################################################
     ##### THIS FIGURE AND DATA PREPARATION HAS TO BE DONE ONLY ONCE PER FUNCTION CALL #####
@@ -287,32 +292,40 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
             all_contours.append(visualization.plot_contours(sess.cnmf.estimates.A, sess.cnmf.estimates.Cn))
             plt.close()
 
+    # build figure
+    fig = plt.figure(figsize=(15, 8))  # draw figure
+    outer = grid.GridSpec(1, 2)        # initialize outer structure (two fields horizontally)
+    ref = grid.GridSpecFromSubplotSpec(1, 1, subplot_spec=outer[0])  # initialize reference plot
+    ref_ax = fig.add_subplot(ref[0])   # draw reference plot
+
     # First drawing
-    near_contours, ref_ax, fig = draw_both_sides(0, 0)  # This means to draw the first reference (place) cell and the target cells
+    near_contours = draw_both_sides(0, 0)  # This means to draw the first reference (place) cell and the target cells
 
     # Define what happens when a plot was clicked: update alignment accordingly and draw the next set of cells
     def onpick(event):
-        global near_contours, ref_ax, fig
+        global near_contours
         this_plot = event.artist                 # save artist (axis) where the pick was triggered
         id_s = plt.getp(this_plot, 'url')        # get the IDs of the neuron that was clicked and of the current session
+        real_id = id_s[0]
+        target_id = real_to_targ_idx(id_s[0])
         ref_id = plt.getp(ref_ax, 'url')         # get the url label (idx) of the reference cell
         print(f'Reference cell {ref_id}, clicked neuron {id_s}.')
 
         # update the alignment array with the clicked assignment
         alignment[ref_id, 0] = place_cell_idx[ref_id]   # which ID did this place cell have?
         if id_s[1] == -1:  # '-1' means "no match" has been clicked, fill spot with nan
-            alignment[ref_id, id_s[0]] = np.nan
+            alignment[ref_id, real_id] = np.nan
         else:
             # assign the clicked neuron_id to the 'ref_id' reference cell in the 'sess_id' session
-            alignment[ref_id, id_s[0]] = id_s[1]
+            alignment[ref_id, real_id] = id_s[1]
 
 
         # if this is the last session, draw a new reference cell
-        if id_s[0]+1 == len(pcf_sessions):
-            near_contours, ref_ax, fig = draw_both_sides(ref_id+1, id_s[0]+1)
+        if target_id+1 == len(pcf_sessions):
+            near_contours = draw_both_sides(ref_id+1, 0)
         # else, only draw the target cells of the next session
         else:
-            draw_target_cells(near_contours, id_s[0]+1, update=True)
+            draw_target_cells(near_contours, target_id+1)
         fig.canvas.draw()
         fig.canvas.flush_events()
 
