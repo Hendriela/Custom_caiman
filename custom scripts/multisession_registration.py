@@ -6,6 +6,10 @@ from caiman.utils import visualization
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as grid
+from skimage.feature import register_translation
+from scipy.ndimage import shift as shift_img
+from math import ceil
+from point2d import Point2D
 
 #%%
 
@@ -77,10 +81,11 @@ def load_multisession_data(dir_list):
     return spatial, templates, dim, pcf_objects
 
 
-def manual_place_cell_alignment(pcf):
+def manual_place_cell_alignment(pcf_objects):
+
 
     # get indices of place cells from first session
-    place_cell_idx = [x[0] for x in pcf.place_cells]
+    place_cell_idx = [x[0] for x in pcf_objects[0].place_cells]
 
     fig = plt.figure(figsize=(15, 8))  # draw figure
     outer = grid.GridSpec(1, 2)        # initialize outer structure (two fields horizontally)
@@ -88,18 +93,65 @@ def manual_place_cell_alignment(pcf):
     # draw reference cell in the big plot on the left
     ref = grid.GridSpecFromSubplotSpec(1, 1, subplot_spec=outer[0])
     ref_ax = fig.add_subplot(ref[0])
-    draw_single_contour(ref_ax, pcf.cnmf.estimates.A[:, place_cell_idx[0]], pcf.cnmf.estimates.Cn)
+    ref_com = draw_single_contour(ax=ref_ax,
+                                  spatial=pcf_objects[0].cnmf.estimates.A[:, place_cell_idx[0]],
+                                  template=pcf_objects[0].cnmf.estimates.Cn)
     ref_ax.tick_params(labelbottom=False, labelleft=False)
 
-    # draw possible matching cells in the plots on the right
-    candidates = outer[1].subgridspec(3, 3)
+    ### Find cells in the next session(s) that have their center of mass near the reference cell (25 px distance) ###
+    max_dist = 25  # maximum radial distance of a cell to the reference cell in pixel
 
-    for i in range(3):
-        for j in range(3):
-            curr_ax = fig.add_subplot(candidates[i, j], picker=True) # picker activates clickability of the subplot
-            plt.setp(curr_ax, url=(i, j))   # the url property is used as a label to know which axis has been clicked
-            t = curr_ax.text(0.5, 0.5, 'ax (%d,%d)' % (i, j), va='center', ha='center')
-            curr_ax.tick_params(labelbottom=False, labelleft=False)
+    # Calculate offset of FOVs with phase correlation (skimage.feature.register_translation)
+    shift = register_translation(pcf_objects[0].cnmf.estimates.Cn, pcf_objects[1].cnmf.estimates.Cn,
+                                 upsample_factor=100, return_error=False)
+
+    # Correct reference center-of-mass by the shift to be better aligned with the FOV of the second session
+    ref_com_shift = shift_com(ref_com, shift, pcf_objects[0].cnmf.estimates.Cn.shape)
+    ref_point = Point2D(ref_com_shift[0], ref_com_shift[1])  # transform CoM into a Point2D to handle radial distances
+
+    # get CoM data for all cells in the second session
+    plt.figure()
+    all_contours = visualization.plot_contours(pcf_objects[1].cnmf.estimates.A, pcf_objects[1].cnmf.estimates.Cn)
+    plt.close()
+
+    # Go through all cells and select the ones that have a CoM near the reference cell, also remember their distance
+    near_contours = []
+    distances = []
+    for contour in all_contours:
+        new_point = Point2D(contour['CoM'][0], contour['CoM'][1])
+        rad_dist = (new_point - ref_point).r
+        # x_dist = abs(contour['CoM'][0] - ref_com_shift[0])
+        # y_dist = abs(contour['CoM'][1] - ref_com_shift[1])
+        if rad_dist <= max_dist:
+            near_contours.append(contour)
+            distances.append(rad_dist)
+
+    # sort the near contours by their distance to the reference CoM
+    near_contours_sort = [x for _, x in sorted(zip(distances, near_contours), key=lambda pair: pair[0])]
+
+    # draw possible matching cells in the plots on the right
+    if len(near_contours_sort)+1 <= 9:  # the +1 is for the button "no matches"
+        n_rows = ceil((len(near_contours_sort)+1)/3)    # number of rows necessary to plot near contours into 3 columns
+        candidates = outer[1].subgridspec(n_rows, 3)    # create grid layout
+        counter = 0                                     # counter that keeps track of plotted contour number
+        for row in range(n_rows):
+            for column in range(3):
+                curr_ax = fig.add_subplot(candidates[row, column], picker=True)  # picker enables clicking the subplot
+                try:
+                    curr_neuron = near_contours_sort[counter]['neuron_id']
+                    # plot the current candidate
+                    curr_cont = draw_single_contour(ax=curr_ax,
+                                                    spatial=pcf_objects[1].cnmf.estimates.A[:, curr_neuron],
+                                                    template=pcf_objects[1].cnmf.estimates.Cn)
+                    # the url property of the Axes is used as a tag to remember which neuron has been clicked
+                    plt.setp(curr_ax, url=curr_neuron)
+                    curr_ax.tick_params(labelbottom=False, labelleft=False)
+                    counter += 1
+                # if there are no more candidates to plot, make plot into a "no matches" button and mark it with '-1'
+                except IndexError:
+                    t = curr_ax.text(0.5, 0.5, 'No Matches', va='center', ha='center')
+                    plt.setp(curr_ax, url=-1)
+                    curr_ax.tick_params(labelbottom=False, labelleft=False)
 
     def onpick(event):
         this_plot = event.artist                    # save artist (axis) where the pick was triggered
@@ -111,13 +163,14 @@ def manual_place_cell_alignment(pcf):
     fig.show()
 
 
-def draw_single_contour(ax, spatial, template, half_size=25):
+def draw_single_contour(ax, spatial, template, half_size=50):
     """
     Draws the contour of one component and focuses the template image around its center.
     :param ax: Axes in which the plot should be drawn
     :param spatial: spatial information of the component, acquired by indexing spatial[session][:,neuron_id]
     :param template: background template image on which to draw the contour
     :param half_size: int, half size in pixels of the final area
+    :returns: CoM of the drawn contour
     """
 
     def set_lims(com, ax, half_size, max_lims):
@@ -156,7 +209,24 @@ def draw_single_contour(ax, spatial, template, half_size=25):
     out = visualization.plot_contours(spatial, template, display_numbers=False)
     com = (int(np.round(out[0]['CoM'][0])), int(np.round(out[0]['CoM'][1])))
     set_lims(com, ax, half_size, template.shape)
+    return com
 
+
+def shift_com(com, shift, dims):
+    """
+    Shifts a center-of-mass coordinate point by a certain step size. Caps coordinates at 0 and dims limits
+    :param com: iterable, X and Y coordinates of the center of mass
+    :param shift: iterable, amount by which to shift com, has to be same length as com
+    :param dims: iterable, dimensions of the FOV, has to be same length as com
+    :return: shifted com
+    """
+    com_shift = [com[0] + shift[0], com[1] + shift[1]]  # shift the CoM by the given amount
+    # cap CoM at 0 and dims limits
+    com_shift = [0 if x < 0 else x for x in com_shift]
+    for coord in range(len(com_shift)):
+        if com_shift[coord] > dims[coord]:
+            com_shift[coord] = dims[coord]
+    return com_shift
 
 #%%
 dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191125\N2',
