@@ -27,9 +27,33 @@ fig, ax = plt.subplots(nrows=1, ncols=2)
 plt.sca(ax[0])
 
 
+fig = plt.figure(figsize=(8, 3))
+ax1 = plt.subplot(1, 2, 1)
+ax2 = plt.subplot(1, 2, 2)
+#ax3 = plt.subplot(1, 3, 3, sharex=ax1, sharey=ax1)
+
+ax1.imshow(shift_map_y, cmap='viridis')
+# ax1.set_xlim(200, 300)
+# ax1.set_ylim(200, 300)
+# ax1.set_axis_off()
+ax1.set_title('Reference image')
+
+ax2.imshow(shift_map_y_big, cmap='viridis')
+# ax2.set_xlim(200, 300)
+# ax2.set_ylim(200, 300)
+# ax2.set_axis_off()
+ax2.set_title(f'{all_shifts[0]}')
+
+ax3.imshow(pcf_objects[2].cnmf.estimates.Cn, cmap='gray')
+# ax2.set_xlim(200, 300)
+# ax2.set_ylim(200, 300)
+# ax3.set_axis_off()
+ax3.set_title(f'{all_shifts[1]}')
 
 
 
+n_rows = 4
+n_cols = ceil((18 + 1) / n_rows)
 
 
 plt.sca(ax[0,1])
@@ -79,10 +103,10 @@ for i in range(len(file_list)):
     A[:, i] = temp.flatten('F')
 
 #%%
-assignments_filtered = [5
+assignments_filtered = [5]
 n_reg = 3
 traces = np.zeros(len(assignments_filtered))
-for i in range(len(assignments_filtered):
+for i in range(len(assignments_filtered)):
     traces[i] = np.zeros(n_reg)
     for j in range(n_reg):
         traces[i][j] = estimate_list[i].F_dff
@@ -93,3 +117,28 @@ for i in range(test.shape[0]):
     for j in range(test.shape[1]):
         if assignments[i,j] is not NaN:
             test[i,j] = cnm2.estimates.C[int(assignments[i,j])]
+
+#%%
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.interpolate import InterpolatedUnivariateSpline
+
+# given values
+xi = np.array([0.2, 0.5, 0.7, 0.9])
+yi = np.array([0.3, -0.1, 0.2, 0.1])
+# positions to inter/extrapolate
+x = np.linspace(0, 1, 50)
+# spline order: 1 linear, 2 quadratic, 3 cubic ...
+order = 1
+# do inter/extrapolation
+s = InterpolatedUnivariateSpline(xi, yi, k=order)
+y = s(x)
+
+# example showing the interpolation for linear, quadratic and cubic interpolation
+plt.figure()
+plt.plot(xi, yi)
+for order in range(1, 4):
+    s = InterpolatedUnivariateSpline(xi, yi, k=order)
+    y = s(x)
+    plt.plot(x, y)
+plt.show()

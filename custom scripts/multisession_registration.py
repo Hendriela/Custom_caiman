@@ -9,7 +9,7 @@ import matplotlib.gridspec as grid
 from skimage.feature import register_translation
 from math import ceil
 from point2d import Point2D
-from copy import deepcopy
+from scipy.ndimage import zoom
 
 #%% LOADING AND AUTOMATICALLY ALIGNING MULTISESSION DATA
 
@@ -47,17 +47,17 @@ def load_multisession_data(dir_list):
     :returns dim: tuple, x and y dimensions of FOV, from templates[0].shape
     :returns pcf_objects: list of PCF objects without CNMF data to save memory, contains place cell info
     """
-    spatial = []  # list of csc matrices (# pixels X # component ROIs, from cnmf.estimates.A) with spatial info for all components
-    templates = []  # list of template images for each session (local correlation map; cnmf.estimates.Cn)
-    pcf_objects = []  # list of pcf objects that contain all other infos about the place cells
+    spatial_list = []  # list of csc matrices (# pixels X # component ROIs, from cnmf.estimates.A) with spatial info for all components
+    templates_list = []  # list of template images for each session (local correlation map; cnmf.estimates.Cn)
+    pcf_objects_list = []  # list of pcf objects that contain all other infos about the place cells
 
     count = 0
     for folder in dir_list:
         count += 1
         curr_pcf = pipe.load_pcf(folder)    # load pcf object that includes the cnmf object
-        spatial.append(curr_pcf.cnmf.estimates.A)
+        spatial_list.append(curr_pcf.cnmf.estimates.A)
         try:
-            templates.append(curr_pcf.cnmf.estimates.Cn)
+            templates_list.append(curr_pcf.cnmf.estimates.Cn)
         except AttributeError:
             print(f'No local correlation image found in {folder}...')
             movie_file = glob(folder+'memmap__*.mmap')
@@ -67,19 +67,47 @@ def load_multisession_data(dir_list):
                 images = np.reshape(Yr.T, [T] + list(dims), order='F')
                 curr_pcf.cnmf.estimates.Cn = pipe.get_local_correlation(images)
                 curr_pcf.save(overwrite=True)
-                templates.append(curr_pcf.cnmf.estimates.Cn)
+                templates_list.append(curr_pcf.cnmf.estimates.Cn)
             elif len(movie_file) > 1:
                 print('\tResult ambiguous, found more than one mmap file, no calculation possible.')
             else:
                 print('\tNo mmap file found. Maybe you have to re-motioncorrect the movie?')
 
-        pcf_objects.append(curr_pcf)    # add rest of place cell info to the list
+        pcf_objects_list.append(curr_pcf)    # add rest of place cell info to the list
         print(f'Successfully loaded data from {folder[-18:]} ({count}/{len(dir_list)}).')
 
-    dim = templates[0].shape  # dimensions of the FOV, can be gotten from templates
+    dimensions = templates_list[0].shape  # dimensions of the FOV, can be gotten from templates
 
-    return spatial, templates, dim, pcf_objects
+    return spatial_list, templates_list, dimensions, pcf_objects_list
 #%% SEMI-MANUALLY ALIGNING PLACE CELLS ACROSS SESSIONS
+
+
+def piecewise_fov_shift(ref_img, tar_img, n_patch=8):
+    """
+    Calculates FOV-shift map between a reference and a target image. Images are split in n_patch X n_patch patches, and
+    shift is calculated for each patch separately with phase correlation. The resulting shift map is scaled up and
+    missing values interpolated to ref_img size to get an estimated shift value for each pixel.
+    :param ref_img: np.array, reference image
+    :param tar_img: np.array, target image to which FOV shift is calculated. Has to be same dimensions as ref_img
+    :param n_patch: int, root number of patches the FOV should be subdivided into for piecewise phase correlation
+    :return: two np.arrays containing estimated shifts per pixel (upscaled x_shift_map, upscaled y_shift_map)
+    """
+    img_dim = ref_img.shape
+    patch_size = int(img_dim[0]/n_patch)
+
+    shift_map_x = np.zeros((n_patch, n_patch))
+    shift_map_y = np.zeros((n_patch, n_patch))
+    for row in range(n_patch):
+        for col in range(n_patch):
+            curr_ref_patch = ref_img[row*patch_size:row*patch_size+patch_size, col*patch_size:col*patch_size+patch_size]
+            curr_tar_patch = tar_img[row*patch_size:row*patch_size+patch_size, col*patch_size:col*patch_size+patch_size]
+            patch_shift = register_translation(curr_ref_patch, curr_tar_patch, upsample_factor=100, return_error=False)
+            shift_map_x[row, col] = patch_shift[0]
+            shift_map_y[row, col] = patch_shift[1]
+    shift_map_x_big = zoom(shift_map_x, patch_size, order=3)
+    shift_map_y_big = zoom(shift_map_y, patch_size, order=3)
+    return shift_map_x_big, shift_map_y_big
+
 
 def draw_single_contour(ax, spatial, template, half_size=50):
     """
@@ -139,7 +167,8 @@ def shift_com(com, shift, dims):
     :param dims: iterable, dimensions of the FOV, has to be same length as com
     :return: shifted com
     """
-    com_shift = [com[0] + shift[0], com[1] + shift[1]]  # shift the CoM by the given amount
+    # shift the CoM by the given amount (subtract because shifts have been calculated from ref vs tar
+    com_shift = [com[0] - shift[0], com[1] - shift[1]]
     # cap CoM at 0 and dims limits
     com_shift = [0 if x < 0 else x for x in com_shift]
     for coord in range(len(com_shift)):
@@ -148,7 +177,39 @@ def shift_com(com, shift, dims):
     return com_shift
 
 
-def manual_place_cell_alignment(pcf_sessions, ref_session=0):
+def prepare_manual_alignment_data(pcf_sessions, ref_session):
+    """
+    Prepares PCF and CNMF data for manual alignment tool. Initializes alignment array and calculates contours and
+    shifts from all cells in all sessions.
+    :param pcf_sessions: list of PCF objects to be aligned
+    :param ref_session: int, index of session to be used as a reference (place cells will be taken from this session)
+    :return: alignment array, all_contours list (list of sessions, each session is list of neuron contours),
+            all_shifts (list of sessions, each session is 2 arrays of x_shift and y_shift for every pixel)
+    """
+    target_sess = [x for j, x in enumerate(pcf_sessions) if j != ref_session]
+    # get indices of place cells from first session
+    place_cell_idx = [x[0] for x in pcf_sessions[ref_session].place_cells]
+
+    # initialize alignment array (#place cells X #sessions)
+    alignment = np.full((len(place_cell_idx), len(pcf_sessions)), -1)  # +1 due to the reference session being popped
+
+    # get contour data of all cells and FOV shifts between reference and the other sessions with phase correlation
+    all_contours = []
+    all_shifts = []
+    for sess_idx in range(len(pcf_sessions)):
+        if sess_idx != ref_session:
+            sess = pcf_sessions[sess_idx]
+            curr_shifts_x, curr_shifts_y = piecewise_fov_shift(pcf_sessions[ref_session].cnmf.estimates.Cn,
+                                                               sess.cnmf.estimates.Cn)
+            all_shifts.append((curr_shifts_x, curr_shifts_y))
+            plt.figure()
+            all_contours.append(visualization.plot_contours(sess.cnmf.estimates.A, sess.cnmf.estimates.Cn))
+            plt.close()
+    return target_sess, place_cell_idx, alignment, all_contours, all_shifts
+
+
+def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, alignment, all_contours, all_shifts,
+                                ref_session):
 
     def targ_to_real_idx(idx):
         """
@@ -184,7 +245,7 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
         """
         com = draw_single_contour(ax=ax, spatial=pcf.cnmf.estimates.A[:, place_cell_idx[idx]],
                                   template=pcf.cnmf.estimates.Cn)
-        plt.setp(ax, url=idx, title=f'Session {ref_session + 1}')
+        plt.setp(ax, url=idx, title=f'Session {ref_session + 1}, Neuron {place_cell_idx[idx]}')
         #ax.tick_params(labelbottom=False, labelleft=False)
         return com
 
@@ -194,14 +255,18 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
         :param reference_com: tuple, (x,y) of center of mass of reference cell
         :param session_contours: list of contour dicts holding contour information of all target cells
         :param dims: tuple, (x,y) of FOV dimensions
-        :param fov_shift: (x,y) of FOV shift between reference and target session (from all_shifts)
+        :param fov_shift: np.array of FOV shifts between reference and target session (from all_shifts)
         :param max_dist: int, maximum radial distance between reference and target cell to be considered 'nearby'
         :return: list of contours of nearby cells sorted by distance
         """
+        # Find shift of reference CoM by indexing fov_shift
         # Correct reference center-of-mass by the shift to be better aligned with the FOV of the second session
-        reference_com_shift = shift_com(reference_com, fov_shift, dims)
-        ref_point = Point2D(reference_com_shift[0],
-                            reference_com_shift[1])  # transform CoM into a Point2D that can handle radial distances
+        reference_com_shift = shift_com(reference_com,
+                                        (fov_shift[0][reference_com[0], reference_com[1]],
+                                         fov_shift[1][reference_com[0], reference_com[1]]), dims)
+
+        # transform CoM into a Point2D that can handle radial distances
+        ref_point = Point2D(reference_com_shift[0], reference_com_shift[1])
 
         # Go through all cells and select the ones that have a CoM near the reference cell, also remember their distance
         near_contours = []
@@ -225,45 +290,41 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
         :param ref_cell_idx: index of reference cell, needed to label axes
         :return:
         """
+        n_cols = 5
         real_idx = targ_to_real_idx(idx)  # exchange the target-session specific idx into a pcf_sessions index
+        n_plots = len(near_contours_sort)+1
         # draw possible matching cells in the plots on the right
-        if len(near_contours_sort)+1 <= 9:  # the +1 is for the button "no matches"
-            n_rows = ceil((len(near_contours_sort)+1)/3)    # number of rows needed to plot near contours into 3 columns
-            candidates = outer_grid[1].subgridspec(n_rows, 3)    # create grid layout
-            counter = 0                                     # counter that keeps track of plotted contour number
-            for row in range(n_rows):
-                for column in range(3):
-                    curr_ax = fig.add_subplot(candidates[row, column], picker=True)  # picker enables clicking subplots
-                    try:
-                        curr_neuron = near_contours_sort[counter]['neuron_id']-1
-                        print(f'Ax {row,column}, Neuron {curr_neuron}')
-                        # plot the current candidate
-                        curr_cont = draw_single_contour(ax=curr_ax,
-                                                        spatial=target_sessions[idx].cnmf.estimates.A[:, curr_neuron],
-                                                        template=target_sessions[idx].cnmf.estimates.Cn)
-
-                        # t = curr_ax.text(0.5, 0.5, f'{curr_neuron}', va='center', ha='center')
-                        # the url property of the Axes is used as a tag to remember which neuron has been clicked
-                        # as well as which target session it belonged to
-                        plt.setp(curr_ax, url=(ref_cell_idx, real_idx, curr_neuron))
-                        #curr_ax.tick_params(labelbottom=False, labelleft=False)
-                        counter += 1
-                    # if there are no more candidates to plot, make plot into a "no matches" button and mark it with -1
-                    except IndexError:
-                        if row == 0 and column == 1:
-                            curr_ax.set_title(f'Session {real_idx + 1}')
-                        t = curr_ax.text(0.5, 0.5, 'No Matches', va='center', ha='center')
-                        plt.setp(curr_ax, url=(ref_cell_idx, real_idx, -1))
-                        curr_ax.tick_params(labelbottom=False, labelleft=False)
-                    if row == 0 and column == 1:
-                        curr_ax.set_title(f'Session {real_idx + 1}')
+        if n_plots < 15:  # make a 5x3 grid for up to 14 nearby cells + 1 'No Match' plot
+            n_rows = ceil(n_plots/n_cols)    # number of rows needed to plot into 5 columns
         else:
-            #TODO Fix plotting of many cells, this is just a placeholder
-            candidates = outer_grid[1].subgridspec(1, 1)    # create grid layout
-            curr_ax = fig.add_subplot(candidates[0], picker=True)  # picker enables clicking subplots
-            t = curr_ax.text(0.5, 0.5, 'More than 9 cells! Fix plotting!', va='center', ha='center')
-            plt.setp(curr_ax, url=-1)
-            curr_ax.tick_params(labelbottom=False, labelleft=False)
+            n_rows = 4      # if there are more than 14 cells, make 4 rows and extend columns as much as necessary
+            n_cols = ceil(n_plots/n_rows)
+        candidates = outer_grid[1].subgridspec(n_rows, n_cols)  # create grid layout
+        counter = 0                                     # counter that keeps track of plotted contour number
+        for row in range(n_rows):
+            for column in range(n_cols):
+                curr_ax = fig.add_subplot(candidates[row, column], picker=True)  # picker enables clicking subplots
+                try:
+                    # -1 because the neuron_id from visualization.plot_contours starts counting at 1
+                    curr_neuron = near_contours_sort[counter]['neuron_id']-1
+                    # plot the current candidate
+                    curr_cont = draw_single_contour(ax=curr_ax,
+                                                    spatial=target_sessions[idx].cnmf.estimates.A[:, curr_neuron],
+                                                    template=target_sessions[idx].cnmf.estimates.Cn)
+
+                    # the url property of the Axes is used as a tag to remember which neuron has been clicked
+                    # as well as which target session it belonged to
+                    plt.setp(curr_ax, url=(ref_cell_idx, real_idx, curr_neuron))
+                    curr_ax.tick_params(labelbottom=False, labelleft=False)
+                    counter += 1
+
+                # if there are no more candidates to plot, make plot into a "no matches" button and mark it with -1
+                except IndexError:
+                    t = curr_ax.text(0.5, 0.5, 'No Matches', va='center', ha='center')
+                    plt.setp(curr_ax, url=(ref_cell_idx, real_idx, -1))
+                    curr_ax.tick_params(labelbottom=False, labelleft=False)
+                if row == 0 and column == int(n_cols/2):
+                    curr_ax.set_title(f'Session {real_idx + 1}')
 
     def draw_both_sides(ref_idx, targ_sess_idx):
         fig.clear()  # remove potential previous layouts
@@ -278,37 +339,17 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
         # Find cells in the next session(s) that have their center of mass near the reference cell
         nearby_contours = find_target_cells(reference_com=ref_com,
                                             session_contours=all_contours[targ_sess_idx],
-                                            dims=pcf_sessions[ref_idx].cnmf.estimates.Cn.shape,
+                                            dims=pcf_sessions[ref_session].cnmf.estimates.Cn.shape,
                                             fov_shift=all_shifts[targ_sess_idx])
 
         # Draw target cells in the right plots
         draw_target_cells(outer_grid, nearby_contours, targ_sess_idx, ref_idx)
 
-
-    #######################################################################################
-    ##### THIS FIGURE AND DATA PREPARATION HAS TO BE DONE ONLY ONCE PER FUNCTION CALL #####
-
-    target_sessions = [x for j, x in enumerate(pcf_sessions) if j != ref_session]
-    # get indices of place cells from first session
-    place_cell_idx = [x[0] for x in pcf_sessions[ref_session].place_cells]
-
-    # initialize alignment array (#place cells X #sessions)
-    alignment = np.zeros((len(place_cell_idx), len(pcf_sessions)))  # +1 because the reference session has been popped
-
-    # get contour data of all cells and FOV shifts between reference and the other sessions with phase correlation
-    all_contours = []
-    all_shifts = []
-    for sess_idx in range(len(pcf_sessions)):
-        if sess_idx != ref_session:
-            sess = pcf_sessions[sess_idx]
-            all_shifts.append(register_translation(pcf_sessions[ref_session].cnmf.estimates.Cn, sess.cnmf.estimates.Cn,
-                                                   upsample_factor=100, return_error=False))
-            plt.figure()
-            all_contours.append(visualization.plot_contours(sess.cnmf.estimates.A, sess.cnmf.estimates.Cn))
-            plt.close()
+##########################################################################################
+################ START OF PLOTTING #######################################################
 
     # build figure
-    fig = plt.figure(figsize=(15, 8))  # draw figure
+    fig = plt.figure(figsize=(18, 8))  # draw figure
 
     # First drawing
     draw_both_sides(0, 0)  # Draw the first reference (place) cell and the target cells
@@ -344,6 +385,7 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
     fig.canvas.mpl_connect('pick_event', onpick)
     fig.show()
 
+    return alignment
 
 
 #%%
@@ -351,7 +393,19 @@ dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191126b\N2',
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191127a\N2']
 
-spatial, templates, dims, pcf_objects = load_multisession_data(dir_list)
+spatial, templates, dim, pcf_objects = load_multisession_data(dir_list)
+
+target_session_list, place_cell_indices, alignment_array, all_contours_list, all_shifts_list = prepare_manual_alignment_data(pcf_objects, 0)
+
+alignment_array = manual_place_cell_alignment(pcf_sessions=pcf_objects,
+                                              target_sessions=target_session_list,
+                                              place_cell_idx=place_cell_indices,
+                                              alignment=alignment_array,
+                                              all_contours=all_contours_list,
+                                              all_shifts=all_shifts_list,
+                                              ref_session=0)
+
+#%%
 
 spatial_union, assignments, matchings, spatial, templates, pcf_objects = align_multisession(dir_list)
 
