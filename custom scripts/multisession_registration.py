@@ -124,6 +124,7 @@ def draw_single_contour(ax, spatial, template, half_size=50):
         ax.set_ylim(lim_y[1], lim_y[0])  # Y limits have to be swapped because image origin is top-left
 
     plt.sca(ax)
+    plt.cla()       # clear axes from potential previous data
     out = visualization.plot_contours(spatial, template, display_numbers=False)
     com = (int(np.round(out[0]['CoM'][0])), int(np.round(out[0]['CoM'][1])))
     set_lims(com, ax, half_size, template.shape)
@@ -184,7 +185,7 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
         com = draw_single_contour(ax=ax, spatial=pcf.cnmf.estimates.A[:, place_cell_idx[idx]],
                                   template=pcf.cnmf.estimates.Cn)
         plt.setp(ax, url=idx, title=f'Session {ref_session + 1}')
-        ax.tick_params(labelbottom=False, labelleft=False)
+        #ax.tick_params(labelbottom=False, labelleft=False)
         return com
 
     def find_target_cells(reference_com, session_contours, dims, fov_shift, max_dist=25):
@@ -215,60 +216,74 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
         # return contours sorted by their distance to the reference CoM
         return [x for _, x in sorted(zip(distances, near_contours), key=lambda pair: pair[0])]
 
-    def draw_target_cells(near_contours_sort, idx):
+    def draw_target_cells(outer_grid, near_contours_sort, idx, ref_cell_idx):
         """
         Draws target cells in the right part of the figure.
+        :param outer_grid: GridSpec object where the target cells are to be drawn
         :param near_contours_sort: list, contains contour data of target cells (from find_target_cells)
         :param idx: int, index of the target session the target cells belong to
+        :param ref_cell_idx: index of reference cell, needed to label axes
         :return:
         """
-        real_idx = targ_to_real_idx(idx) # exchange the target-session specific idx into a pcf_sessions index
+        real_idx = targ_to_real_idx(idx)  # exchange the target-session specific idx into a pcf_sessions index
         # draw possible matching cells in the plots on the right
         if len(near_contours_sort)+1 <= 9:  # the +1 is for the button "no matches"
             n_rows = ceil((len(near_contours_sort)+1)/3)    # number of rows needed to plot near contours into 3 columns
-            candidates = outer[1].subgridspec(n_rows, 3)    # create grid layout
+            candidates = outer_grid[1].subgridspec(n_rows, 3)    # create grid layout
             counter = 0                                     # counter that keeps track of plotted contour number
             for row in range(n_rows):
                 for column in range(3):
                     curr_ax = fig.add_subplot(candidates[row, column], picker=True)  # picker enables clicking subplots
-                    if row == 0 and column == 1:
-                        curr_ax.set_title(f'Session {real_idx+1}')
                     try:
-                        curr_neuron = near_contours_sort[counter]['neuron_id']
+                        curr_neuron = near_contours_sort[counter]['neuron_id']-1
+                        print(f'Ax {row,column}, Neuron {curr_neuron}')
                         # plot the current candidate
                         curr_cont = draw_single_contour(ax=curr_ax,
                                                         spatial=target_sessions[idx].cnmf.estimates.A[:, curr_neuron],
                                                         template=target_sessions[idx].cnmf.estimates.Cn)
+
+                        # t = curr_ax.text(0.5, 0.5, f'{curr_neuron}', va='center', ha='center')
                         # the url property of the Axes is used as a tag to remember which neuron has been clicked
                         # as well as which target session it belonged to
-                        plt.setp(curr_ax, url=(real_idx, curr_neuron))
-                        curr_ax.tick_params(labelbottom=False, labelleft=False)
+                        plt.setp(curr_ax, url=(ref_cell_idx, real_idx, curr_neuron))
+                        #curr_ax.tick_params(labelbottom=False, labelleft=False)
                         counter += 1
                     # if there are no more candidates to plot, make plot into a "no matches" button and mark it with -1
                     except IndexError:
+                        if row == 0 and column == 1:
+                            curr_ax.set_title(f'Session {real_idx + 1}')
                         t = curr_ax.text(0.5, 0.5, 'No Matches', va='center', ha='center')
-                        plt.setp(curr_ax, url=(real_idx, -1))
+                        plt.setp(curr_ax, url=(ref_cell_idx, real_idx, -1))
                         curr_ax.tick_params(labelbottom=False, labelleft=False)
+                    if row == 0 and column == 1:
+                        curr_ax.set_title(f'Session {real_idx + 1}')
         else:
             #TODO Fix plotting of many cells, this is just a placeholder
-            candidates = outer[1].subgridspec(1, 1)    # create grid layout
-            curr_ax = fig.add_subplot(candidates, picker=True)  # picker enables clicking subplots
+            candidates = outer_grid[1].subgridspec(1, 1)    # create grid layout
+            curr_ax = fig.add_subplot(candidates[0], picker=True)  # picker enables clicking subplots
             t = curr_ax.text(0.5, 0.5, 'More than 9 cells! Fix plotting!', va='center', ha='center')
             plt.setp(curr_ax, url=-1)
             curr_ax.tick_params(labelbottom=False, labelleft=False)
 
     def draw_both_sides(ref_idx, targ_sess_idx):
+        fig.clear()  # remove potential previous layouts
+        outer_grid = grid.GridSpec(1, 2)  # initialize outer structure (two fields horizontally)
+
+        ref = grid.GridSpecFromSubplotSpec(1, 1, subplot_spec=outer_grid[0])  # initialize reference plot
+        ref_ax = fig.add_subplot(ref[0])  # draw reference plot
 
         # first draw the reference cell
         ref_com = draw_reference(ref_ax, pcf_sessions[ref_session], ref_idx)
 
         # Find cells in the next session(s) that have their center of mass near the reference cell
-        nearby_contours = find_target_cells(ref_com, all_contours[targ_sess_idx],
-                                            pcf_sessions[ref_idx].cnmf.estimates.Cn.shape,
-                                            all_shifts[targ_sess_idx])
+        nearby_contours = find_target_cells(reference_com=ref_com,
+                                            session_contours=all_contours[targ_sess_idx],
+                                            dims=pcf_sessions[ref_idx].cnmf.estimates.Cn.shape,
+                                            fov_shift=all_shifts[targ_sess_idx])
+
         # Draw target cells in the right plots
-        draw_target_cells(nearby_contours, targ_sess_idx)
-        return nearby_contours
+        draw_target_cells(outer_grid, nearby_contours, targ_sess_idx, ref_idx)
+
 
     #######################################################################################
     ##### THIS FIGURE AND DATA PREPARATION HAS TO BE DONE ONLY ONCE PER FUNCTION CALL #####
@@ -294,38 +309,34 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
 
     # build figure
     fig = plt.figure(figsize=(15, 8))  # draw figure
-    outer = grid.GridSpec(1, 2)        # initialize outer structure (two fields horizontally)
-    ref = grid.GridSpecFromSubplotSpec(1, 1, subplot_spec=outer[0])  # initialize reference plot
-    ref_ax = fig.add_subplot(ref[0])   # draw reference plot
 
     # First drawing
-    near_contours = draw_both_sides(0, 0)  # This means to draw the first reference (place) cell and the target cells
+    draw_both_sides(0, 0)  # Draw the first reference (place) cell and the target cells
 
     # Define what happens when a plot was clicked: update alignment accordingly and draw the next set of cells
     def onpick(event):
-        global near_contours
         this_plot = event.artist                 # save artist (axis) where the pick was triggered
         id_s = plt.getp(this_plot, 'url')        # get the IDs of the neuron that was clicked and of the current session
-        real_id = id_s[0]
-        target_id = real_to_targ_idx(id_s[0])
-        ref_id = plt.getp(ref_ax, 'url')         # get the url label (idx) of the reference cell
+        ref_id = id_s[0]
+        real_sess_id = id_s[1]
+        targ_sess_id = real_to_targ_idx(id_s[1])
+        neuron_id = id_s[2]
         print(f'Reference cell {ref_id}, clicked neuron {id_s}.')
 
         # update the alignment array with the clicked assignment
         alignment[ref_id, 0] = place_cell_idx[ref_id]   # which ID did this place cell have?
-        if id_s[1] == -1:  # '-1' means "no match" has been clicked, fill spot with nan
-            alignment[ref_id, real_id] = np.nan
+        if neuron_id == -1:  # '-1' means "no match" has been clicked, fill spot with nan
+            alignment[ref_id, real_sess_id] = np.nan
         else:
             # assign the clicked neuron_id to the 'ref_id' reference cell in the 'sess_id' session
-            alignment[ref_id, real_id] = id_s[1]
-
+            alignment[ref_id, real_sess_id] = neuron_id
 
         # if this is the last session, draw a new reference cell
-        if target_id+1 == len(pcf_sessions):
-            near_contours = draw_both_sides(ref_id+1, 0)
+        if real_sess_id+1 == len(pcf_sessions):
+            draw_both_sides(ref_id+1, 0)
         # else, only draw the target cells of the next session
         else:
-            draw_target_cells(near_contours, target_id+1)
+            draw_both_sides(ref_id, targ_sess_id+1)
         fig.canvas.draw()
         fig.canvas.flush_events()
 
@@ -339,6 +350,8 @@ def manual_place_cell_alignment(pcf_sessions, ref_session=0):
 dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191125\N2',
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191126b\N2',
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191127a\N2']
+
+spatial, templates, dims, pcf_objects = load_multisession_data(dir_list)
 
 spatial_union, assignments, matchings, spatial, templates, pcf_objects = align_multisession(dir_list)
 
