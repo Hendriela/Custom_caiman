@@ -50,10 +50,13 @@ ax3.imshow(pcf_objects[2].cnmf.estimates.Cn, cmap='gray')
 # ax3.set_axis_off()
 ax3.set_title(f'{all_shifts[1]}')
 
-
-
-n_rows = 4
-n_cols = ceil((18 + 1) / n_rows)
+dummy = np.ones((512, 512))
+dummy[0,0] = 0
+fig, ax = plt.subplots(1, 3)
+ax[0].imshow(pcf_objects[0].cnmf.estimates.Cn, cmap='gray')
+ax[1].text(0.5, 0.5, 'No Matches test', ha='center', va='center', transform=ax[1].transAxes)
+ax[1].imshow(dummy, cmap='gray')
+ax[2].imshow(pcf_objects[2].cnmf.estimates.Cn, cmap='gray')
 
 
 plt.sca(ax[0,1])
