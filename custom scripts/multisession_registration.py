@@ -191,7 +191,7 @@ def prepare_manual_alignment_data(pcf_sessions, ref_session):
     place_cell_idx = [x[0] for x in pcf_sessions[ref_session].place_cells]
 
     # initialize alignment array (#place cells X #sessions)
-    alignment = np.full((len(place_cell_idx), len(pcf_sessions)), -1)  # +1 due to the reference session being popped
+    alignment = np.full((len(place_cell_idx), len(pcf_sessions)), -1.0)  # +1 due to the reference session being popped
 
     # get contour data of all cells and FOV shifts between reference and the other sessions with phase correlation
     all_contours = []
@@ -351,8 +351,20 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
     # build figure
     fig = plt.figure(figsize=(18, 8))  # draw figure
 
+    # see if the alignment array has already been (partly) filled to skip processed cells
+    if len(np.unique(alignment_array)) != 1:
+        start_ref = np.where(alignment_array == -1)[0][0]   # row of first -1 shows with which reference cell to start
+        start_real = np.where(alignment_array == -1)[1][0]   # col of first -1 shows with which target session to start
+        if start_real == ref_session:
+            start_tar = 0
+        else:
+            start_tar = real_to_targ_idx(start_real)
+    else:   # otherwise start with the first cell
+        start_ref = 0
+        start_tar = 0
+
     # First drawing
-    draw_both_sides(0, 0)  # Draw the first reference (place) cell and the target cells
+    draw_both_sides(start_ref, start_tar)  # Draw the first reference (place) cell and the target cells
 
     # Define what happens when a plot was clicked: update alignment accordingly and draw the next set of cells
     def onpick(event):
@@ -365,7 +377,7 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
         print(f'Reference cell {ref_id}, clicked neuron {id_s}.')
 
         # update the alignment array with the clicked assignment
-        alignment[ref_id, 0] = place_cell_idx[ref_id]   # which ID did this place cell have?
+        alignment[ref_id, ref_session] = place_cell_idx[ref_id]   # which ID did this place cell have?
         if neuron_id == -1:  # '-1' means "no match" has been clicked, fill spot with nan
             alignment[ref_id, real_sess_id] = np.nan
         else:
