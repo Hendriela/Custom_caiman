@@ -225,8 +225,8 @@ cnm = pipe.run_source_extraction(images, opts, dview=dview)
 lcm = pipe.get_local_correlation(images)
 cnm.estimates.Cn = lcm
 cnm.estimates.plot_contours(img=lcm)
-#plt.savefig(os.path.join(root, 'all_components.png'))
-#plt.close()
+plt.savefig(os.path.join(root, 'all_components.png'))
+plt.close()
 
 #%% COMPONENT EVALUATION
 # the components are evaluated in three ways:
