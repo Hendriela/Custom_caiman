@@ -92,13 +92,18 @@ def load_mmap(root):
 
 
 def load_pcf(root):
-    pcf_path = glob(root + r'\\pcf_results*')
+    pcf_path = glob(root + r'\\pcf_results.pickle')
     if len(pcf_path) < 1:
-        raise FileNotFoundError(f'No pcf file found in {root}.')
-    else:
-        with open(pcf_path[0], 'rb') as file:
-            obj = pickle.load(file)
-        return obj
+        pcf_path = glob(root + r'\\pcf_results')
+        if len(pcf_path) < 1:
+            raise FileNotFoundError(f'No pcf file found in {root}.')
+        elif len(pcf_path) > 1:
+            raise FileNotFoundError(f'More than one pcf file found in {root}.')
+    elif len(pcf_path) > 1:
+        raise FileNotFoundError(f'More than one pcf file found in {root}.')
+    with open(pcf_path[0], 'rb') as file:
+        obj = pickle.load(file)
+    return obj
 
 #%% CNMF wrapper functions
 

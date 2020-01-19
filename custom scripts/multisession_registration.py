@@ -10,6 +10,7 @@ from skimage.feature import register_translation
 from math import ceil
 from point2d import Point2D
 from scipy.ndimage import zoom
+import os
 
 #%% LOADING AND AUTOMATICALLY ALIGNING MULTISESSION DATA
 
@@ -74,13 +75,60 @@ def load_multisession_data(dir_list):
                 print('\tNo mmap file found. Maybe you have to re-motioncorrect the movie?')
 
         pcf_objects_list.append(curr_pcf)    # add rest of place cell info to the list
-        print(f'Successfully loaded data from {folder[-18:]} ({count}/{len(dir_list)}).')
+        sep = '\\'
+        print(f'Successfully loaded data from {sep.join(folder.split(os.path.sep)[-3:])} ({count}/{len(dir_list)}).')
 
     dimensions = templates_list[0].shape  # dimensions of the FOV, can be gotten from templates
 
     return spatial_list, templates_list, dimensions, pcf_objects_list
+
+
+def plot_all_cells_multisession(direct_list, spatial_list, template_list):
+    sess_dates = []
+    for path in direct_list:
+        sess_dates.append(path.split(os.path.sep)[-2])
+    n_sess = len(spatial_list)
+    if n_sess < 5:
+        n_cols = n_sess
+        n_rows = 1
+    else:
+        n_cols = 4
+        n_rows = ceil(n_sess / n_cols)  # number of rows needed to plot into 5 columns
+
+    fig1, ax1 = plt.subplots(n_rows, n_cols, figsize=(15, 8))
+    count = 0
+    for rows in range(n_rows):
+        for cols in range(n_cols):
+            plt.sca(ax1[rows, cols])
+            try:
+                visualization.plot_contours(spatial_list[count], template_list[count], display_numbers=False)
+                ax1[rows, cols].set_title(sess_dates[count])
+            except IndexError:
+                pass
+            count += 1
+
 #%% SEMI-MANUALLY ALIGNING PLACE CELLS ACROSS SESSIONS
 
+
+def save_alignment(align_array, ref_sess_id, session_list):
+    """
+    Saves manual alignment array to a txt file with session dates as headers for each column. NaNs (no match found)
+    are replaced by -10 to maintain visibility.
+    :param align_array: data array, shape (n_placecells, n_sessions), from manual_place_cell_alignment()
+    :param ref_sess_id: int, index of reference session (where place cells are from) in session_list
+    :param session_list: list of paths to session folders
+    :return:
+    """
+    sess_dates = []
+    header = 'Neur_ID_'
+    for session in session_list:
+        sess_dates.append(session.split(os.path.sep)[-2])
+        header = header + f'{session.split(os.path.sep)[-2]}\t'
+    file_name = f'pc_alignment_{sess_dates[ref_sess_id]}.txt'
+    file_path = os.path.join(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis', file_name)
+    print(f'Saving alignment table to {file_path}...')
+    align_fix = np.nan_to_num(align_array, nan=-10).astype('int')
+    np.savetxt(file_path, align_fix, delimiter='\t', header=header, fmt='%d')
 
 def piecewise_fov_shift(ref_img, tar_img, n_patch=8):
     """
@@ -210,7 +258,17 @@ def prepare_manual_alignment_data(pcf_sessions, ref_session):
 
 def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, alignment, all_contours, all_shifts,
                                 ref_session):
-
+    """
+    IDs refer to the same neuron in different sessions
+    :param pcf_sessions:
+    :param target_sessions:
+    :param place_cell_idx:
+    :param alignment:
+    :param all_contours:
+    :param all_shifts:
+    :param ref_session:
+    :return:
+    """
     def targ_to_real_idx(idx):
         """
         Adjusts non-reference pcf_sessions idx to real pcf_sessions idx to avoid referring to the reference session.
@@ -311,7 +369,7 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
                     curr_cont = draw_single_contour(ax=curr_ax,
                                                     spatial=target_sessions[idx].cnmf.estimates.A[:, curr_neuron],
                                                     template=target_sessions[idx].cnmf.estimates.Cn)
-
+                    t = curr_ax.text(0.5, 0.5, f'{curr_neuron}', va='center', ha='center', transform=curr_ax.transAxes)
                     # the url property of the Axes is used as a tag to remember which neuron has been clicked
                     # as well as which target session it belonged to
                     plt.setp(curr_ax, url=(ref_cell_idx, real_idx, curr_neuron))
@@ -388,7 +446,7 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
             alignment[ref_id, real_sess_id] = neuron_id
 
         # if this is the last session, draw a new reference cell
-        if real_sess_id+1 == len(pcf_sessions):
+        if targ_sess_id+1 == len(pcf_sessions)-1:
             draw_both_sides(ref_id+1, 0)
         # else, only draw the target cells of the next session
         else:
@@ -406,11 +464,17 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
 #%%
 dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191125\N2',
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191126b\N2',
-            r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191127a\N2']
+            r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191127a\N2',
+            r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191206\N2',
+            r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191207\N2',
+            r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191208\N2',
+            r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2']
+ref_session = 0
 
 spatial, templates, dim, pcf_objects = load_multisession_data(dir_list)
 
-target_session_list, place_cell_indices, alignment_array, all_contours_list, all_shifts_list = prepare_manual_alignment_data(pcf_objects, 0)
+
+target_session_list, place_cell_indices, alignment_array, all_contours_list, all_shifts_list = prepare_manual_alignment_data(pcf_objects, ref_session)
 
 alignment_array = manual_place_cell_alignment(pcf_sessions=pcf_objects,
                                               target_sessions=target_session_list,
@@ -418,7 +482,9 @@ alignment_array = manual_place_cell_alignment(pcf_sessions=pcf_objects,
                                               alignment=alignment_array,
                                               all_contours=all_contours_list,
                                               all_shifts=all_shifts_list,
-                                              ref_session=0)
+                                              ref_session=ref_session)
+
+save_alignment(alignment_array, ref_session, dir_list)
 
 #%%
 
@@ -439,4 +505,133 @@ contours = plot_all_aligned(spatial_filtered, templates, data_only=True)
 test1 = out[1]['coordinates']
 test1[~np.isnan(test1).any(axis=1)]
 
+#%% Plotting of traces of aligned cells
 
+
+def find_pc_id(pcf_obj, neur_idx):
+    for j in range(len(pcf_obj.place_cells)):
+        if pcf_obj.place_cells[j][0] == neur_idx:
+            return j
+
+idx_file_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191125.txt']
+# load data from txt files
+idx_file_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191125.txt',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191126b.txt',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191127a.txt',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191206.txt',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191207.txt',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191208.txt',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191219.txt']
+
+alignments_all = []
+for file in idx_file_list:
+    alignments_all.append(np.loadtxt(file, delimiter='\t'))
+pc_idx_list = []
+for obj in pcf_objects:
+    pc_idx_list.append([x[0] for x in obj.place_cells])
+
+
+# skip cells that didnt get recognized in all sessions
+alignments = []
+for session in alignments_all:
+    alignments.append(session[np.all(session != -10, axis=1)])
+
+# get cells that are place cells in all three sessions
+all_sess_pc = []
+for session in alignments:
+    for row in range(session.shape[0]):
+        all_pc = True
+        for column in range(len(pc_idx_list)):
+            if session[row, column] not in pc_idx_list[column]:
+                all_pc = False
+        if all_pc:
+            all_sess_pc.append(session[row])
+
+# get cells that are place cells in more than one session
+two_sess_pc = []
+for sess_idx in range(len(alignments)):
+    for row in range(alignments[sess_idx].shape[0]):
+        double_pc = False
+        for column in range(len(pc_idx_list)):
+            if alignments[sess_idx][row, column] in pc_idx_list[column] and column != sess_idx:
+                double_pc = True
+                print(f'Place cell {alignments[sess_idx][row, 0]} of session is also a place cell in sess {column+1}.')
+        if double_pc and not any((alignments[sess_idx][row] == x).all() for x in two_sess_pc):
+            two_sess_pc.append(alignments[sess_idx][row])
+
+
+# plot aligned cells
+def plot_aligned_cells(cell_list, pcf_objects_list, color=False):
+
+    nrows = len(cell_list)
+    ncols = len(pcf_objects_list)
+    all_cells = []
+
+    # order place cells (first cell in each row) by the start of its place cell
+    # sort neurons after different criteria
+    bins = []
+    for i in range(nrows):
+        curr_pc_id = find_pc_id(pcf_objects_list[0], int(cell_list[i][0]))
+        bins.append((i, pcf_objects_list[0].place_cells[curr_pc_id][1][0][0]))  # get the first index of the first place field
+    bins_sorted = sorted(bins, key=lambda tup: tup[1])
+    bins_sort = [x[0] for x in bins_sorted]
+
+    # get activity data of all cells
+    for nrow in range(nrows):
+        this_cell = np.ones((ncols, 80))
+        for col in range(ncols):
+            curr_neur_id = int(cell_list[bins_sort[nrow]][col])
+            this_cell[col] = pcf_objects_list[col].bin_avg_activity[curr_neur_id]
+        all_cells.append(this_cell)
+
+    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8), sharex=True)
+    fig.suptitle('Place cells in session 1 tracked over time', fontsize=22)
+    for nrow in range(nrows):
+        cell_max = np.max(all_cells[nrow])
+        cell_min = np.min(all_cells[nrow])
+        for col in range(ncols):
+            if nrow == 0:
+                sess_date = pcf_objects_list[col].params['root'].split(os.path.sep)[-2]
+                ax[nrow, col].set_title(sess_date)
+
+                # set x ticks to VR position, not bin number
+                ax[nrow, col].set_xlim(0, len(all_cells[nrow][col]))
+                ax[nrow, col].get_xaxis().set_ticks([0, 40, 80])
+                x_locs, labels = plt.xticks()
+                plt.sca(ax[nrow, col])
+                plt.xticks(x_locs, (x_locs * pcf_objects_list[col].params['bin_length']).astype(int), fontsize=15)
+
+            if col == 0:
+                ax[nrow, col].spines['top'].set_visible(False)
+                ax[nrow, col].spines['right'].set_visible(False)
+                if color:
+                    ax[nrow, col].get_yaxis().set_ticks([])
+            else:
+                ax[nrow, col].spines['top'].set_visible(False)
+                ax[nrow, col].spines['right'].set_visible(False)
+                ax[nrow, col].spines['left'].set_visible(False)
+                ax[nrow, col].get_yaxis().set_ticks([])
+
+            if color:
+                img = ax[nrow, col].pcolormesh(all_cells[nrow][col, np.newaxis],
+                                               vmax=cell_max, vmin=cell_min, cmap='jet')
+                if col == ncols-1:
+                    fraction = 0.15  # fraction of original axes to use for colorbar
+                    # half_size = int(np.round(ax.shape[0] / 2))  # plot colorbar in half of the figure
+                    cbar = fig.colorbar(img, ax=ax[nrow, :], fraction=fraction, pad=0.01, aspect=5, label=r'$\Delta$F/F')  # draw color bar
+                    cbar.ax.tick_params(labelsize=12)
+            else:
+                ax[nrow, col].plot(all_cells[nrow][col])
+                ax[nrow, col].set_ylim(bottom=cell_min, top=cell_max)
+                pc_idx = find_pc_id(pcf_objects_list[col], int(cell_list[bins_sort[nrow]][col]))
+                if pc_idx is not None:
+                    curr_place_fields = pcf_objects_list[col].place_cells[pc_idx][1]
+                    for field in curr_place_fields:
+                        ax[nrow, col].axvspan(field.min(), field.max(), facecolor='r', alpha=0.2)
+                        #ax[nrow, col].plot(field, all_cells[nrow][col][field], color='red')
+    ax[nrows-1, int(ncols/2)].set_xlabel('Position in VR [cm]', fontsize=15)
+    if not color:
+        ax[int(nrows / 2), 0].set_ylabel(r'$\Delta$F/F', fontsize=15)
+
+
+plot_aligned_cells(two_sess_pc, pcf_objects, color=True)
