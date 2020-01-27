@@ -61,8 +61,7 @@ def save_cnmf(cnm, root=None, path=None, overwrite=False, verbose=True):
             cnm.save(save_path)
 
 
-def load_cnmf(root):
-    cnm_filename = 'cnm_results.hdf5'
+def load_cnmf(root, cnm_filename='cnm_results.hdf5'):
     cnm_filepath = os.path.join(root, cnm_filename)
     cnm_file = glob(cnm_filepath)
     if len(cnm_file) < 1:
@@ -115,7 +114,7 @@ def whole_caiman_pipeline_mouse(root, cnm_params, pcf_params, dview, make_lcm=Tr
                 if network == 'all' or network == step[0][-2:]:     # is it the correct network?
                     whole_caiman_pipeline_session(step[0], cnm_params, pcf_params, dview, make_lcm)
 
-def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=False, save_pre_sel_img=True):
+def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=False, save_pre_sel_img=True, overwrite=False):
     """
     Wrapper for the complete caiman and place cell pipeline. Performs source extraction, evaluation and place cell
     search for one session/network (one mmap file).
@@ -131,11 +130,14 @@ def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=
     cnm_params = cnm_params.change_params({'fnames': mmap_file})
     pcf_params['root'] = root
     cnm = run_source_extraction(images, cnm_params, dview=dview)
-    save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False)
+    save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False, overwrite=overwrite)
     if make_lcm:
         print('\tFinished source extraction, now calculating local correlation map...')
         if images.shape[0] > 40000:
-            half_images = images[::2]
+            # skip every 4th index by making a mask
+            mask = np.ones(images.shape[0], dtype=bool)
+            mask[::4] = 0
+            half_images = images[mask, :, :]
             lcm = get_local_correlation(half_images)
         else:
             lcm = get_local_correlation(images)
