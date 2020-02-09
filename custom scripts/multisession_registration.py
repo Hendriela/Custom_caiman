@@ -11,6 +11,7 @@ from math import ceil
 from point2d import Point2D
 from scipy.ndimage import zoom
 import os
+from copy import deepcopy
 
 #%% LOADING AND AUTOMATICALLY ALIGNING MULTISESSION DATA
 
@@ -31,7 +32,7 @@ def plot_all_aligned(spatial, templates, data_only=False):
         return rois
 
 
-def align_multisession(dir_list):
+def align_multisession_caiman(dir_list):
     spatial, templates, dims, pcf_objects = load_multisession_data(dir_list)
     print('Import complete. Looking for aligned components...')
     spatial_union, assignments, matchings = register_multisession(spatial, dims=dims, templates=templates)
@@ -157,13 +158,14 @@ def piecewise_fov_shift(ref_img, tar_img, n_patch=8):
     return shift_map_x_big, shift_map_y_big
 
 
-def draw_single_contour(ax, spatial, template, half_size=50):
+def draw_single_contour(ax, spatial, template, half_size=50, color='w'):
     """
     Draws the contour of one component and focuses the template image around its center.
     :param ax: Axes in which the plot should be drawn
     :param spatial: spatial information of the component, acquired by indexing spatial[session][:,neuron_id]
     :param template: background template image on which to draw the contour
     :param half_size: int, half size in pixels of the final area
+    :param color: color of the contour
     :returns: CoM of the drawn contour
     """
 
@@ -201,7 +203,7 @@ def draw_single_contour(ax, spatial, template, half_size=50):
 
     plt.sca(ax)
     plt.cla()       # clear axes from potential previous data
-    out = visualization.plot_contours(spatial, template, display_numbers=False)
+    out = visualization.plot_contours(spatial, template, display_numbers=False, colors=color)
     com = (int(np.round(out[0]['CoM'][0])), int(np.round(out[0]['CoM'][1])))
     set_lims(com, ax, half_size, template.shape)
     return com
@@ -257,7 +259,7 @@ def prepare_manual_alignment_data(pcf_sessions, ref_session):
 
 
 def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, alignment, all_contours, all_shifts,
-                                ref_session):
+                                ref_session, show_neuron_id=False):
     """
     IDs refer to the same neuron in different sessions
     :param pcf_sessions:
@@ -369,7 +371,8 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
                     curr_cont = draw_single_contour(ax=curr_ax,
                                                     spatial=target_sessions[idx].cnmf.estimates.A[:, curr_neuron],
                                                     template=target_sessions[idx].cnmf.estimates.Cn)
-                    t = curr_ax.text(0.5, 0.5, f'{curr_neuron}', va='center', ha='center', transform=curr_ax.transAxes)
+                    if show_neuron_id:
+                        t = curr_ax.text(0.5, 0.5, f'{curr_neuron}', va='center', ha='center', transform=curr_ax.transAxes)
                     # the url property of the Axes is used as a tag to remember which neuron has been clicked
                     # as well as which target session it belonged to
                     plt.setp(curr_ax, url=(ref_cell_idx, real_idx, curr_neuron))
@@ -462,14 +465,17 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
 
 
 #%%
-dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191125\N2',
+dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191122a\N2',
+            r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191125\N2',
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191126b\N2',
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191127a\N2',
+            r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2',
+            r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191205\N2',
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191206\N2',
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191207\N2',
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191208\N2',
             r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2']
-ref_session = 0
+ref_session = 5
 
 spatial, templates, dim, pcf_objects = load_multisession_data(dir_list)
 
@@ -482,13 +488,36 @@ alignment_array = manual_place_cell_alignment(pcf_sessions=pcf_objects,
                                               alignment=alignment_array,
                                               all_contours=all_contours_list,
                                               all_shifts=all_shifts_list,
-                                              ref_session=ref_session)
+                                              ref_session=ref_session,
+                                              show_neuron_id=True)
 
 save_alignment(alignment_array, ref_session, dir_list)
 
-#%%
+#%% multi PCF anal
+for pcf in pcf_objects:
+    #pcf.plot_all_place_cells(show_neuron_id=True)
+    pcf_objects[0].plot_pc_location(color='r', display_numbers=True)
+
+
+
+#%% test CaImAn alignment tool
 
 spatial_union, assignments, matchings, spatial, templates, pcf_objects = align_multisession(dir_list)
+
+# load manual assignment
+manual = np.loadtxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191125.txt')
+
+# get the same cells from CaImAn tool
+caiman_results = np.zeros(manual.shape)
+for row in range(manual.shape[0]):
+    curr_row = manual[row]
+    caiman_results[row] = assignments[np.where(assignments[:, 0] == curr_row[0])]
+caiman_results[np.isnan(caiman_results)] = -10  # make nans to -10 to make it comparable with manual
+# compare how many hits CaImAn has
+sum_equal = np.equal(manual, caiman_results)
+performance = np.sum(sum_equal[:, 2:4])/sum_equal[:, 2:4].size
+
+
 
 # only take neurons that were found in all sessions
 assignments_filtered = np.array(assignments[np.sum(~np.isnan(assignments), axis=1) >= assignments.shape[1]], dtype=int)
@@ -506,6 +535,7 @@ test1 = out[1]['coordinates']
 test1[~np.isnan(test1).any(axis=1)]
 
 #%% Plotting of traces of aligned cells
+sess_list = ['day -12', 'day -9', 'day -8', 'day -7', 'day 0', 'day 1', 'day 2', 'day 3', 'day 4', 'day 15']
 
 
 def find_pc_id(pcf_obj, neur_idx):
@@ -513,15 +543,15 @@ def find_pc_id(pcf_obj, neur_idx):
         if pcf_obj.place_cells[j][0] == neur_idx:
             return j
 
-idx_file_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191125.txt']
+
+idx_file_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191125_full.txt',
+                 ]
 # load data from txt files
 idx_file_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191125.txt',
                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191126b.txt',
                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191127a.txt',
-                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191206.txt',
-                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191207.txt',
-                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191208.txt',
-                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191219.txt']
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191204.txt',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\pc_alignment_20191205.txt']
 
 alignments_all = []
 for file in idx_file_list:
@@ -530,11 +560,18 @@ pc_idx_list = []
 for obj in pcf_objects:
     pc_idx_list.append([x[0] for x in obj.place_cells])
 
+# get a list of all aligned cells
+all_aligned_cells = []
+for i in range(alignments_all[0].shape[0]):
+    all_aligned_cells.append(alignments_all[0][i])
+
 
 # skip cells that didnt get recognized in all sessions
 alignments = []
 for session in alignments_all:
     alignments.append(session[np.all(session != -10, axis=1)])
+
+flat_list = np.vstack(alignments)
 
 # get cells that are place cells in all three sessions
 all_sess_pc = []
@@ -549,89 +586,336 @@ for session in alignments:
 
 # get cells that are place cells in more than one session
 two_sess_pc = []
+one_sess_pc = []
 for sess_idx in range(len(alignments)):
     for row in range(alignments[sess_idx].shape[0]):
         double_pc = False
         for column in range(len(pc_idx_list)):
             if alignments[sess_idx][row, column] in pc_idx_list[column] and column != sess_idx:
                 double_pc = True
-                print(f'Place cell {alignments[sess_idx][row, 0]} of session is also a place cell in sess {column+1}.')
         if double_pc and not any((alignments[sess_idx][row] == x).all() for x in two_sess_pc):
             two_sess_pc.append(alignments[sess_idx][row])
+        else:
+            one_sess_pc.append(alignments[sess_idx][row])
+
+# plot contours of a cell that was found in all sessions
+for cell in range(alignments[0].shape[0]):
+    fig, ax = plt.subplots(1, alignments[0].shape[1], figsize=(17, 5))
+    for sess in range(alignments[0].shape[1]):
+        curr_spat = pcf_objects[sess].cnmf.estimates.A[:, alignments[0][cell, sess]]
+        draw_single_contour(ax[sess], curr_spat, pcf_objects[sess].cnmf.estimates.Cn, half_size=25, color='r')
+        ax[sess].axis('off')
+        ax[sess].set_title(sess_list[sess])
+    plt.tight_layout()
+    path = os.path.join(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Progress Reports\22.01.2020\cells across all sessions', f'cell_{cell}.png')
+    plt.savefig(path)
+    plt.close()
 
 
 # plot aligned cells
-def plot_aligned_cells(cell_list, pcf_objects_list, color=False):
+def plot_aligned_cells(cell_list, pcf_objects_list, ref_dates, color=False, colbar=False, sort=True, show_neuron_id=False):
+    """
 
-    nrows = len(cell_list)
+    :param cell_list: list of assignments, one array (element) per session. Can be e.g. alignments
+    :param pcf_objects_list:
+    :param ref_dates: list of index showing which session the place cells were from. Same length as cell_list.
+    :param color:
+    :param colbar:
+    :param sort:
+    :return:
+    """
+
+    ref_list = []
+    for k in range(len(ref_dates)):
+        for n_cells in range(cell_list[k].shape[0]):
+            ref_list.append(ref_dates[k])
+
+    all_cell_array = np.vstack(cell_list)
+
+    nrows = len(ref_list)
     ncols = len(pcf_objects_list)
-    all_cells = []
+
 
     # order place cells (first cell in each row) by the start of its place cell
     # sort neurons after different criteria
     bins = []
-    for i in range(nrows):
-        curr_pc_id = find_pc_id(pcf_objects_list[0], int(cell_list[i][0]))
-        bins.append((i, pcf_objects_list[0].place_cells[curr_pc_id][1][0][0]))  # get the first index of the first place field
-    bins_sorted = sorted(bins, key=lambda tup: tup[1])
-    bins_sort = [x[0] for x in bins_sorted]
+    for m in range(len(cell_list)):
+        this_sess_bins = []
+        for p in range(cell_list[m].shape[0]):
+            curr_pc_id = find_pc_id(pcf_objects_list[ref_dates[m]], int(cell_list[m][p, ref_dates[m]]))
+            this_sess_bins.append((p, pcf_objects_list[ref_dates[m]].place_cells[curr_pc_id][1][0][0]))  # get the first index of the first place field
+        bins.append(this_sess_bins)
+
+    all_bins_sort = []
+    for bin_list in bins:
+        bins_sorted = sorted(bin_list, key=lambda tup: tup[1])
+        if sort:
+            bins_sort = [x[0] for x in bins_sorted]
+        else:
+            bins_sort = [x[0] for x in bin_list]
+        all_bins_sort.append(bins_sort)
+
+    combined_bins_sort = []
+    n_cells = 0
+    for n in range(len(all_bins_sort)):
+        if n != 0:
+            combined_bins_sort.append([x + (len(all_bins_sort[n-1]) + n_cells) for x in all_bins_sort[n]])
+            n_cells = len(all_bins_sort[n-1]) + n_cells
+        else:
+            combined_bins_sort.append(all_bins_sort[n])
+    comb_bins_sort = [item for sublist in combined_bins_sort for item in sublist]
 
     # get activity data of all cells
+    all_cells = []
     for nrow in range(nrows):
         this_cell = np.ones((ncols, 80))
         for col in range(ncols):
-            curr_neur_id = int(cell_list[bins_sort[nrow]][col])
-            this_cell[col] = pcf_objects_list[col].bin_avg_activity[curr_neur_id]
+            curr_neur_id = int(all_cell_array[comb_bins_sort[nrow], col])
+            #if curr_neur_id == -10 or col == 3 and curr_neur_id == 346: # if the ID is -10 (not recognized), set values to 0 to be filtered out later
+            if curr_neur_id == -10 or col == 3 and curr_neur_id == 646 or curr_neur_id == 565:  # if the ID is -10 (not recognized), set values to 0 to be filtered out later
+                this_cell[col] = np.zeros((1, 80))
+            else:
+                this_cell[col] = pcf_objects_list[col].bin_avg_activity[curr_neur_id]
         all_cells.append(this_cell)
+
+    # set global y-axis limits over all cells
+    if color and colbar:
+        glob_scale = True
+        all_data = np.vstack(all_cells)
+        cell_max = all_data.max()
+        cell_min = all_data.min()
+    else:
+        glob_scale = False
 
     fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8), sharex=True)
     fig.suptitle('Place cells in session 1 tracked over time', fontsize=22)
     for nrow in range(nrows):
-        cell_max = np.max(all_cells[nrow])
-        cell_min = np.min(all_cells[nrow])
+        if not glob_scale:
+            cell_max = np.max(all_cells[nrow])
+            cell_min = np.min(all_cells[nrow])
         for col in range(ncols):
-            if nrow == 0:
-                sess_date = pcf_objects_list[col].params['root'].split(os.path.sep)[-2]
-                ax[nrow, col].set_title(sess_date)
+            if show_neuron_id:
+                ax[nrow, col].text(0.5, 0.5, int(all_cell_array[comb_bins_sort[nrow], col]),
+                                   horizontalalignment='center',
+                                   verticalalignment='center',
+                                   fontsize=12, color='red',
+                                   transform=ax[nrow, col].transAxes)
 
+            if color:
+                curr_data = all_cells[nrow][col, np.newaxis]
+            else:
+                curr_data = all_cells[nrow][col]
+            if nrow == 0:
+                if len(pcf_objects_list[col].params['root'].split(os.path.sep)) > 1:
+                    sess_date = pcf_objects_list[col].params['root'].split(os.path.sep)[-2][:8]
+                else:
+                    sess_date = pcf_objects_list[col].params['root'].split('/')[-2][:8]
+                ax[nrow, col].set_title(sess_date)
+            elif nrow == nrows-1:
                 # set x ticks to VR position, not bin number
                 ax[nrow, col].set_xlim(0, len(all_cells[nrow][col]))
                 ax[nrow, col].get_xaxis().set_ticks([0, 40, 80])
                 x_locs, labels = plt.xticks()
                 plt.sca(ax[nrow, col])
-                plt.xticks(x_locs, (x_locs * pcf_objects_list[col].params['bin_length']).astype(int), fontsize=15)
+                plt.xticks(x_locs, (x_locs * pcf_objects_list[col].params['bin_length']).astype(int), fontsize=12)
 
-            if col == 0:
-                ax[nrow, col].spines['top'].set_visible(False)
-                ax[nrow, col].spines['right'].set_visible(False)
-                if color:
+            if color:
+                if nrow != nrows - 1:
+                    if nrow != int(nrows / 2):
+                        ax[nrow, col].axis('off')
+                    else:
+                        ax[nrow, col].spines['top'].set_visible(False)
+                        ax[nrow, col].spines['right'].set_visible(False)
+                        ax[nrow, col].spines['left'].set_visible(False)
+                        ax[nrow, col].spines['bottom'].set_visible(False)
+                        ax[nrow, col].get_yaxis().set_ticks([])
+                        ax[nrow, col].get_xaxis().set_ticks([])
+                else:
+                    ax[nrow, col].spines['top'].set_visible(False)
+                    ax[nrow, col].spines['right'].set_visible(False)
+                    ax[nrow, col].spines['left'].set_visible(False)
                     ax[nrow, col].get_yaxis().set_ticks([])
             else:
+                # if col == 0:
+                #     ax[nrow, col].spines['top'].set_visible(False)
+                #     ax[nrow, col].spines['right'].set_visible(False)
+                # else:
                 ax[nrow, col].spines['top'].set_visible(False)
                 ax[nrow, col].spines['right'].set_visible(False)
                 ax[nrow, col].spines['left'].set_visible(False)
                 ax[nrow, col].get_yaxis().set_ticks([])
 
-            if color:
-                img = ax[nrow, col].pcolormesh(all_cells[nrow][col, np.newaxis],
-                                               vmax=cell_max, vmin=cell_min, cmap='jet')
-                if col == ncols-1:
-                    fraction = 0.15  # fraction of original axes to use for colorbar
-                    # half_size = int(np.round(ax.shape[0] / 2))  # plot colorbar in half of the figure
-                    cbar = fig.colorbar(img, ax=ax[nrow, :], fraction=fraction, pad=0.01, aspect=5, label=r'$\Delta$F/F')  # draw color bar
-                    cbar.ax.tick_params(labelsize=12)
+            if not np.any(curr_data):
+                if nrow != nrows-1:
+                    ax[nrow, col].axis('off')
             else:
-                ax[nrow, col].plot(all_cells[nrow][col])
-                ax[nrow, col].set_ylim(bottom=cell_min, top=cell_max)
-                pc_idx = find_pc_id(pcf_objects_list[col], int(cell_list[bins_sort[nrow]][col]))
-                if pc_idx is not None:
-                    curr_place_fields = pcf_objects_list[col].place_cells[pc_idx][1]
-                    for field in curr_place_fields:
-                        ax[nrow, col].axvspan(field.min(), field.max(), facecolor='r', alpha=0.2)
-                        #ax[nrow, col].plot(field, all_cells[nrow][col][field], color='red')
+                if color:
+                    img = ax[nrow, col].pcolormesh(curr_data, vmax=cell_max, vmin=cell_min, cmap='jet')
+                else:
+                    ax[nrow, col].plot(curr_data)
+                    ax[nrow, col].set_ylim(bottom=cell_min, top=cell_max)
+                    pc_idx = find_pc_id(pcf_objects_list[col], int(all_cell_array[comb_bins_sort[nrow], col]))
+                    if pc_idx is not None:
+                        curr_place_fields = pcf_objects_list[col].place_cells[pc_idx][1]
+                        for field in curr_place_fields:
+                            ax[nrow, col].axvspan(field.min(), field.max(), facecolor='r', alpha=0.2)
+                            #ax[nrow, col].plot(field, all_cells[nrow][col][field], color='red')
+
+    # draw color bar
+    if color and colbar:
+        fraction = 0.10  # fraction of original axes to use for colorbar
+        half_size = int(np.round(ax.shape[0] / 3))  # plot colorbar in 1/3 of the figure
+        cbar = fig.colorbar(img, ax=ax[half_size:, -1], fraction=fraction, label=r'$\Delta$F/F')  # draw color bar
+        cbar.ax.tick_params(labelsize=12)
+        cbar.ax.yaxis.label.set_size(15)
+
+        # align all plots
+        fig.subplots_adjust(left=0.1, right=1 - (fraction + 0.05), top=0.9, bottom=0.1)
+
     ax[nrows-1, int(ncols/2)].set_xlabel('Position in VR [cm]', fontsize=15)
-    if not color:
-        ax[int(nrows / 2), 0].set_ylabel(r'$\Delta$F/F', fontsize=15)
+    if color:
+        ax[int(nrows / 2), 0].set_ylabel('# Neuron', fontsize=15)
+    else:
+        ax[int(nrows / 2), 0].set_ylabel('# Neuron\n$\Delta$F/F', fontsize=15)
 
 
-plot_aligned_cells(two_sess_pc, pcf_objects, color=True)
+plot_aligned_cells(alignments, pcf_objects, [1, 4, 5], color=True, colbar=False)
+
+
+#%% Plot example graphs for place cell 13, 20191125
+trial_borders = [0, 1783, 3946, 5639, 6936, 9454, 13678]
+self = pcf_objects[0]
+# raw trace
+plt.figure()
+plt.plot(self.cnmf.estimates.F_dff[13])
+plt.vlines(trial_borders, -0.1, 1.4, 'r')
+plt.ylabel(r'$\Delta$F/F', fontsize=15)
+plt.xlabel(r'frames', fontsize=15)
+plt.title('Calcium trace of neuron 13, 25.11.2019')
+# with noise level threshold
+noise = self.params['sigma'][13]
+last_border = 0
+for sigma in noise:
+    plt.hlines(4*sigma, trial_borders[last_border], trial_borders[last_border+1], 'g')
+    last_border += 1
+# significant transients
+sig_trans = np.concatenate(self.session_trans[13])
+plt.figure()
+plt.plot(sig_trans)
+plt.vlines(trial_borders, -0.1, 1.4, 'r')
+plt.ylabel(r'$\Delta$F/F', fontsize=15)
+plt.xlabel(r'frames', fontsize=15)
+plt.title('Calcium trace of neuron 13, 25.11.2019')
+# bin_activity separate trials
+fig, ax = plt.subplots(6,1, sharey=True)
+fig.suptitle('Calcium trace binned to VR position')
+for i in range(6):
+    ax[i].plot(self.bin_activity[13][i])
+    ax[i].spines['top'].set_visible(False)
+    ax[i].spines['right'].set_visible(False)
+ax[2].set_ylabel(r'$\Delta$F/F', fontsize=15)
+ax[i].set_xlabel('bins', fontsize=15)
+# bin_avg_activity
+plt.figure()
+ax = plt.gca()
+ax.plot(self.bin_avg_activity[13])
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.set_ylabel(r'$\Delta$F/F', fontsize=15)
+ax.set_xlabel('bins', fontsize=15)
+#smoothed activity
+plt.figure()
+ax = plt.gca()
+smooth_trace = self.smooth_trace(self.bin_avg_activity[13])
+ax.plot(smooth_trace)
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.set_ylabel(r'$\Delta$F/F', fontsize=15)
+ax.set_xlabel('bins', fontsize=15)
+
+# PLACE CELL ANALYSIS
+# pre screening for place fields
+plt.figure()
+ax = plt.gca()
+smooth_trace = self.smooth_trace(self.bin_avg_activity[13])
+ax.plot(smooth_trace)
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.set_ylabel(r'$\Delta$F/F', fontsize=15)
+ax.set_xlabel('bins', fontsize=15)
+# show baseline activity (mean of 25% least active bins)
+f_max = max(smooth_trace)
+f_base = np.mean(np.sort(smooth_trace)[:int(smooth_trace.size * self.params['bin_base'])])
+ax.hlines(f_base, 0, 79, 'r')
+# show threshold activity (25% difference between f_max and f_base)
+f_thresh = ((f_max - f_base) * self.params['place_thresh']) + f_base
+ax.hlines(f_thresh, 0, 79, 'g')
+# shade place field
+pot_place_blocks = self.pre_screen_place_fields(smooth_trace)
+ax.axvspan(min(pot_place_blocks[0]), max(pot_place_blocks[0]), alpha=0.3, color='red')
+# criteria
+# infield 7 times higher than outfield
+pot_place_idx = np.in1d(range(smooth_trace.shape[0]), pot_place_blocks[0])  # get an idx mask for the potential place field
+all_place_idx = np.in1d(range(smooth_trace.shape[0]), np.concatenate(pot_place_blocks))   # get an idx mask for all place fields
+mean_infield = np.mean(smooth_trace[pot_place_idx])
+mean_outfield = self.params['fluo_infield'] * np.mean(smooth_trace[~all_place_idx])
+ax.hlines(np.mean(smooth_trace[~all_place_idx]), 0, 79, 'r')
+ax.hlines(mean_outfield, 0, 79, 'g')
+ax.hlines(mean_infield, 0, 79, 'b')
+# 25% of time is significant transient
+place_field = pot_place_blocks[0]
+plt.figure()
+ax = plt.gca()
+plt.plot(sig_trans)
+plt.vlines(trial_borders, -0.1, 1.4, 'r')
+plt.ylabel(r'$\Delta$F/F', fontsize=15)
+plt.xlabel(r'frames', fontsize=15)
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+place_frames_trace = []  # stores the trace of all trials when the mouse was in a place field as one data row
+for trial in range(self.params['bin_frame_count'].shape[1]):
+    # get the start and end frame for the current place field from the bin_frame_count array that stores how
+    # many frames were pooled for each bin
+    curr_place_frames = (np.sum(self.params['bin_frame_count'][:place_field[0], trial])+trial_borders[trial],
+                         np.sum(self.params['bin_frame_count'][:place_field[-1] + 1, trial])+trial_borders[trial])
+    ax.axvspan(curr_place_frames[0], curr_place_frames[1], alpha=0.3, color='g')
+
+# plot final trace with color code
+fig, ax = plt.subplots(1, 2, sharex=True, figsize=(12,4))
+data = pcf.bin_avg_activity[13, np.newaxis]
+ax[0].plot(smooth_trace)
+img = ax[1].pcolormesh(data, cmap='jet')
+ax[1].set_yticks([])
+ax[0].set_ylabel('$\Delta$F/F', fontsize=15)
+ax[0].set_xlabel('bins', fontsize=15)
+ax[1].set_xlabel('bins', fontsize=15)
+ax[0].plot(field, smooth_trace[field], color='red')
+# set x axis labels as VR position
+ax[0].set_xlim(0, smooth_trace.shape[0])
+x_locs, labels = plt.xticks()
+plt.xticks(x_locs, (x_locs * pcf.params['bin_length']).astype(int))
+plt.sca(ax[0])
+plt.xticks(x_locs, (x_locs * pcf.params['bin_length']).astype(int))
+ax[0].set_xlabel('VR position [cm]')
+ax[1].set_xlabel('VR position [cm]')
+# plot color bar
+fraction = 0.10  # fraction of original axes to use for colorbar
+half_size = int(np.round(ax.shape[0] / 2))  # plot colorbar in half of the figure
+cbar = fig.colorbar(img, ax=ax[1], fraction=fraction, label=r'$\Delta$F/F')  # draw color bar
+cbar.ax.tick_params(labelsize=12)
+cbar.ax.yaxis.label.set_size(15)
+
+#%% save data for Björn
+import json
+root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\alignment_data_björn'
+
+for file in range(len(pcf_objects)):
+    curr_pcf = pcf_objects[file]
+    curr_sess = curr_pcf.params['session']
+    curr_data = {'dff_trace': curr_pcf.cnmf.estimates.F_dff,
+                 'spatial_masks': curr_pcf.cnmf.estimates.A,
+                 'contours': curr_pcf.cnmf.estimates.coordinates}
+    trace_path = os.path.join(root, f'data_{curr_sess}.pickle')
+    with open(trace_path, 'wb') as f:
+        pickle.dump(curr_data, f)
+    print(f'Done! {file+1}/{len(pcf_objects)}')
