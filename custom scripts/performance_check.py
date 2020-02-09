@@ -7,6 +7,7 @@ from itertools import compress, chain
 import matplotlib.pyplot as plt
 import pandas as pd
 from glob import glob
+from math import ceil
 
 mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18',
                   r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19',
@@ -16,6 +17,7 @@ mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18
 mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18',
                   r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22']
 date_0 = ['20191204', '20191204']
+
 
 def multi_mouse_performance(mouse_dir_list, novel, precise_duration=False, separate_zones=False, date_0='0'):
     if not precise_duration:
@@ -222,7 +224,6 @@ def single_mouse_performance(root, novel=True, precise=False, separate_zones=Fal
         # TODO: make labels work
 
 
-
 def set_xlabels(axis, x_labels, date_0):
     adapt_xlabels = []
     locs, labels = plt.xticks()
@@ -301,6 +302,7 @@ def collect_licking_stopping_data(root, novel, norm_date):
 
     return days, licking_filtered, stopping_filtered
 
+
 def is_session_novel(path):
     # check whether the current session is in the novel corridor
     context = None
@@ -324,6 +326,63 @@ def is_session_novel(path):
         return True
     else:
         print(f'Could not determine context in session {path}!\n')
+
+
+def quick_screen_session(path):
+    """
+    Plots the binned running speed and licking of each trial in a session for a quick screening.
+    :param path:
+    :return:
+    """
+    # go through all folders and subfolders and find merged_behavior files
+    file_list = []
+    for step in os.walk(path):
+        if len(step[2]) > 0:
+            for file in step[2]:
+                if 'merged_behavior' in file and os.path.join(step[0], file) not in file_list:
+                    file_list.append(os.path.join(step[0], file))
+
+    data_list = []
+    for file in file_list:
+        data_list.append(np.loadtxt(file))
+
+    # plotting
+    bad_trials = []
+    nrows = ceil(len(data_list)/3)
+    ncols = 3
+    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8))
+    count = 0
+    for row in range(nrows):
+        for col in range(ncols):
+            if count < len(data_list):
+                color = 'tab:blue'
+                ax[row, col].plot(data_list[count][:, 0], data_list[count][:, 2], color=color)
+                ax2 = ax[row, col].twinx()  # instantiate a second axes that shares the same x-axis
+                ax2.set_picker(True)
+                color = 'tab:red'
+                ax2.plot(data_list[count][:, 0], -data_list[count][:, 4], color=color)
+                ax[row, col].set_ylim(-0.1, 1.1)
+                ax2.set_ylabel(file_list[count])
+                ax2.axis('off')
+                ax[row, col].spines['top'].set_visible(False)
+                ax[row, col].spines['right'].set_visible(False)
+                ax[row, col].set_xticks([])
+                count += 1
+
+
+    def onpick(event):
+        this_plot = event.artist  # save artist (axis) where the pick was triggered
+        trial = this_plot.get_ylabel()
+        if trial not in bad_trials:
+            bad_trials.append(trial)
+
+    def closed(event):
+        print(*bad_trials, sep='\n')
+
+    fig.canvas.mpl_connect('close_event', closed)
+    fig.canvas.mpl_connect('pick_event', onpick)
+    plt.tight_layout()
+    plt.show()
 
 
 def extract_behavior_from_merged(path, novel):
