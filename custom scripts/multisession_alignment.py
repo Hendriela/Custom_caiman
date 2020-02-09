@@ -78,6 +78,13 @@ plt.figure()
 visualization.plot_contours(spatial_union, templates[0])
 plt.show()
 
+#%% plot all contours of one session
+sess_nr = 4
+plt.figure()
+curr_sess = pcf_objects[sess_nr].params['session']
+plt.title(f'Session {sess_nr+1}: {curr_sess}')
+out = visualization.plot_contours(pcf_objects[sess_nr].cnmf.estimates.A[:,219], pcf_objects[sess_nr].cnmf.estimates.Cn)
+
 #%% filter components by number of registrated sessions
 n_reg = 6
 assignments_filtered = np.array(assignments[np.sum(~np.isnan(assignments), axis=1) >= n_reg], dtype=int)
