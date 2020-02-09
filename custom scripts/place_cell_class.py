@@ -15,6 +15,9 @@ import re
 from behavior_import import progress
 from ScanImageTiffReader import ScanImageTiffReader
 import gui_without_movie as gui
+from caiman.utils import visualization
+import pandas as pd
+from statannot import add_stat_annotation
 
 
 class PlaceCellFinder:
@@ -47,6 +50,9 @@ class PlaceCellFinder:
         self.place_cells = []           # List of accepted place cells. Stored as tuples with (neuron_id,
                                         # place_field_bins, p-value)
         self.place_cells_reject = []    # List of place cells that passed all criteria, but with p > 0.05.
+        self.re_bin_activity = None
+        self.re_bin_avg_activity = None # dicts that hold all re-binned traces with different bin_widths as keys
+        self.new_bfc = None             # dict that holds the bin frame count to re-binned traces
 
         # noinspection PyDictCreation
         self.params = {'root': None,            # main directory of that session
@@ -60,7 +66,7 @@ class PlaceCellFinder:
                        'bin_base': 0.25,        # fraction of lowest bins that are averaged for baseline calculation
                        'place_thresh': 0.25,    # threshold of being considered for place fields, calculated
                                                 # from difference between max and baseline dF/F
-                       'min_pf_size': 15,    # minimum size in cm for a place field (should be 15-20 cm)
+                       'min_pf_size': 15,       # minimum size in cm for a place field (should be 15-20 cm)
                        'fluo_infield': 7,       # factor above which the mean DF/F in the place field should lie compared to outside the field
                        'trans_time': 0.2,       # fraction of the (unbinned!) signal while the mouse is located in
                                                 # the place field that should consist of significant transients
@@ -155,7 +161,43 @@ class PlaceCellFinder:
             if self.session is not None:
                 self.import_behavior_and_align_traces()
 
-    def split_traces_into_trials(self):
+    def save(self, file_name='pcf_results', overwrite=False):
+        """
+        Saves PCF object as a pickled file to the root directory.
+        :param file_name: str; name of the saved file, defaults to 'pcf_results'
+        :param overwrite: bool, overwrites files automatically if there is one
+        :return:
+        """
+
+        if '.' not in file_name:
+            save_path = os.path.join(self.params['root'], file_name + '.pickle')
+        else:
+            save_path = os.path.join(self.params['root'], file_name)
+
+        if os.path.isfile(save_path) and not overwrite:
+            answer = None
+            while answer not in ("y", "n", 'yes', 'no'):
+                answer = input(f"File [...]{save_path[-40:]} already exists!\nOverwrite? [y/n] ")
+                if answer == "yes" or answer == 'y':
+                    print('Saving...')
+                    with open(save_path, 'wb') as file:
+                        self.cnmf.dview = None
+                        pickle.dump(self, file)
+                    print(f'PCF results successfully saved at {save_path}')
+                    return save_path
+                elif answer == "no" or answer == 'n':
+                    print('Saving cancelled.')
+                    return None
+                else:
+                    print("Please enter yes or no.")
+        else:
+            print('Saving...')
+            with open(save_path, 'wb') as file:
+                self.cnmf.dview = None
+                pickle.dump(self, file)
+            print(f'PCF results successfully saved at {save_path}')
+
+    def split_traces_into_trials(self, trace='F_dff'):
         """
         First function to call in the "normal" pipeline.
         Takes raw, across-trial DF/F traces from the CNMF object and splits it into separate trials using the frame
@@ -170,12 +212,14 @@ class PlaceCellFinder:
             n_trials = len(frame_list)
         else:
             raise Exception('You have to provide frame_list before continuing the analysis!')
-        n_neuron = self.cnmf.estimates.F_dff.shape[0]
+
+        data = getattr(self.cnmf.estimates, trace)
+        n_neuron = data.shape[0]
         session = list(np.zeros(n_neuron))
 
         for neuron in range(n_neuron):
             curr_neuron = list(np.zeros(n_trials))  # initialize neuron-list
-            session_trace = self.cnmf.estimates.F_dff[neuron]  # temp-save DF/F session trace of this neuron
+            session_trace = data.F_dff[neuron]  # temp-save DF/F session trace of this neuron
 
             for trial in range(n_trials):
                 # extract trace of the current trial from the whole session
@@ -281,7 +325,7 @@ class PlaceCellFinder:
             plt.close()
         return sigma
 
-    def import_behavior_and_align_traces(self):
+    def import_behavior_and_align_traces(self, remove_resting_frames=False):
         """
         Imports behavioral data (merged_behavior.txt) and aligns the calcium traces to the VR position.
         Behavioral data is saved in the 'behavior' list that includes one array per trial with the following structure:
@@ -293,17 +337,20 @@ class PlaceCellFinder:
               the binned dF/F for every trial.
             - as bin_avg_activity, an array of shape [n_neuron x n_bins] that contain the dF/F for each bin of every
               neuron, averaged across trials. This is what will mainly be used for place cell analysis.
-
+        :param remove_resting_frames: bool flag whether frames where the mouse didnt move should be removed
         :return: Updated PCF object with behavior and binned data
         """
+
         behavior = []
         is_faulty = False
         count = 0
         if self.params['trial_list'] is not None:
             for trial in self.params['trial_list']:
                 path = glob.glob(trial+'//merged_behavior*.txt')
-                if len(path) == 1:
-                    behavior.append(np.loadtxt(path[0], delimiter='\t'))
+                if len(path) >= 1:
+                    # if there are more than 1 behavior file, load the latest
+                    mod_times = [os.path.getmtime(file) for file in path]
+                    behavior.append(np.loadtxt(path[np.argmax(mod_times)], delimiter='\t'))
                     count_list = int(self.params['frame_list'][count])
                     count_imp = int(np.sum(behavior[-1][:, 3]))
                     if count_imp != count_list:
@@ -317,6 +364,32 @@ class PlaceCellFinder:
                 raise Exception('Frame count mismatch detected, stopping analysis.')
         else:
             raise Exception('You have to provide trial_list before aligning data to VR position!')
+
+        if remove_resting_frames:
+            # create a bool mask for every trial that tells if a frame should be included or not
+            behavior_masks = []
+            for trial in range(len(behavior)):
+                # bool list for every frame of that trial (used to later filter out dff samples)
+                behavior_masks.append(np.ones(int(np.sum(behavior[trial][:, 3])), dtype=bool))
+                frame_idx = np.where(behavior[trial][:, 3] == 1)[0]  # find sample_idx of all frames
+                for i in range(len(frame_idx)):
+                    if i != 0:
+                        # if the mouse didnt move much during the frame, delete current frame (from mask and behavior)
+                        if np.sum(behavior[trial][frame_idx[i - 1]:frame_idx[i], 4]) > -30:
+                            behavior_masks[-1][i] = False
+                            behavior[trial][frame_idx[i]] = 0
+                    else:
+                        if behavior[trial][0, 4] > -30:
+                            behavior_masks[-1][i] = False
+                            behavior[trial][frame_idx[i]] = 0
+
+            # update the list of frames per trial to account for removed frames
+            self.params['frame_list'] = [int(np.sum(trial)) for trial in behavior_masks]
+
+            # remove still frames from dF/F arrays
+            for neuron in range(len(self.session)):
+                for trial in range(len(behavior_masks)):
+                    self.session[neuron][trial] = self.session[neuron][trial][behavior_masks[trial]]
 
         bin_frame_count = np.zeros((self.params['n_bins'], self.params['n_trial']), 'int')
         for trial in range(len(behavior)):  # go through vr data of every trial and prepare it for analysis
@@ -349,20 +422,122 @@ class PlaceCellFinder:
         print('\nSuccessfully aligned calcium data to the VR position bins.'
               '\nResults are stored in pcf.bin_activity and pcf.bin_avg_activity.\n')
 
-    def bin_activity_to_vr(self, neuron_traces):
+    def rebin_traces(self, bin_width, trace, overwrite=False, save=True):
+        """
+        Re-bins calcium traces of extracted cells to a new bin_width. Used for spatial information calculation.
+        :param bin_width: int, width of the new bins in cm
+        :return bin_frame_count: np.array with dims (#bins x #trials), frames contained in each bin for new bin_width
+        """
+        # re-calculate n_bins according to new bin_width and new bin_frame_count
+        if self.params['track_length'] % bin_width == 0:
+            n_bins = int(self.params['track_length'] / bin_width)
+        else:
+            raise Exception('Bin_width has to be a divisor of track_length!')
+
+        bin_frame_count = np.zeros((n_bins, self.params['n_trial']), 'int')
+        for trial in range(len(self.behavior)):  # go through vr data of every trial and prepare it for analysis
+
+            # bin data in distance chunks
+            bin_borders = np.linspace(-10, 110, n_bins)
+            idx = np.digitize(self.behavior[trial][:, 1], bin_borders)  # get indices of bins
+
+            # check how many frames are in each bin
+            for i in range(n_bins):
+                bin_frame_count[i, trial] = np.sum(self.behavior[trial][np.where(idx == i + 1), 3])
+
+        # double check if number of frames are correct
+        for i in range(len(self.params['frame_list'])):
+            frame_list_count = self.params['frame_list'][i]
+            if frame_list_count != np.sum(bin_frame_count[:, i]):
+                print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
+
+        if save:
+            # initialize dictionaries that holds the re-binned data and averaged data
+            if not hasattr(self, 're_bin_activity') or self.re_bin_activity is None:
+                self.re_bin_activity = {bin_width: []}
+            else:
+                if bin_width in self.re_bin_activity.keys() and not overwrite:
+                    raise Exception(f'Data has already been binned to a bin_width of {bin_width}!')
+                else:
+                    self.re_bin_activity[bin_width] = []
+            if not hasattr(self, 're_bin_avg_activity') or self.re_bin_avg_activity is None:
+                self.re_bin_avg_activity = {bin_width: np.zeros((self.params['n_neuron'], n_bins))}
+            else:
+                if bin_width in self.re_bin_avg_activity.keys() and not overwrite:
+                    raise Exception(f'Data has already been binned to a bin_width of {bin_width}!')
+                else:
+                    self.re_bin_avg_activity[bin_width] = np.zeros((self.params['n_neuron'], n_bins))
+            if not hasattr(self, 'new_bfc') or self.new_bfc is None:
+                self.new_bfc = {bin_width: bin_frame_count}
+            else:
+                if bin_width in self.re_bin_avg_activity.keys() and not overwrite:
+                    raise Exception(f'Data has already been binned to a bin_width of {bin_width}!')
+                else:
+                    self.new_bfc[bin_width] = bin_frame_count
+
+            # re-bin session traces according to new bin parameters
+            for neuron in range(self.params['n_neuron']):
+                bin_act, bin_avg_act = self.bin_activity_to_vr(self.session[neuron],
+                                                               n_bins=n_bins, bin_frame_count=bin_frame_count)
+                self.re_bin_activity[bin_width].append(bin_act)
+                self.re_bin_avg_activity[bin_width][neuron, :] = bin_avg_act
+        else:
+
+            # if the trace is not dff, data has to be split into trials before analysis
+            if trace != 'F_dff':
+                data = getattr(self.cnmf.estimates, trace)
+                n_neuron = data.shape[0]
+                n_trials = self.params['n_trial']
+                frame_list = self.params['frame_list']
+                session = list(np.zeros(n_neuron))
+
+                for neuron in range(n_neuron):
+                    curr_neuron = list(np.zeros(n_trials))  # initialize neuron-list
+                    session_trace = data[neuron]  # temp-save DF/F session trace of this neuron
+
+                    for trial in range(n_trials):
+                        # extract trace of the current trial from the whole session
+                        if len(session_trace) > frame_list[trial]:
+                            trial_trace, session_trace = session_trace[:frame_list[trial]], session_trace[
+                                                                                            frame_list[trial]:]
+                            curr_neuron[trial] = trial_trace  # save trial trace in this neuron's list
+                        elif len(session_trace) == frame_list[trial]:
+                            curr_neuron[trial] = session_trace
+                        else:
+                            print('Error in PlaceCellFinder.split_traces()')
+                    session[neuron] = curr_neuron  # save data from this neuron to the big session list
+            else:
+                session = self.session
+
+            bin_avg_activity = np.zeros((self.params['n_neuron'], n_bins))
+            for neuron in range(self.params['n_neuron']):
+                bin_act, bin_avg_act = self.bin_activity_to_vr(session[neuron],
+                                                               n_bins=n_bins, bin_frame_count=bin_frame_count)
+                bin_avg_activity[neuron, :] = bin_avg_act
+
+            return bin_frame_count, bin_avg_activity
+
+    def bin_activity_to_vr(self, neuron_traces, n_bins=None, bin_frame_count=None):
         """
         Takes bin_frame_count and bins the dF/F traces of all trials of one neuron to achieve a uniform trial length
         for place cell analysis. Procedure for every trial: Algorithm goes through every bin and extracts the
         corresponding frames according to bin_frame_count.
         :param neuron_traces: list of arrays that contain the dF/F traces of a neuron. From self.session[n_neuron]
+        :param n_bins: int, number of bins the trace should be split into
+        :param bin_frame_count: np.array containing the number of frames in each bin
         :return: bin_activity (list of trials), bin_avg_activity (1D array) for this neuron
         """
-        bin_activity = np.zeros((self.params['n_trial'], self.params['n_bins']))
+        if n_bins is None:
+            n_bins = self.params['n_bins']
+        if bin_frame_count is None:
+            bin_frame_count = self.params['bin_frame_count']
+
+        bin_activity = np.zeros((self.params['n_trial'], n_bins))
         for trial in range(self.params['n_trial']):
             curr_trace = neuron_traces[trial]
-            curr_bins = self.params['bin_frame_count'][:, trial]
-            curr_act_bin = np.zeros(self.params['n_bins'])
-            for bin_no in range(self.params['n_bins']):
+            curr_bins = bin_frame_count[:, trial]
+            curr_act_bin = np.zeros(n_bins)
+            for bin_no in range(n_bins):
                 # extract the trace of the current bin from the trial trace
                 if len(curr_trace) > curr_bins[bin_no]:
                     trace_to_avg, curr_trace = curr_trace[:curr_bins[bin_no]], curr_trace[curr_bins[bin_no]:]
@@ -392,7 +567,7 @@ class PlaceCellFinder:
         self.place_cells = []
         for i in range(self.bin_avg_activity.shape[0]):
             self.find_place_field_neuron(self.bin_avg_activity[i, :], i)
-            progress(i, self.bin_avg_activity.shape[0] - 1, status='Processing neurons...', percent=False)
+            progress(i+1, self.bin_avg_activity.shape[0], status='Processing neurons...', percent=False)
         print(f'Done! {len(self.place_cells)} place cells found in total!')
 
     def find_place_field_neuron(self, data, neuron_id):
@@ -597,43 +772,110 @@ class PlaceCellFinder:
 
         return p_counter/1000   # return p-value of this neuron (number of place fields after 1000 shuffles)
 
-    def save(self, file_name='pcf_results', overwrite=False):
+#%% Spatial information
+
+    def get_spatial_information(self, bin_width=None, n_bins=None, trace='F_dff', remove_stationary=True, save=False):
         """
-        Saves PCF object as a pickled file to the root directory.
-        :param file_name: str; name of the saved file, defaults to 'pcf_results'
-        :param overwrite: bool, overwrites files automatically if there is one
+        Calculates amount of spatial information (SI) contained in the extracted neurons. Spatial information is calcu-
+        lated with the formula from Skaggs et al., 1993, and applied to the activity trace averaged across all trials
+        of that session. This results in one SI value for every cell. Data is re-binned to 10-cm wide bins (Bartos2018).
+        The formula that is applied to all bins is: dff_bin/dff_tot * ln(dff_bin/dff_tot) * p_bin,
+        where dff_bin and p_bin are the avg calcium activity and fraction of time spent in that bin and dff_tot the avg
+        dff across all bins. The SI for each neuron is the sum of all bin SIs.
+        :param bin_width: int, width of the bins in cm
         :return:
         """
+        # get activity and position data
+        data_all = getattr(self.cnmf.estimates, trace).T
+        position_all = []
+        for trial in range(len(self.behavior)):
+            position_all.append(self.behavior[trial][np.where(self.behavior[trial][:, 3] == 1), 1])
+        position_all = np.hstack(position_all).T
 
-        if '.' not in file_name:
-            save_path = os.path.join(self.params['root'], file_name + '.pickle')
+        # calculate number of bins
+        if bin_width is None and n_bins is None:
+            n_bins = 40
+        elif bin_width is not None and n_bins is None:
+            track_length = self.params['track_length']
+            if track_length % bin_width == 0:
+                n_bins = int(track_length / bin_width)
+            else:
+                raise Exception(f'Bin_width has to be a divisor of track length ({track_length} cm)!')
+        elif bin_width is not None and n_bins is not None:
+            track_length = self.params['track_length']
+            if track_length % bin_width == 0:
+                n_bin_test = int(track_length / bin_width)
+            else:
+                raise Exception(f'Bin_width has to be a divisor of track length ({track_length} cm)!')
+            if n_bin_test != n_bins:
+                raise Exception('Bin_width and n_bins result in contradicting bin numbers!')
+
+        if remove_stationary:
+        # remove samples where the mouse was stationary (less than 30 movement per frame)
+            behavior_masks = []
+            for trial in self.behavior:
+                behavior_masks.append(
+                    np.ones(int(np.sum(trial[:, 3])), dtype=bool))  # bool list for every frame of that trial
+                frame_idx = np.where(trial[:, 3] == 1)[0]  # find sample_idx of all frames
+                for i in range(len(frame_idx)):
+                    if i != 0:
+                        # make index of the current frame False if the mouse didnt move much during the frame
+                        if np.sum(trial[frame_idx[i - 1]:frame_idx[i], 4]) > -30:
+                            behavior_masks[-1][i] = False
+                    else:
+                        if trial[0, 4] > -30:
+                            behavior_masks[-1][i] = False
+            behavior_mask = np.hstack(behavior_masks)
+            data = data_all[behavior_mask]
+            position = position_all[behavior_mask]
         else:
-            save_path = os.path.join(self.params['root'], file_name)
+            data = data_all
+            position = position_all
 
-        if os.path.isfile(save_path) and not overwrite:
-            answer = None
-            while answer not in ("y", "n", 'yes', 'no'):
-                answer = input(f"File [...]{save_path[-40:]} already exists!\nOverwrite? [y/n] ")
-                if answer == "yes" or answer == 'y':
-                    print('Saving...')
-                    with open(save_path, 'wb') as file:
-                        self.cnmf.dview = None
-                        pickle.dump(self, file)
-                    print(f'PCF results successfully saved at {save_path}')
-                    return save_path
-                elif answer == "no" or answer == 'n':
-                    print('Saving cancelled.')
-                    return None
+        # remove data points where decoding was nan (beginning and end)
+        nan_mask = np.isnan(data[:, 0])
+        data = data[~nan_mask]
+        position = position[~nan_mask]
+
+        # bin data into n_bins, get mean event rate per bin
+        bin_borders = np.linspace(-10, 110, n_bins)
+        idx = np.digitize(position, bin_borders)  # get indices of bins
+
+        # get fraction of bin occupancy
+        unique_elements, counts_elements = np.unique(idx, return_counts=True)
+        bin_freq = np.array([x / np.sum(counts_elements) for x in counts_elements])
+
+        # get mean spikes/s for each bin
+        bin_mean_act = np.zeros((n_bins, data.shape[1]))
+        for bin_nr in range(n_bins):
+            curr_bin_idx = np.where(idx == bin_nr + 1)[0]
+            bin_act = data[curr_bin_idx]
+            # bin_mean_act[bin_nr, :] = np.sum(bin_act, axis=0) / (bin_act.shape[0] / 30)
+            bin_mean_act[bin_nr, :] = np.mean(bin_act, axis=0)
+        # total_firing_rate = np.sum(data, axis=0) / (data.shape[0] / 30)
+        total_firing_rate = np.mean(data, axis=0)
+
+        # calculate spatial information content
+        spatial_info = np.zeros(len(total_firing_rate))
+        for cell in range(len(total_firing_rate)):
+            curr_trace = bin_mean_act[:, cell]
+            tot_act = total_firing_rate[cell]  # this is the total dF/F averaged across all bins
+            bin_si = np.zeros(n_bins)  # initialize array that holds SI value for each bin
+            for i in range(n_bins):
+                # apply the SI formula to every bin
+                if curr_trace[i] <= 0 or tot_act <= 0:
+                    bin_si[i] = 0
                 else:
-                    print("Please enter yes or no.")
-        else:
-            print('Saving...')
-            with open(save_path, 'wb') as file:
-                self.cnmf.dview = None
-                pickle.dump(self, file)
-            print(f'PCF results successfully saved at {save_path}')
+                    bin_si[i] = curr_trace[i] / tot_act * np.log(curr_trace[i] / tot_act) * bin_freq[i]
+            spatial_info[cell] = np.sum(bin_si)
 
-#%% Visualization
+        if save:
+            self.spatial_info = spatial_info
+        else:
+            return spatial_info
+
+
+    #%% Visualization
 
     def load_gui(self):
         gui.run_gui(data=self.cnmf)
@@ -705,7 +947,7 @@ class PlaceCellFinder:
         else:
             nrows = traces.shape[0]
 
-        trace_fig, trace_ax = plt.subplots(nrows=nrows, ncols=2, sharex=True, figsize=(18, 10))
+        trace_fig, trace_ax = plt.subplots(nrows=nrows, ncols=2, sharex=True, figsize=(15, 4))
         trace_fig.suptitle(f'Neuron {self.place_cells[idx][0]}', fontsize=16)
         for i in range(traces.shape[0]):
 
@@ -740,6 +982,12 @@ class PlaceCellFinder:
         cbar.ax.tick_params(labelsize=12)
         cbar.ax.yaxis.label.set_size(15)
 
+        trace_ax[-1, 0].set_xlim(0, traces.shape[1])
+        x_locs, labels = plt.xticks()
+        plt.xticks(x_locs, (x_locs * self.params['bin_length']).astype(int), fontsize=15)
+        plt.sca(trace_ax[-1, 0])
+        plt.xticks(x_locs, (x_locs * self.params['bin_length']).astype(int), fontsize=15)
+
         trace_ax[i, 0].set_xlim(0, traces.shape[1])
         trace_ax[i, 0].set_xlabel('VR position', fontsize=12)
         trace_ax[i, 1].set_xlabel('VR position', fontsize=12)
@@ -747,7 +995,24 @@ class PlaceCellFinder:
         # trace_fig.tight_layout()
         plt.show()
 
-    def plot_all_place_cells(self, save=False, show_neuron_id=False, show_place_fields=True, sort='field'):
+    def plot_pc_location(self, save=False, color='w', display_numbers=False):
+        """
+        Plots the contours of all place cells on the local correlation image via CaImAns plot_contours.
+        :return:
+        """
+        place_cell_idx = [x[0] for x in self.place_cells]
+        plt.figure()
+        out=visualization.plot_contours(self.cnmf.estimates.A[:, place_cell_idx],
+                                        self.cnmf.estimates.Cn, display_numbers=display_numbers, colors=color)
+        ax = plt.gca()
+        sess = self.params['session']
+        ax.set_title(f'All place cells of session {sess}')
+        ax.axis('off')
+        if save:
+            plt.savefig(os.path.join(self.params['root'], 'place_cell_contours.png'))
+            plt.close()
+
+    def plot_all_place_cells(self, save=False, show_neuron_id=False, show_place_fields=True, sort='field', fname='place_cells'):
         """
         Plots all place cells in the data set by line graph and pcolormesh.
         :param save: bool flag whether the figure should be automatically saved in the root and closed afterwards.
@@ -780,6 +1045,8 @@ class PlaceCellFinder:
                     bins.append((i, self.place_cells[i][1][0][0])) # get the first index of the first place field
             else:
                 print(f'Cannot understand sorting command {sort}.')
+                for i in range(n_neurons):
+                    bins.append((i, i))
             bins_sorted = sorted(bins, key=lambda tup: tup[1])
 
             trace_fig, trace_ax = plt.subplots(nrows=n_neurons, ncols=2, sharex=True, figsize=(18, 10))
@@ -800,7 +1067,8 @@ class PlaceCellFinder:
                 if i == trace_ax[:, 0].size - 1:
                     trace_ax[i, 0].spines['top'].set_visible(False)
                     trace_ax[i, 0].spines['right'].set_visible(False)
-                    trace_ax[i, 0].tick_params(axis='y', which='major', labelsize=15)
+                    #trace_ax[i, 0].tick_params(axis='y', which='major', labelsize=15)
+                    trace_ax[i, 0].set_yticks([])
                     trace_ax[i, 1].set_yticks([])
                     trace_ax[i, 1].spines['top'].set_visible(False)
                     trace_ax[i, 1].spines['right'].set_visible(False)
@@ -843,6 +1111,123 @@ class PlaceCellFinder:
             network = self.params['network']
             plt.title(f'All place cells of mouse {mouse}, session {session}, network {network}', fontsize=16)
             if save:
-                plt.savefig(os.path.join(self.params['root'], 'place_cells.png'))
+                plt.savefig(os.path.join(self.params['root'], f'{fname}.png'))
                 plt.close()
 
+    def plot_spatial_info(self, data=None, verbose=True, show_reject=False, save=False, overwrite=False):
+        """
+        Plots spatial information content of neurons. Data from self.spatial_info or provided externally
+        (from self.get_spatial_info with save=False).
+        :param data: 1D np.array holding mean spatial information for every neuron.
+        :param verbose: boolean flag, whether p-value of significance test should be written out or reported as stars.
+        :return:
+        """
+        if not hasattr(self, 'spatial_info'):
+            if data is not None:
+                spatial_info = data
+            else:
+                raise Exception('Spatial information data not found!')
+        else:
+            if data is not None and self.spatial_info != data:
+                raise Exception('Spatial info from object and from externally provided array do not match. Choose one!')
+            else:
+                spatial_info = self.spatial_info
+
+        # classify data points into place cells and non-place cells
+        pc_label = []
+        pc_idx = [x[0] for x in self.place_cells]
+        pc_rej = [x[0] for x in self.place_cells_reject]
+        for cell_idx in range(len(spatial_info)):
+            if show_reject:
+                if cell_idx in pc_idx:
+                    pc_label.append('accepted')
+                elif cell_idx in pc_rej:
+                    pc_label.append('rejected')
+                else:
+                    pc_label.append('no')
+            else:
+                if cell_idx in pc_idx:
+                    pc_label.append('yes')
+                else:
+                    pc_label.append('no')
+
+        # add sample size to labels
+        no_count = pc_label.count('no')
+        if show_reject:
+            acc_count = pc_label.count('accepted')
+        else:
+            acc_count = pc_label.count('yes')
+        rej_count = pc_label.count('rejected')
+        pc_label = [f'no (n={no_count})' if x == 'no' else x for x in pc_label]
+        pc_label = [f'yes (n={acc_count})' if x == 'yes' else x for x in pc_label]
+        pc_label = [f'rejected (n={rej_count})' if x == 'rejected' else x for x in pc_label]
+
+        df = pd.DataFrame(data={'SI': spatial_info, 'Place cell': pc_label, 'dummy': np.zeros(len(spatial_info))})
+
+        mouse = self.params['mouse']
+        session = self.params['session']
+        plt.figure()
+        plt.title(f'Spatial info {mouse}, {session}')
+        ax = sns.barplot(x='Place cell', y='SI', data=df)
+
+        # perform statistical tests and show results on plot
+        if verbose and not show_reject:
+            results = add_stat_annotation(ax, data=df, x='Place cell', y='SI', text_format='full',
+                                          box_pairs=[(f'yes (n={acc_count})', f'no (n={no_count})')],
+                                          test='Mann-Whitney')
+        elif verbose and show_reject:
+            results = add_stat_annotation(ax, data=df, x='Place cell', y='SI', text_format='full',
+                                          box_pairs=[(f'accepted (n={acc_count})', f'no (n={no_count})')],
+                                          test='Mann-Whitney')
+        elif not verbose and not show_reject:
+            results = add_stat_annotation(ax, data=df, x='Place cell', y='SI', text_format='stars',
+                                          box_pairs=[(f'yes (n={acc_count})', f'no (n={no_count})')],
+                                          test='Mann-Whitney')
+        elif not verbose and show_reject:
+            results = add_stat_annotation(ax, data=df, x='Place cell', y='SI', text_format='stars',
+                                          box_pairs=[(f'accepted (n={acc_count})', f'no (n={no_count})')],
+                                          test='Mann-Whitney')
+
+        sns.stripplot(x='Place cell', y='SI', data=df, linewidth=1)
+
+        if save:
+            file_dir = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\spatial information'
+            file_name = f'spatial_info_{mouse}_{session}_no_rest.png'
+            save_path = os.path.join(file_dir, file_name)
+            if os.path.isfile(save_path) and not overwrite:
+                answer = None
+                while answer not in ("y", "n", 'yes', 'no'):
+                    answer = input(f"File [...]{save_path[-40:]} already exists!\nOverwrite? [y/n] ")
+                    if answer == "yes" or answer == 'y':
+                        plt.savefig(os.path.join(file_dir, file_name))
+                        print(f'Plot successfully saved at {save_path}.')
+                        return save_path
+                    elif answer == "no" or answer == 'n':
+                        print('Saving cancelled.')
+                        return None
+                    else:
+                        print("Please enter yes/y or no/n.")
+            else:
+                plt.savefig(os.path.join(file_dir, file_name))
+
+    def filter_resting_frames(self):
+        behavior_masks = []
+        for trial in pcf.behavior:
+            behavior_masks.append(np.ones(int(np.sum(trial[:, 3])), dtype=bool))  # bool list for every frame of that trial
+            frame_idx = np.where(trial[:, 3] == 1)[0]  # find sample_idx of all frames
+            for i in range(len(frame_idx)):
+                if i != 0:
+                    if np.sum(trial[frame_idx[i - 1]:frame_idx[i],
+                              4]) > -30:  # make the index of the current frame False if
+                        behavior_masks[-1][i] = False  # the mouse didnt move much during the frame
+                else:
+                    if trial[0, 4] > -30:
+                        behavior_masks[-1][i] = False
+
+        trial_lengths = [int(np.sum(trial)) for trial in behavior_masks]
+
+        behavior_mask = np.hstack(behavior_masks)
+        dff_all = deepcopy(dff)
+        dff = dff_all[behavior_mask]
+        position_all = deepcopy(position)
+        position = position_all[behavior_mask]
