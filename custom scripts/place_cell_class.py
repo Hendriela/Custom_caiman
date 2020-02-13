@@ -50,9 +50,6 @@ class PlaceCellFinder:
         self.place_cells = []           # List of accepted place cells. Stored as tuples with (neuron_id,
                                         # place_field_bins, p-value)
         self.place_cells_reject = []    # List of place cells that passed all criteria, but with p > 0.05.
-        self.re_bin_activity = None
-        self.re_bin_avg_activity = None # dicts that hold all re-binned traces with different bin_widths as keys
-        self.new_bfc = None             # dict that holds the bin frame count to re-binned traces
 
         # noinspection PyDictCreation
         self.params = {'root': None,            # main directory of that session
@@ -197,7 +194,7 @@ class PlaceCellFinder:
                 pickle.dump(self, file)
             print(f'PCF results successfully saved at {save_path}')
 
-    def split_traces_into_trials(self, trace='F_dff'):
+    def split_traces_into_trials(self):
         """
         First function to call in the "normal" pipeline.
         Takes raw, across-trial DF/F traces from the CNMF object and splits it into separate trials using the frame
@@ -213,13 +210,13 @@ class PlaceCellFinder:
         else:
             raise Exception('You have to provide frame_list before continuing the analysis!')
 
-        data = getattr(self.cnmf.estimates, trace)
+        data = self.cnmf.estimates.F_dff
         n_neuron = data.shape[0]
         session = list(np.zeros(n_neuron))
 
         for neuron in range(n_neuron):
             curr_neuron = list(np.zeros(n_trials))  # initialize neuron-list
-            session_trace = data.F_dff[neuron]  # temp-save DF/F session trace of this neuron
+            session_trace = data[neuron]            # temp-save session trace of this neuron
 
             for trial in range(n_trials):
                 # extract trace of the current trial from the whole session
@@ -262,7 +259,7 @@ class PlaceCellFinder:
                 self.params['sigma'][neuron][i] = sigma     # save noise level of current trial in the params dict
                 # get time points where the signal is more than 4x sigma (Koay et al., 2019)
                 if sigma == 0:
-                    idx = []
+                    idx = np.array([])
                 else:
                     thresh = self.params['trans_thresh']
                     if type(thresh) == int:    # use one threshold for borders of transient (Koay)
@@ -366,6 +363,12 @@ class PlaceCellFinder:
             raise Exception('You have to provide trial_list before aligning data to VR position!')
 
         if remove_resting_frames:
+            # How to remove resting frames
+            # - for every trial, make a mask with length n_frames (one entry per frame) that is True for frames where
+            #   the mouse ran and False where the mouse was stationary
+            # - temporarily save the new frame list with new frame counts (check binned frames with this list)
+            # - update self.session
+
             # create a bool mask for every trial that tells if a frame should be included or not
             behavior_masks = []
             for trial in range(len(behavior)):
@@ -374,17 +377,17 @@ class PlaceCellFinder:
                 frame_idx = np.where(behavior[trial][:, 3] == 1)[0]  # find sample_idx of all frames
                 for i in range(len(frame_idx)):
                     if i != 0:
-                        # if the mouse didnt move much during the frame, delete current frame (from mask and behavior)
+                        # if the mouse didnt move much during the frame, set current frame False in mask
                         if np.sum(behavior[trial][frame_idx[i - 1]:frame_idx[i], 4]) > -30:
                             behavior_masks[-1][i] = False
-                            behavior[trial][frame_idx[i]] = 0
+                            # set the bad frame in the behavior array to 0 to skip it during binning
+                            behavior[trial][frame_idx[i], 3] = 0
                     else:
                         if behavior[trial][0, 4] > -30:
-                            behavior_masks[-1][i] = False
-                            behavior[trial][frame_idx[i]] = 0
+                            behavior[trial][frame_idx[i], 3] = 0
 
-            # update the list of frames per trial to account for removed frames
-            self.params['frame_list'] = [int(np.sum(trial)) for trial in behavior_masks]
+            # update the list of frames per trial to account for removed frames (-1 because the first frame is not counted
+            new_frame_list = [int(np.sum(trial)) for trial in behavior_masks]
 
             # remove still frames from dF/F arrays
             for neuron in range(len(self.session)):
@@ -402,11 +405,17 @@ class PlaceCellFinder:
             for i in range(self.params['n_bins']):
                 bin_frame_count[i, trial] = np.sum(behavior[trial][np.where(idx == i + 1), 3])
 
-        # double check if number of frames are correct
-        for i in range(len(self.params['frame_list'])):
-            frame_list_count = self.params['frame_list'][i]
-            if frame_list_count != np.sum(bin_frame_count[:, i]):
-                print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
+        if remove_resting_frames:
+            for i in range(len(new_frame_list)):
+                frame_list_count = new_frame_list[i]
+                if frame_list_count-1 != np.sum(bin_frame_count[:, i]):
+                    print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
+        else:
+            # double check if number of frames are correct
+            for i in range(len(self.params['frame_list'])):
+                frame_list_count = self.params['frame_list'][i]
+                if frame_list_count != np.sum(bin_frame_count[:, i]):
+                    print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
 
         self.behavior = behavior
         self.params['bin_frame_count'] = bin_frame_count
