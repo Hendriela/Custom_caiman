@@ -93,10 +93,10 @@ class PlaceCellFinder:
             elif key == 'min_pf_size_cm':
                 self.params['min_pf_size'] = param_dict[key]
             else:
-                print(f'Parameter {key} was not recognized!')
+                raise Exception(f'Parameter {key} was not recognized!')
 
         if self.params['root'] is None:
-            print(f'Essential parameter root has not been provided upon initialization.')
+            raise Exception(f'Essential parameter root has not been provided upon initialization.')
         if self.params['trial_list'] is None:
             for step in os.walk(self.params['root']):
                 folder_list = step[1]
@@ -255,7 +255,10 @@ class PlaceCellFinder:
             for i in range(len(curr_neuron)):
                 trial = curr_neuron[i]
                 # get noise level of the data via FWHM
-                sigma = self.get_noise_fwhm(trial)
+                try:
+                    sigma = self.get_noise_fwhm(trial)
+                except ValueError:
+                    raise ValueError(f'No data for neuron {neuron}, trial {i}.')
                 self.params['sigma'][neuron][i] = sigma     # save noise level of current trial in the params dict
                 # get time points where the signal is more than 4x sigma (Koay et al., 2019)
                 if sigma == 0:
@@ -349,7 +352,7 @@ class PlaceCellFinder:
                     mod_times = [os.path.getmtime(file) for file in path]
                     behavior.append(np.loadtxt(path[np.argmax(mod_times)], delimiter='\t'))
                     count_list = int(self.params['frame_list'][count])
-                    count_imp = int(np.sum(behavior[-1][:, 3]))
+                    count_imp = int(np.nansum(behavior[-1][:, 3]))
                     if count_imp != count_list:
                         print(f'Contradicting frame counts in trial {trial} (no. {count}):\n'
                               f'\tExpected {count_list} frames, imported {count_imp} frames...')
@@ -370,10 +373,11 @@ class PlaceCellFinder:
             # - update self.session
 
             # create a bool mask for every trial that tells if a frame should be included or not
+            behavior_raw = behavior.copy()
             behavior_masks = []
             for trial in range(len(behavior)):
                 # bool list for every frame of that trial (used to later filter out dff samples)
-                behavior_masks.append(np.ones(int(np.sum(behavior[trial][:, 3])), dtype=bool))
+                behavior_masks.append(np.ones(int(np.nansum(behavior[trial][:, 3])), dtype=bool))
                 frame_idx = np.where(behavior[trial][:, 3] == 1)[0]  # find sample_idx of all frames
                 for i in range(len(frame_idx)):
                     if i != 0:
@@ -381,10 +385,11 @@ class PlaceCellFinder:
                         if np.sum(behavior[trial][frame_idx[i - 1]:frame_idx[i], 4]) > -30:
                             behavior_masks[-1][i] = False
                             # set the bad frame in the behavior array to 0 to skip it during binning
-                            behavior[trial][frame_idx[i], 3] = 0
+                            behavior[trial][frame_idx[i], 3] = np.nan
                     else:
                         if behavior[trial][0, 4] > -30:
-                            behavior[trial][frame_idx[i], 3] = 0
+                            behavior_masks[-1][i] = False
+                            behavior[trial][frame_idx[i], 3] = np.nan
 
             # update the list of frames per trial to account for removed frames (-1 because the first frame is not counted
             new_frame_list = [int(np.sum(trial)) for trial in behavior_masks]
@@ -403,12 +408,12 @@ class PlaceCellFinder:
 
             # check how many frames are in each bin
             for i in range(self.params['n_bins']):
-                bin_frame_count[i, trial] = np.sum(behavior[trial][np.where(idx == i + 1), 3])
+                bin_frame_count[i, trial] = np.nansum(behavior[trial][np.where(idx == i + 1), 3])
 
         if remove_resting_frames:
             for i in range(len(new_frame_list)):
                 frame_list_count = new_frame_list[i]
-                if frame_list_count-1 != np.sum(bin_frame_count[:, i]):
+                if frame_list_count-1 != np.nansum(bin_frame_count[:, i]):
                     print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
         else:
             # double check if number of frames are correct
@@ -417,7 +422,7 @@ class PlaceCellFinder:
                 if frame_list_count != np.sum(bin_frame_count[:, i]):
                     print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
 
-        self.behavior = behavior
+        self.behavior = behavior_raw
         self.params['bin_frame_count'] = bin_frame_count
         print('\nSuccessfully aligned traces with VR position.')
 
@@ -452,12 +457,12 @@ class PlaceCellFinder:
 
             # check how many frames are in each bin
             for i in range(n_bins):
-                bin_frame_count[i, trial] = np.sum(self.behavior[trial][np.where(idx == i + 1), 3])
+                bin_frame_count[i, trial] = np.nansum(self.behavior[trial][np.where(idx == i + 1), 3])
 
         # double check if number of frames are correct
         for i in range(len(self.params['frame_list'])):
             frame_list_count = self.params['frame_list'][i]
-            if frame_list_count != np.sum(bin_frame_count[:, i]):
+            if frame_list_count != np.nansum(bin_frame_count[:, i]):
                 print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
 
         if save:
@@ -824,12 +829,12 @@ class PlaceCellFinder:
             behavior_masks = []
             for trial in self.behavior:
                 behavior_masks.append(
-                    np.ones(int(np.sum(trial[:, 3])), dtype=bool))  # bool list for every frame of that trial
+                    np.ones(int(np.nansum(trial[:, 3])), dtype=bool))  # bool list for every frame of that trial
                 frame_idx = np.where(trial[:, 3] == 1)[0]  # find sample_idx of all frames
                 for i in range(len(frame_idx)):
                     if i != 0:
                         # make index of the current frame False if the mouse didnt move much during the frame
-                        if np.sum(trial[frame_idx[i - 1]:frame_idx[i], 4]) > -30:
+                        if np.nansum(trial[frame_idx[i - 1]:frame_idx[i], 4]) > -30:
                             behavior_masks[-1][i] = False
                     else:
                         if trial[0, 4] > -30:
@@ -1059,6 +1064,8 @@ class PlaceCellFinder:
             bins_sorted = sorted(bins, key=lambda tup: tup[1])
 
             trace_fig, trace_ax = plt.subplots(nrows=n_neurons, ncols=2, sharex=True, figsize=(18, 10))
+            if n_neurons == 1:
+                trace_ax = np.array(trace_ax)[np.newaxis]
             mouse = self.params['mouse']
             session = self.params['session']
             network = self.params['network']
@@ -1111,7 +1118,7 @@ class PlaceCellFinder:
             plt.show()
 
             if save:
-                plt.savefig(os.path.join(self.params['root'], 'place_cells.png'))
+                plt.savefig(os.path.join(self.params['root'], f'{fname}.png'))
                 plt.close()
         else:
             plt.figure()
