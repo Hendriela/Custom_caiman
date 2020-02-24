@@ -373,7 +373,6 @@ class PlaceCellFinder:
             # - update self.session
 
             # create a bool mask for every trial that tells if a frame should be included or not
-            behavior_raw = behavior.copy()
             behavior_masks = []
             for trial in range(len(behavior)):
                 # bool list for every frame of that trial (used to later filter out dff samples)
@@ -422,7 +421,7 @@ class PlaceCellFinder:
                 if frame_list_count != np.sum(bin_frame_count[:, i]):
                     print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
 
-        self.behavior = behavior_raw
+        self.behavior = behavior
         self.params['bin_frame_count'] = bin_frame_count
         print('\nSuccessfully aligned traces with VR position.')
 
