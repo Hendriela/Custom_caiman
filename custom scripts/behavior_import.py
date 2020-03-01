@@ -43,7 +43,7 @@ def progress(count, total, status='', percent=True):
     sys.stdout.flush()
 
 
-def align_behavior(root, performance_check=False, overwrite=False, verbose=False):
+def align_behavior(root, performance_check=False, overwrite=False, verbose=False, enc_unit='speed'):
     """
     This function is the main function called by pipelines!
     Wrapper for aligning multiple behavioral files. Looks through all subfolders of root for behavioral files.
@@ -55,6 +55,8 @@ def align_behavior(root, performance_check=False, overwrite=False, verbose=False
     :param overwrite: bool flag whether trials that have been already processed should be aligned again (useful if the
                     alignment script changed and data has to be re-aligned
     :param verbose: bool flag whether unnecessary status updates should be printed to the console
+    :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
+                    rotation [degrees] / sample window (8 ms) is saved
     :return: saves merged_behavior.txt for each aligned trial
     """
     # list that includes session that have been processed to avoid processing a session multiple times
@@ -65,10 +67,12 @@ def align_behavior(root, performance_check=False, overwrite=False, verbose=False
                 if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:
                     if step[0] not in processed_sessions:  # check if trial folder has been processed
                         if len(glob(step[0] + r'\\file*.tif')) > 0:  # check if there is an imaging file for this trial
-                            align_files(step[0], performance_check=performance_check, imaging=True, verbose=verbose)
+                            align_files(step[0], performance_check=performance_check, imaging=True,
+                                        verbose=verbose, enc_unit=enc_unit)
                             processed_sessions.append(step[0])
                         else:
-                            align_files(step[0], performance_check=performance_check, imaging=False, verbose=verbose)
+                            align_files(step[0], performance_check=performance_check, imaging=False,
+                                        verbose=verbose, enc_unit=enc_unit)
                             processed_sessions.append(step[0])
                 else:
                     if verbose:
@@ -79,13 +83,15 @@ def align_behavior(root, performance_check=False, overwrite=False, verbose=False
     print('\nEverything processed!')
 
 
-def align_files(root, imaging, performance_check=False, verbose=False):
+def align_files(root, imaging, performance_check=False, verbose=False, enc_unit='speed'):
     """
     Wrapper for that calls align_behavior_files for the proper files. Works for both imaging and non-imaging structure.
     :param root: str, path to the session or trial folder (includes behavioral .txt files)
     :param imaging: boolean flag whether this was an imaging trial (.tif file exists)
     :param performance_check: boolean flag whether performance should be checked during alignment
     :param verbose: boolean flag whether unnecessary status updates should be printed to the console
+    :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
+                     rotation [degrees] / sample window (8 ms) is saved
     :return: saves merged_behavior_timestamp.txt for each aligned trial
     """
 
@@ -141,14 +147,14 @@ def align_files(root, imaging, performance_check=False, verbose=False):
             movie_path = glob(root + '\*.tif')[0]
             with ScanImageTiffReader(movie_path) as tif:
                 frame_count = tif.shape()[0]
-        merge, proc_time = align_behavior_files(file, pos_file, trig_file,
-                                                imaging=imaging, frame_count=frame_count, verbose=verbose)
+        merge, proc_time = align_behavior_files(file, pos_file, trig_file, imaging=imaging, frame_count=frame_count,
+                                                verbose=verbose, enc_unit=enc_unit)
 
         if merge is not None and proc_time is not None:
             # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
             file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
             np.savetxt(file_path, merge, delimiter='\t',
-                       fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i'], header='Time\tVR pos\tlicks\tframe\tencoder')
+                       fmt=['%.4f', '%.2f', '%1i', '%1i', '%.2f'], header='Time\tVR pos\tlicks\tframe\tencoder')
             if verbose:
                 print(f'Done! \nSaving merged file to {file_path}...\n')
 
