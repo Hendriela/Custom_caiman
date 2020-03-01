@@ -3,7 +3,6 @@ from glob import glob
 from math import ceil, floor
 import sys
 import os
-import re
 from timeit import default_timer as timer
 from ScanImageTiffReader import ScanImageTiffReader
 from datetime import datetime
@@ -117,9 +116,7 @@ def align_files(root, imaging, performance_check=False, verbose=False):
     pos_files = glob(root + r'\\TCP*.txt')
     trig_files = glob(root + r'\\TDT TASK*.txt')
 
-    if len(enc_files) == len(pos_files) & len(enc_files) == len(trig_files):
-        pass
-    else:
+    if not len(enc_files) == len(pos_files) & len(enc_files) == len(trig_files):
         print(f'Uneven numbers of encoder, position and trigger files in folder {root}!')
         return
 
@@ -168,7 +165,7 @@ def align_files(root, imaging, performance_check=False, verbose=False):
     print('Done!\n')
 
 
-def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_count=None, verbose=False):
+def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_count=None, enc_unit='speed', verbose=False):
     """
     Main function that aligns behavioral data from three text files to a common master time frame provided by LabView.
     Data are re-sampled at the rate of the data type with the highest sampling rate (TDT, 2 kHz). Missing values of data
@@ -178,6 +175,8 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     :param trig_path: str, path to the TDT.txt file (licking and frame trigger)
     :param imaging: bool flag whether the behavioral data is accompanied by an imaging movie
     :param frame_count: int, frame count of the imaging movie (if imaging=True)
+    :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
+                     rotation [degrees] / sample window (8 ms) is saved
     :param verbose: bool flag whether status updates should be printed into the console (progress bar not affected)
     :return: merge, np.array with columns [time stamp - position - licks - frame - encoder]
     """
@@ -275,11 +274,20 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
                     out = bad_file.write(f'{trig_path}\n')
                 return None, None
 
+    # translate encoder data into velocity [cm/s] if enc_unit = 'speed'
+    if enc_unit == 'speed':
+        sample_rate = 0.008                                      # sample rate of encoder in s (default 0.008 s or 8 ms)
+        d_wheel = 10.5                                           # wheel diameter in cm (default 10.5 cm)
+        n_ticks = 1436                                           # number of ticks in a full wheel rotation
+        deg_dist = (d_wheel*np.pi)/n_ticks                       # distance in cm the band moves for each encoder tick
+        encoder[:, 1] = -encoder[:, 1] * deg_dist/sample_rate    # speed in cm/s for each sample
+
     ### create the master time line, with one sample every 0.5 milliseconds
     # get maximum and minimum time stamps, rounded to the nearest 0.5 ms step
-    min_time = 0.0005 * floor(min(encoder[0, 0], position[0, 0], trigger[0, 0]) / 0.0005)
-    max_time = 0.0005 * ceil(max(encoder[-1, 0], position[-1, 0], trigger[-1, 0]) / 0.0005)
-    master_time = np.arange(start=min_time * 10000, stop=(max_time + 0.0005) * 10000, step=5) / 10000
+    min_time = (5 * floor(min(encoder[0, 0], position[0, 0], trigger[0, 0]) / 0.0005)) / 10000
+    max_time = (5 * ceil(max(encoder[-1, 0], position[-1, 0], trigger[-1, 0]) / 0.0005)) / 10000
+    master_time = np.arange(start=round(min_time * 10000), stop=round((max_time + 0.0005) * 10000),
+                            step=5, dtype=int) / 10000
     # create master array with columns [time stamp - position - licks - frame - encoder]
     merge = np.array((master_time, np.zeros(master_time.shape[0]), np.zeros(master_time.shape[0]),
                       np.zeros(master_time.shape[0]), np.zeros(master_time.shape[0]))).T
@@ -359,7 +367,6 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
 
         # check if the current sliding window has time stamps between the current merge time stamps
         curr_idx = np.where((curr_merge[0, 0] <= curr_trig_range[:, 0]) & (curr_trig_range[:, 0] < curr_merge[1, 0]))[0]
-
 
         if curr_idx.size:
             curr_merge[0, 2] = max(curr_trig_range[curr_idx, 1])
