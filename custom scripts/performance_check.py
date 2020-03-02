@@ -140,9 +140,11 @@ def multi_mouse_performance(mouse_dir_list, novel, precise_duration=False, separ
         sns.pointplot(data=data['Speed'])
 
 
-def single_mouse_performance(root, novel=True, precise=False, separate_zones=False, date_0='0'):
+def single_mouse_performance(data, novel=False, precise=False, separate_zones=False, date_0='0'):
     """
-    :param root: str, path to the mouse folder (contains folders for each session)
+    :param days: list, labels for each session
+    :param licking: list of lists, one list per session, holds licking performance for each trial for that session
+    :param stopping: list of lists, one list per session, holds stopping performance for each trial for that session
     :param novel: bool, whether novel or novel corridor sessions should be analysed
     :param precise: bool, whether data should be shown precise (boxplot) or only mean (pointplot)
     :param date_0: str, where the session dates should be normalized. 'None' = no normalization (dates labelled with
@@ -150,77 +152,34 @@ def single_mouse_performance(root, novel=True, precise=False, separate_zones=Fal
                     the session of the respective day (sessions before labelled with negative numbers). If not None or
                     '0', date_0 has to be a folder name of a session of this mouse.
     """
-    # get performance data
-    dates, speed, zones = collect_performance_data(root, novel, norm_date=date_0)
-
-    # filter out sessions with missing data and get a data-specific date list for x-axis labelling
-    dates_speed = []
-    dates_zones = []
-    filter_zones = []
-    filter_speed = []
-    for i in range(len(dates)):
-        if type(speed[i]) != np.int32 and type(speed[i]) != int:
-            dates_speed.append(dates[i])
-            filter_speed.append(speed[i])
-        if type(zones[i]) != np.int32 and type(zones[i]) != int:
-            dates_zones.append(dates[i])
-            filter_zones.append(zones[i])
-
-    # plot trial duration as a line plot (simple) or box plot (precise)
-    if precise:
-        plt.figure(figsize=(15, 8))
-        if novel:
-            plt.title(f'{root[-3:]}: Trial duration in novel corridor')
-        else:
-            plt.title(f'{root[-3:]}: Trial duration in training corridor')
-        ax = sns.boxplot(data=filter_speed)
-    else:   # if line plot, no extra figure is drawn, to plot data of multiple mice in one graph
-        ax = sns.pointplot(data=filter_speed)
-    set_xlabels(ax, dates_speed, date_0)
-    out = ax.set_ylabel('Trial duration [s]')
-    plt.tight_layout()
-
-    # plot hit_zone_ratio as line plot
-    #plt.figure()
-    #plt.title(f'{root[-3:]}: Reward zone hits [%] across sessions')
-    if separate_zones:
-        pass
-    else:
-        zone_ratio = np.array([(i[1][1]/i[1][0])*100 for i in filter_zones])   # calculate hit ratio of all zones combined
-        ax_zones = sns.lineplot(data=zone_ratio, marker=True)
-        set_xlabels(ax_zones, dates_zones, date_0)
-
-
-    ### LICKING AND STOPPING PERFORMANCE ###
-    days, licking, stopping = collect_licking_stopping_data(root, novel, date_0)
 
     # separate figures for licking and stopping
-    if precise:
-        # plot licking
-        fig_lick, ax_lick = plt.figure(figsize=(15, 8))
-        if novel:
-            fig_lick.title(f'{root[-3:]}: Lick ratio in novel corridor')
-        else:
-            fig_lick.title(f'{root[-3:]}: Lick ratio in training corridor')
-        sns.boxplot(ax=ax_lick, data=licking)
-        set_xlabels(ax_lick, days, date_0)
-        ax_lick.set_ylabel('Lick ratio')
-        # plot stopping
-        fig_stop, ax_stop = plt.figure(figsize=(15, 8))
-        if novel:
-            fig_stop.title(f'{root[-3:]}: Stop ratio in novel corridor')
-        else:
-            fig_stop.title(f'{root[-3:]}: Stop ratio in training corridor')
-        sns.boxplot(ax=ax_stop, data=licking)
-        set_xlabels(ax_stop, days, date_0)
-        ax_stop.set_ylabel('Stop ratio')
+    # if precise:
+    #     # plot licking
+    #     fig_lick, ax_lick = plt.figure(figsize=(15, 8))
+    #     if novel:
+    #         fig_lick.title(f'{root[-3:]}: Lick ratio in novel corridor')
+    #     else:
+    #         fig_lick.title(f'{root[-3:]}: Lick ratio in training corridor')
+    #     sns.boxplot(ax=ax_lick, data=licking)
+    #     set_xlabels(ax_lick, days, date_0)
+    #     ax_lick.set_ylabel('Lick ratio')
+    #     # plot stopping
+    #     fig_stop, ax_stop = plt.figure(figsize=(15, 8))
+    #     if novel:
+    #         fig_stop.title(f'{root[-3:]}: Stop ratio in novel corridor')
+    #     else:
+    #         fig_stop.title(f'{root[-3:]}: Stop ratio in training corridor')
+    #     sns.boxplot(ax=ax_stop, data=licking)
+    #     set_xlabels(ax_stop, days, date_0)
+    #     ax_stop.set_ylabel('Stop ratio')
     # one plot for licking and stopping
-    else:
-        fig = plt.figure(figsize=(15, 8))
-        lick_line = sns.pointplot(data=licking)
-        lick_line.set_label('Licks')
-        stop_line = sns.pointplot(data=stopping, color='red')
-        stop_line.set_label('Stops')
+    # else:
+    fig = plt.figure(figsize=(15, 8))
+    lick_line = sns.pointplot(data=licking)
+    lick_line.set_label('Licks')
+    stop_line = sns.pointplot(data=stopping, color='red')
+    stop_line.set_label('Stops')
         # TODO: make labels work
 
 
@@ -248,59 +207,81 @@ def set_xlabels(axis, x_labels, date_0):
         out = axis.set_xlabel('days after stroke')
 
 
-def collect_licking_stopping_data(root, novel, norm_date):
+def collect_licking_stopping_data(roots, novel, norm_date, buffer=2, verbose=False):
     """
-    Collects licking and stopping data from merged_behavior.txt files for one mouse.
-    :param root: str, path to the mouse folder (contains folders for each session)
+    Collects licking and stopping data from merged_behavior.txt files for a list of mice.
+    :param roots: list of str, path to each mouse folder (which contains folders for each session)
     :param novel: bool, whether novel or training sessions should be analysed
-    :param norm_date: str, where the session dates should be normalized. 'None' = no normalization (dates labelled with
-                    session folder name), '0' = normalization to the first session, str in format 'YYYYMMDD' = norm. to
-                    the session of the respective day (sessions before labelled with negative numbers).
+    :param norm_date: date where session dates should be normalized (one entry per mouse or single entry for all mice).
+                        'None' = no normalization (dates labelled with session folder name),
+                        '0' = normalization to the first session,
+                        str in format 'YYYYMMDD' = norm. to the session of the respective day (neg for previous days).
+    :param buffer: int, position bins around the RZ that are still counted as RZ for licking
+    :param verbose: bool flag whether update status should be printed
     """
-    session_list = os.listdir(root)
-    licking = list(np.zeros(len(session_list), dtype=int))
-    stopping = list(np.zeros(len(session_list), dtype=int))
+    data = []
+    count = 0
+    for root in roots:
+        session_list = os.listdir(root)
+        mouse_df = pd.DataFrame(columns=['licking', 'stopping', 'session', 'mouse'])
+        ### COLLECT DATA FROM ALL SESSIONS OF THIS MOUSE ###
+        for i in range(len(session_list)):
+            curr_session = os.path.join(root, session_list[i])
+            if novel == is_session_novel(curr_session):  # checks if the session is in the correct corridor
+                file_list = glob(curr_session + '\\merged_behavior*.txt')
+                file_list_2 = glob(curr_session + '\\*\\merged_behavior*.txt')
+                file_list_3 = glob(curr_session + '\\*\\*\\merged_behavior*.txt')
+                file_list.extend(file_list_2)
+                file_list.extend(file_list_3)  # get a full list of merged_behavior files (in and outside of trial folders)
+                lick_ratio = []
+                stop_ratio = []
+                for file in file_list:
+                    lick, stop = extract_behavior_from_merged(file, novel, buffer)  # get lick and stop data from each trial
+                    if np.isnan(lick):
+                        lick = 0
+                    if np.isnan(stop):
+                        stop = 0
+                    lick_ratio.append(lick)
+                    stop_ratio.append(stop)
+                # store data of this session and this mouse in a temporary DataFrame
+                sess = curr_session.split(os.path.sep)[-1]
+                mouse = root.split(os.path.sep)[-1]
+                mouse_df = pd.concat((mouse_df,
+                                      pd.DataFrame({'licking': lick_ratio, 'stopping': stop_ratio, 'session': sess, 'mouse': mouse})),
+                                     ignore_index=True)
+                if verbose:
+                    print(f'Finished evaluating mouse {mouse}, session {sess}.')
 
-    ### COLLECT DATA FROM ALL SESSIONS OF THIS MOUSE ###
-    for i in range(len(session_list)):
-        curr_session = os.path.join(root, session_list[i])
-        if novel == is_session_novel(curr_session): # checks if the session is in the correct corridor
-            file_list = glob(curr_session + '\\merged_behavior*.txt')
-            file_list_2 = glob(curr_session + '\\*\\merged_behavior*.txt')
-            file_list_3 = glob(curr_session + '\\*\\*\\merged_behavior*.txt')
-            file_list.extend(file_list_2)
-            file_list.extend(file_list_3) # get a full list of merged_behavior files (in and outside of trial folders)
-            lick_ratio = []
-            stop_ratio = []
-            for file in file_list:
-                lick, stop = extract_behavior_from_merged(file, novel)  # get lick and stop data from each trial
-                lick_ratio.append(lick)
-                stop_ratio.append(stop)
-            licking[i] = lick_ratio     # add data of this session as an entry of the list
-            stopping[i] = stop_ratio
+        # # create mask that filters out all false sessions
+        # mask = [True for i in range(len(session_list))]
+        # for i in range(len(session_list)):    # remove a session if the entry is an int (0, no values) or an empty list
+        #     if type(licking[i]) == np.int32 or type(stopping[i]) == np.int32:
+        #         mask[i] = False
+        #     if type(licking[i]) == list:
+        #         if len(licking[i]) == 0:
+        #             mask[i] = False
+        #     if type(stopping[i]) == list:
+        #         if len(stopping[i]) == 0:
+        #             mask[i] = False
+        # session_list_filtered = list(compress(session_list, mask))
+        # licking_filtered = list(compress(licking, mask))
+        # stopping_filtered = list(compress(stopping, mask))
 
-    # create mask that filters out all false sessions
-    mask = [True for i in range(len(session_list))]
-    for i in range(len(session_list)):    # remove a session if the entry is an int (0, no values) or an empty list
-        if type(licking[i]) == np.int32 or type(stopping[i]) == np.int32:
-            mask[i] = False
-        if type(licking[i]) == list:
-            if len(licking[i]) == 0:
-                mask[i] = False
-        if type(stopping[i]) == list:
-            if len(stopping[i]) == 0:
-                mask[i] = False
-    session_list_filtered = list(compress(session_list, mask))
-    licking_filtered = list(compress(licking, mask))
-    stopping_filtered = list(compress(stopping, mask))
+        # normalize days if necessary
+        if type(norm_date) == list:
+            if norm_date[count] is not None:
+                mouse_df['session_norm'] = normalize_dates(mouse_df['session'], norm_date[count])
 
-    # normalize days if necessary
-    if norm_date is not None:
-        days = normalize_dates(session_list_filtered, norm_date)
-    else:
-        days = session_list_filtered
+        # add current dataframe to the list of mice dataframes
+        data.append(mouse_df)
+        count += 1
 
-    return days, licking_filtered, stopping_filtered
+    # combine single dataframes into a big one and normalize days if necessary
+    df = pd.concat(data)
+    if type(norm_date) == str:
+        df['session_norm'] = normalize_dates(df['session'], norm_date)
+
+    return df
 
 
 def is_session_novel(path):
@@ -334,6 +315,11 @@ def quick_screen_session(path):
     :param path:
     :return:
     """
+    if is_session_novel(path):
+        zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
+    else:
+        zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
+
     # go through all folders and subfolders and find merged_behavior files
     file_list = []
     for step in os.walk(path):
@@ -345,30 +331,49 @@ def quick_screen_session(path):
     data_list = []
     for file in file_list:
         data_list.append(np.loadtxt(file))
+    if len(data_list) == 0:
+        return print(f'No trials found at {path}.')
+    else:
+        # plotting
+        bad_trials = []
+        nrows = ceil(len(data_list)/3)
+        ncols = 3
+        fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8))
+        count = 0
+        for row in range(nrows):
+            for col in range(ncols):
+                if count < len(data_list):
+                    curr_trial = data_list[count]
 
-    # plotting
-    bad_trials = []
-    nrows = ceil(len(data_list)/3)
-    ncols = 3
-    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8))
-    count = 0
-    for row in range(nrows):
-        for col in range(ncols):
-            if count < len(data_list):
-                color = 'tab:blue'
-                ax[row, col].plot(data_list[count][:, 0], data_list[count][:, 2], color=color)
-                ax2 = ax[row, col].twinx()  # instantiate a second axes that shares the same x-axis
-                ax2.set_picker(True)
-                color = 'tab:red'
-                ax2.plot(data_list[count][:, 0], -data_list[count][:, 4], color=color)
-                ax[row, col].set_ylim(-0.1, 1.1)
-                ax2.set_ylabel(file_list[count])
-                ax2.axis('off')
-                ax[row, col].spines['top'].set_visible(False)
-                ax[row, col].spines['right'].set_visible(False)
-                ax[row, col].set_xticks([])
-                count += 1
+                    # plot behavior
+                    color = 'tab:red'
+                    if nrows == 1:
+                        ax[col].plot(curr_trial[:, 4], color=color)       # plot running
+                        ax[col].spines['top'].set_visible(False)
+                        ax[col].spines['right'].set_visible(False)
+                        ax[col].set_xticks([])
+                        ax2 = ax[col].twinx()       # instantiate a second axes that shares the same x-axis
+                    else:
+                        ax[row, col].plot(curr_trial[:, 4], color=color)  # plot running
+                        ax[row, col].spines['top'].set_visible(False)
+                        ax[row, col].spines['right'].set_visible(False)
+                        ax[row, col].set_xticks([])
+                        ax2 = ax[row, col].twinx()  # instantiate a second axes that shares the same x-axis
+                    ax2.set_picker(True)
+                    color = 'tab:blue'
+                    ax2.plot(curr_trial[:, 2], color=color)       # plot licking
+                    ax2.set_ylim(-0.1, 1.1)
+                    ax2.set_ylabel(file_list[count])
+                    ax2.axis('off')
+                    count += 1
 
+                    # find samples inside reward zones
+                    zones_idx = []
+                    for zone in zone_borders:
+                        zones_idx.append(np.where((curr_trial[:, 1] > zone[0]) & (curr_trial[:, 1] < zone[1]))[0])
+                    # show reward zone location
+                    for zone in zones_idx:
+                        ax2.axvspan(min(zone), max(zone), color='grey', alpha=0.2)
 
     def onpick(event):
         this_plot = event.artist  # save artist (axis) where the pick was triggered
@@ -377,7 +382,8 @@ def quick_screen_session(path):
             bad_trials.append(trial)
 
     def closed(event):
-        print(*bad_trials, sep='\n')
+        sort = sorted(bad_trials)
+        print(*sort, sep='\n')
 
     fig.canvas.mpl_connect('close_event', closed)
     fig.canvas.mpl_connect('pick_event', onpick)
@@ -385,19 +391,24 @@ def quick_screen_session(path):
     plt.show()
 
 
-def extract_behavior_from_merged(path, novel):
+def extract_behavior_from_merged(path, novel, buffer):
     """
     Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
     :param path: str, file path of the merged_behavior*.txt file
     :param novel: bool, flag whether file was performed in novel corridor (changes reward zone location)
+    :param buffer: int, position bins around the RZ that are still counted as RZ for licking
     :returns lick_ratio: float, ratio between individual licking bouts that occurred in reward zones div. by all licks
     :returns stop_ratio: float, ratio between stops in reward zones divided by total number of stops
     """
     # set borders of reward zones
     if novel:
-        zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
-    else:
         zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
+    else:
+        zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
+
+    zone_borders[:, 0] -= buffer
+    zone_borders[:, 1] += buffer
+
     # load merged_behavior file
     data = np.loadtxt(path)
 
@@ -411,7 +422,7 @@ def extract_behavior_from_merged(path, novel):
         # remove continuous licks that were longer than 5 seconds
         diff = np.round(np.diff(lick_only[:, 0]) * 10000).astype(int)  # get an array of time differences
         licks = np.split(lick_only, np.where(diff > 5)[0] + 1)  # split at points where difference > 0.5 ms (sample gap)
-        licks = [i for i in licks if i.shape[0] <= 10000] # only keep licks shorter than 5 seconds (10,000 samples)
+        licks = [i for i in licks if i.shape[0] <= 10000]      # only keep licks shorter than 5 seconds (10,000 samples)
         if len(licks) > 0:
             licks = np.vstack(licks)    # put list of arrays together to one array
             # out of these, select only time points where the mouse was in a reward zone
@@ -421,12 +432,16 @@ def extract_behavior_from_merged(path, novel):
             zone_licks = np.vstack(lick_zone_only)
             # the length of the zone-only licks divided by the all-licks is the zone-lick ratio
             lick_ratio = zone_licks.shape[0]/lick_only.shape[0]
+
+            # correct by fraction of reward zones where the mouse actually licked
+            passed_rz = len([x for x in lick_zone_only if len(x) > 0])
+            lick_ratio = lick_ratio * (passed_rz / len(zone_borders))
         else:
             lick_ratio = np.nan
 
     ### GET STOPPING DATA ###
     # select only time points where the mouse was not running (encoder between -2 and 2)
-    stop_only = data[(-2 <= data[:, 4]) & (data[:, 4] <= 2)]
+    stop_only = data[(-2 <= data[:, -1]) & (data[:, -1] <= 2)]
     # split into discrete stops
     diff = np.round(np.diff(stop_only[:, 0]) * 10000).astype(int) # get an array of time differences
     stops = np.split(stop_only, np.where(diff > 5)[0] + 1)  # split at points where difference > 0.5 ms (sample gap)
@@ -632,7 +647,7 @@ def normalize_dates(date_list, norm_date):
                 norm_days[i] = int(norm_days[i])
 
     if len(date_list) != len(norm_days):    # small sanity check
-        print('Normalized date list is not the same length as initial date list. Something went wrong!')
+        return print('Normalized date list is not the same length as initial date list. Something went wrong!')
     else:
         return norm_days
 
