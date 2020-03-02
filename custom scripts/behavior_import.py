@@ -135,7 +135,7 @@ def align_files(root, imaging, performance_check=False, verbose=False, enc_unit=
     counter = 1
 
     for file in enc_files:
-        timestamp = int(file.split('_')[1][:-4])
+        timestamp = int(file.split('_')[1][:-4])        # here the 0 in front of early times is removed
         pos_file = find_file(timestamp, pos_files)
         trig_file = find_file(timestamp, trig_files)
         if pos_file is None or trig_file is None:
@@ -454,8 +454,9 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
         d_wheel = 10.5                                           # wheel diameter in cm (default 10.5 cm)
         n_ticks = 1436                                           # number of ticks in a full wheel rotation
         deg_dist = (d_wheel*np.pi)/n_ticks                       # distance in cm the band moves for each encoder tick
-        speed = -merge[:, 4] * deg_dist/sample_rate            # speed in cm/s for each sample
-        test = np.c_[merge, speed]
+        speed = -merge[:, 4] * deg_dist/sample_rate               # speed in cm/s for each sample
+        speed[speed == -0] = 0
+        merge = np.c_[merge, speed]
 
     # check frame count again
     if imaging and np.sum(merge[:, 3]) != frame_count:
