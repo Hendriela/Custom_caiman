@@ -325,7 +325,7 @@ class PlaceCellFinder:
             plt.close()
         return sigma
 
-    def import_behavior_and_align_traces(self, remove_resting_frames=False):
+    def import_behavior_and_align_traces(self, remove_resting_frames=False, encoder_unit='raw'):
         """
         Imports behavioral data (merged_behavior.txt) and aligns the calcium traces to the VR position.
         Behavioral data is saved in the 'behavior' list that includes one array per trial with the following structure:
@@ -338,6 +338,7 @@ class PlaceCellFinder:
             - as bin_avg_activity, an array of shape [n_neuron x n_bins] that contain the dF/F for each bin of every
               neuron, averaged across trials. This is what will mainly be used for place cell analysis.
         :param remove_resting_frames: bool flag whether frames where the mouse didnt move should be removed
+        :param encoder_unit
         :return: Updated PCF object with behavior and binned data
         """
 
@@ -380,11 +381,20 @@ class PlaceCellFinder:
                 frame_idx = np.where(behavior[trial][:, 3] == 1)[0]  # find sample_idx of all frames
                 for i in range(len(frame_idx)):
                     if i != 0:
-                        # if the mouse didnt move much during the frame, set current frame False in mask
-                        if np.sum(behavior[trial][frame_idx[i - 1]:frame_idx[i], 4]) > -30:
-                            behavior_masks[-1][i] = False
-                            # set the bad frame in the behavior array to 0 to skip it during binning
-                            behavior[trial][frame_idx[i], 3] = np.nan
+                        if encoder_unit == 'speed':
+                            if np.mean(behavior[trial][frame_idx[i - 1]:frame_idx[i], 5]) >= 2.5:
+                                # set index of mask to False (excluded in later analysis)
+                                behavior_masks[-1][i] = False
+                                # set the bad frame in the behavior array to 0 to skip it during binning
+                                behavior[trial][frame_idx[i], 3] = np.nan
+                        elif encoder_unit == 'raw':
+                            if np.sum(behavior[trial][frame_idx[i - 1]:frame_idx[i], 4]) > 30:
+                                # set index of mask to False (excluded in later analysis)
+                                behavior_masks[-1][i] = False
+                                # set the bad frame in the behavior array to 0 to skip it during binning
+                                behavior[trial][frame_idx[i], 3] = np.nan
+                        else:
+                            return print('Encoder unit not recognized, behavior could not be aligned.')
                     else:
                         if behavior[trial][0, 4] > -30:
                             behavior_masks[-1][i] = False

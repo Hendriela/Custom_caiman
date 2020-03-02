@@ -154,7 +154,8 @@ def align_files(root, imaging, performance_check=False, verbose=False, enc_unit=
             # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
             file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
             np.savetxt(file_path, merge, delimiter='\t',
-                       fmt=['%.4f', '%.2f', '%1i', '%1i', '%.2f'], header='Time\tVR pos\tlicks\tframe\tencoder')
+                       fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i', '%.2f'],
+                       header='Time\tVR pos\tlicks\tframe\tencoder\tcm/s')
             if verbose:
                 print(f'Done! \nSaving merged file to {file_path}...\n')
 
@@ -279,14 +280,6 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
                 with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
                     out = bad_file.write(f'{trig_path}\n')
                 return None, None
-
-    # translate encoder data into velocity [cm/s] if enc_unit = 'speed'
-    if enc_unit == 'speed':
-        sample_rate = 0.008                                      # sample rate of encoder in s (default 0.008 s or 8 ms)
-        d_wheel = 10.5                                           # wheel diameter in cm (default 10.5 cm)
-        n_ticks = 1436                                           # number of ticks in a full wheel rotation
-        deg_dist = (d_wheel*np.pi)/n_ticks                       # distance in cm the band moves for each encoder tick
-        encoder[:, 1] = -encoder[:, 1] * deg_dist/sample_rate    # speed in cm/s for each sample
 
     ### create the master time line, with one sample every 0.5 milliseconds
     # get maximum and minimum time stamps, rounded to the nearest 0.5 ms step
@@ -425,7 +418,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
             # put them in steps of 2 equally in the start and end
             elif frames_to_prepend < 30:
                 for i in range(frames_to_prepend):
-                    if i%2 == 0: # for every even step, put the frame in the beginning
+                    if i % 2 == 0:  # for every even step, put the frame in the beginning
                         if merge[i*2, 3] != 1:
                             merge[i*2, 3] = 1
                         else:
@@ -454,6 +447,15 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     merge = np.delete(merge, merge.shape[0] - 1, 0)
     merge[:, 0] = merge[:, 0] - merge[0, 0]
     merge[:, 0] = [floor(x * 100000) / 100000 for x in merge[:, 0]]
+
+    # translate encoder data into velocity [cm/s] if enc_unit = 'speed'
+    if enc_unit == 'speed':
+        sample_rate = 0.008                                      # sample rate of encoder in s (default 0.008 s or 8 ms)
+        d_wheel = 10.5                                           # wheel diameter in cm (default 10.5 cm)
+        n_ticks = 1436                                           # number of ticks in a full wheel rotation
+        deg_dist = (d_wheel*np.pi)/n_ticks                       # distance in cm the band moves for each encoder tick
+        speed = -merge[:, 4] * deg_dist/sample_rate            # speed in cm/s for each sample
+        test = np.c_[merge, speed]
 
     # check frame count again
     if imaging and np.sum(merge[:, 3]) != frame_count:
