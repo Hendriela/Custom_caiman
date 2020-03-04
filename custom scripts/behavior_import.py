@@ -6,6 +6,7 @@ import os
 from timeit import default_timer as timer
 from ScanImageTiffReader import ScanImageTiffReader
 from datetime import datetime
+import performance_check as performance
 
 
 def load_file(path):
@@ -60,20 +61,29 @@ def align_behavior(root, performance_check=False, overwrite=False, verbose=False
     :return: saves merged_behavior.txt for each aligned trial
     """
     # list that includes session that have been processed to avoid processing a session multiple times
+    processed_folders = []
     processed_sessions = []
     for step in os.walk(root):
         if len(step[2]) > 0:   # check if there are files in the current folder
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
                 if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:
-                    if step[0] not in processed_sessions:  # check if trial folder has been processed
+                    if step[0] not in processed_folders:  # check if trial folder has been processed
                         if len(glob(step[0] + r'\\file*.tif')) > 0:  # check if there is an imaging file for this trial
-                            align_files(step[0], performance_check=performance_check, imaging=True,
-                                        verbose=verbose, enc_unit=enc_unit)
-                            processed_sessions.append(step[0])
+                            align_files(step[0], imaging=True, verbose=verbose, enc_unit=enc_unit)
+                            processed_folders.append(step[0])
                         else:
-                            align_files(step[0], performance_check=performance_check, imaging=False,
-                                        verbose=verbose, enc_unit=enc_unit)
-                            processed_sessions.append(step[0])
+                            align_files(step[0], imaging=False, verbose=verbose, enc_unit=enc_unit)
+                            processed_folders.append(step[0])
+
+                        # calculate licking and stopping performance
+                        # position of session folder hardcoded at position 8, be careful if folder structure changes!
+                        if performance_check:
+                            folders = step[0].split(os.path.sep)
+                            session_path = os.path.join(folders[0], os.path.sep, *folders[1:9])
+                            if session_path not in processed_sessions:
+                                performance.save_performance_data(session_path)
+                                processed_sessions.append(session_path)
+
                 else:
                     if verbose:
                         print(f'\nSession {step[0]} already processed.')
@@ -83,18 +93,16 @@ def align_behavior(root, performance_check=False, overwrite=False, verbose=False
     print('\nEverything processed!')
 
 
-def align_files(root, imaging, performance_check=False, verbose=False, enc_unit='speed'):
+def align_files(root, imaging, verbose=False, enc_unit='speed'):
     """
     Wrapper for that calls align_behavior_files for the proper files. Works for both imaging and non-imaging structure.
     :param root: str, path to the session or trial folder (includes behavioral .txt files)
     :param imaging: boolean flag whether this was an imaging trial (.tif file exists)
-    :param performance_check: boolean flag whether performance should be checked during alignment
     :param verbose: boolean flag whether unnecessary status updates should be printed to the console
     :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
                      rotation [degrees] / sample window (8 ms) is saved
     :return: saves merged_behavior_timestamp.txt for each aligned trial
     """
-
     def find_file(tstamp, file_list):
         """
         Finds a file with the same timestamp from a list of files.
@@ -126,12 +134,6 @@ def align_files(root, imaging, performance_check=False, verbose=False, enc_unit=
         print(f'Uneven numbers of encoder, position and trigger files in folder {root}!')
         return
 
-    if performance_check:
-        trial_times = []
-        save_file = os.path.join(root, r'trial_duration.txt')
-        with open(save_file, 'w') as f:
-            out = f.write(f'Trial durations of session {root}:\n')
-
     counter = 1
 
     for file in enc_files:
@@ -159,12 +161,6 @@ def align_files(root, imaging, performance_check=False, verbose=False, enc_unit=
             if verbose:
                 print(f'Done! \nSaving merged file to {file_path}...\n')
 
-            if performance_check:
-                # print(f'Trial {counter} was {merge[-1, 0]} s long.')
-                trial_times.append(merge[-1, 0])
-
-                with open(save_file, 'a') as text_file:
-                    out = text_file.write(f'{int(merge[-1, 0])} \n')
         else:
             print(f'Skipped trial {file}, please check!')
 
@@ -465,15 +461,3 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
 
     return merge, (end-start)
 
-
-def append_frames(data, time_offset, n_frames_to_add):
-    #TODO write this
-    """
-    Extends the trigger dataset by time_offset seconds to manually add n_frames_to_add frame counts to the array.
-    This function is called when the TDT file has been logging not long enough, shorter than TCP.
-    :param data:
-    :param time_offset:
-    :param n_frames_to_add:
-    :return:
-    """
-    return

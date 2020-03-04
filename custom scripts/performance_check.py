@@ -9,15 +9,6 @@ import pandas as pd
 from glob import glob
 from math import ceil
 
-mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18',
-                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19',
-                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22',
-                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25']
-
-mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18',
-                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22']
-date_0 = ['20191204', '20191204']
-
 
 def multi_mouse_performance(mouse_dir_list, novel, precise_duration=False, separate_zones=False, date_0='0'):
     if not precise_duration:
@@ -34,11 +25,11 @@ def multi_mouse_performance(mouse_dir_list, novel, precise_duration=False, separ
             # get the behavioral data for the current mouse
             if type(date_0) == list:
                 if len(mouse_dir_list) == len(date_0):
-                    dates, licks, stops = collect_licking_stopping_data(mouse_dir_list[i], novel, norm_date=date_0[i])
+                    dates, licks, stops = load_performance_data(mouse_dir_list[i], novel, norm_date=date_0[i])
                 else:
                     print('If a list, date_0 has to be the same length as mouse_dir_list!')
             elif date_0 is None or date_0 == '0':
-                dates, licks, stops = collect_licking_stopping_data(mouse_dir_list[i], novel, norm_date='0')
+                dates, licks, stops = load_performance_data(mouse_dir_list[i], novel, norm_date='0')
             else:
                 print('Date_0 input not understood.')
             """
@@ -207,81 +198,82 @@ def set_xlabels(axis, x_labels, date_0):
         out = axis.set_xlabel('days after stroke')
 
 
-def collect_licking_stopping_data(roots, novel, norm_date, buffer=2, verbose=False):
+def load_performance_data(roots, novel, norm_date):
     """
     Collects licking and stopping data from merged_behavior.txt files for a list of mice.
-    :param roots: list of str, path to each mouse folder (which contains folders for each session)
+    :param roots: str, path to the batch folder (which contains folders for each mouse)
     :param novel: bool, whether novel or training sessions should be analysed
     :param norm_date: date where session dates should be normalized (one entry per mouse or single entry for all mice).
                         'None' = no normalization (dates labelled with session folder name),
                         '0' = normalization to the first session,
                         str in format 'YYYYMMDD' = norm. to the session of the respective day (neg for previous days).
-    :param buffer: int, position bins around the RZ that are still counted as RZ for licking
-    :param verbose: bool flag whether update status should be printed
     """
+
     data = []
-    count = 0
     for root in roots:
-        session_list = os.listdir(root)
-        mouse_df = pd.DataFrame(columns=['licking', 'stopping', 'session', 'mouse'])
-        ### COLLECT DATA FROM ALL SESSIONS OF THIS MOUSE ###
-        for i in range(len(session_list)):
-            curr_session = os.path.join(root, session_list[i])
-            if novel == is_session_novel(curr_session):  # checks if the session is in the correct corridor
-                file_list = glob(curr_session + '\\merged_behavior*.txt')
-                file_list_2 = glob(curr_session + '\\*\\merged_behavior*.txt')
-                file_list_3 = glob(curr_session + '\\*\\*\\merged_behavior*.txt')
-                file_list.extend(file_list_2)
-                file_list.extend(file_list_3)  # get a full list of merged_behavior files (in and outside of trial folders)
-                lick_ratio = []
-                stop_ratio = []
-                for file in file_list:
-                    lick, stop = extract_behavior_from_merged(file, novel, buffer)  # get lick and stop data from each trial
-                    if np.isnan(lick):
-                        lick = 0
-                    if np.isnan(stop):
-                        stop = 0
-                    lick_ratio.append(lick)
-                    stop_ratio.append(stop)
-                # store data of this session and this mouse in a temporary DataFrame
-                sess = curr_session.split(os.path.sep)[-1]
-                mouse = root.split(os.path.sep)[-1]
-                mouse_df = pd.concat((mouse_df,
-                                      pd.DataFrame({'licking': lick_ratio, 'stopping': stop_ratio, 'session': sess, 'mouse': mouse})),
-                                     ignore_index=True)
-                if verbose:
-                    print(f'Finished evaluating mouse {mouse}, session {sess}.')
+        for step in os.walk(root):
+            # Find performance
+            if 'performance.txt' in step[2] and novel == is_session_novel(step[0]):
 
-        # # create mask that filters out all false sessions
-        # mask = [True for i in range(len(session_list))]
-        # for i in range(len(session_list)):    # remove a session if the entry is an int (0, no values) or an empty list
-        #     if type(licking[i]) == np.int32 or type(stopping[i]) == np.int32:
-        #         mask[i] = False
-        #     if type(licking[i]) == list:
-        #         if len(licking[i]) == 0:
-        #             mask[i] = False
-        #     if type(stopping[i]) == list:
-        #         if len(stopping[i]) == 0:
-        #             mask[i] = False
-        # session_list_filtered = list(compress(session_list, mask))
-        # licking_filtered = list(compress(licking, mask))
-        # stopping_filtered = list(compress(stopping, mask))
+                # load data of the current session and add it to the global list as a pd.Series
+                file_path = os.path.join(step[0], 'performance.txt')
+                sess_data = np.loadtxt(file_path)
+                sess_data = np.nan_to_num(sess_data)
+                if len(sess_data.shape) == 1:
+                    lick = [sess_data[0]]
+                    stop = [sess_data[1]]
+                elif len(sess_data.shape) > 1:
+                    lick = sess_data[:, 0]
+                    stop = sess_data[:, 1]
+                else:
+                    raise ValueError(f'No data found in {file_path}.')
 
-        # normalize days if necessary
-        if type(norm_date) == list:
-            if norm_date[count] is not None:
-                mouse_df['session_norm'] = normalize_dates(mouse_df['session'], norm_date[count])
+                sess = step[0].split(os.path.sep)[-1]
+                mouse = step[0].split(os.path.sep)[-2]
 
-        # add current dataframe to the list of mice dataframes
-        data.append(mouse_df)
+                # store data of this session and this mouse in a temporary DataFrame which is added to the global list
+                data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'session': sess, 'mouse': mouse}))
+
+    df = pd.concat(data, ignore_index=True)
+
+    # give sessions a continuous id for plotting
+    all_sess = sorted(df['session'].unique())
+    count = 0
+    df['sess_id'] = -1
+    for session in all_sess:
+        df.loc[df['session'] == session, 'sess_id'] = count
         count += 1
 
-    # combine single dataframes into a big one and normalize days if necessary
-    df = pd.concat(data)
-    if type(norm_date) == str:
-        df['session_norm'] = normalize_dates(df['session'], norm_date)
+    # normalize days if necessary # todo: fix with new DF and dict structure
+    if type(norm_date) == dict:
+        for key in norm_date:
+            if norm_date[key] is not None:
+                df_mask = df['mouse'] == key
+                session_norm = normalize_dates(df['mouse'] == key, norm_date[key])
+            else:
+                session_norm = sess
 
     return df
+
+
+def save_performance_data(session):
+    """
+    Calculates and saves licking and stopping ratios of a session.
+    :param session: str, path to the session folder that holds behavioral txt files
+    :return:
+    """
+    # Get the list of all behavior files in the session folder
+    file_list = list()
+    for (dirpath, dirnames, filenames) in os.walk(session):
+        file_list += glob(dirpath + '\\merged_behavior*.txt')
+
+    session_performance = np.zeros((len(file_list), 2))
+    for i in range(len(file_list)):
+        session_performance[i, 0], session_performance[i, 1] = \
+            extract_performance_from_merged(np.loadtxt(file_list[i]), novel=is_session_novel(session), buffer=2)
+
+    file_path = os.path.join(session, f'performance.txt')
+    np.savetxt(file_path, session_performance, delimiter='\t',  fmt=['%.4f', '%.4f'], header='Licking\tStopping')
 
 
 def is_session_novel(path):
@@ -299,7 +291,7 @@ def is_session_novel(path):
                     elif int(np.round(float(line[-1][-5:-1]))) == 9:
                         context = 'novel'
     else:
-        context = 'training' # if there is no log file (in first trials), its 'training' by default
+        context = 'training'  # if there is no log file (in first trials), its 'training' by default
 
     if context == 'training':
         return False
@@ -348,13 +340,13 @@ def quick_screen_session(path):
                     # plot behavior
                     color = 'tab:red'
                     if nrows == 1:
-                        ax[col].plot(curr_trial[:, 4], color=color)       # plot running
+                        ax[col].plot(-curr_trial[:, 4], color=color)       # plot running
                         ax[col].spines['top'].set_visible(False)
                         ax[col].spines['right'].set_visible(False)
                         ax[col].set_xticks([])
                         ax2 = ax[col].twinx()       # instantiate a second axes that shares the same x-axis
                     else:
-                        ax[row, col].plot(curr_trial[:, 4], color=color)  # plot running
+                        ax[row, col].plot(-curr_trial[:, 4], color=color)  # plot running
                         ax[row, col].spines['top'].set_visible(False)
                         ax[row, col].spines['right'].set_visible(False)
                         ax[row, col].set_xticks([])
@@ -391,10 +383,10 @@ def quick_screen_session(path):
     plt.show()
 
 
-def extract_behavior_from_merged(path, novel, buffer):
+def extract_performance_from_merged(data, novel, buffer):
     """
     Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
-    :param path: str, file path of the merged_behavior*.txt file
+    :param data: np.array of the merged_behavior*.txt file
     :param novel: bool, flag whether file was performed in novel corridor (changes reward zone location)
     :param buffer: int, position bins around the RZ that are still counted as RZ for licking
     :returns lick_ratio: float, ratio between individual licking bouts that occurred in reward zones div. by all licks
@@ -409,8 +401,6 @@ def extract_behavior_from_merged(path, novel, buffer):
     zone_borders[:, 0] -= buffer
     zone_borders[:, 1] += buffer
 
-    # load merged_behavior file
-    data = np.loadtxt(path)
 
     ### GET LICKING DATA ###
     # select only time point where the mouse licked
@@ -436,6 +426,14 @@ def extract_behavior_from_merged(path, novel, buffer):
             # correct by fraction of reward zones where the mouse actually licked
             passed_rz = len([x for x in lick_zone_only if len(x) > 0])
             lick_ratio = lick_ratio * (passed_rz / len(zone_borders))
+
+            # # correct by the fraction of time the mouse spent in reward zones vs outside
+            # rz_idx = 0
+            # for zone in zone_borders:
+            #     rz_idx += len(np.where((zone[0] <= data[:, 1]) & (data[:, 1] <= zone[1]))[0])
+            # rz_occupancy = rz_idx/len(data)
+            # lick_ratio = lick_ratio/rz_occupancy
+
         else:
             lick_ratio = np.nan
 
@@ -458,7 +456,7 @@ def extract_behavior_from_merged(path, novel, buffer):
     return lick_ratio, stop_ratio
 
 
-def collect_performance_data(root, novel, norm_date='0'):
+def collect_log_performance_data(root, novel, norm_date='0'):
     """
     Gathers and combines performance data from log files. Results are returned as one entry per session in three lists that can be
     used for plotting: Dates of sessions, performance speed and total and hit zone count.
@@ -650,4 +648,30 @@ def normalize_dates(date_list, norm_date):
         return print('Normalized date list is not the same length as initial date list. Something went wrong!')
     else:
         return norm_days
+
+#%% Plotting
+
+
+def plot_single_mouse(data, mouse):
+    plt.figure()
+    ax = sns.lineplot(x='session', y='licking', data=data[data['mouse'] == mouse])
+    ax.set(ylim=(0, 1), ylabel='licks in reward zone [%]', title=mouse)
+
+
+def plot_all_mice_avg(data):
+    plt.figure()
+    ax = sns.lineplot(x='session', y='licking', data=data)
+    ax.set(ylim=(0, 1), ylabel='licks in reward zone [%]', title='Average of all mice')
+
+
+def plot_all_mice_separately(data, rotate_labels=False):
+    sessions = data['session'].unique()
+    grid = sns.FacetGrid(data, col='mouse', col_wrap=3, height=3, aspect=2)
+    grid.map(sns.lineplot, 'sess_id', 'licking')
+    grid.set_axis_labels('session', 'licks in reward zone [%]')
+    out = grid.set(ylim=(0, 1), xlim=(-0.2, len(sessions) - 0.8), xticks=range(len(sessions)), xticklabels=sessions)
+    if rotate_labels:
+        for ax in grid.axes.ravel():
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+    plt.tight_layout()
 
