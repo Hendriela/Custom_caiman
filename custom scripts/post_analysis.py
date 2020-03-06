@@ -10,7 +10,7 @@ import caiman as cm
 
 #%% INITIAL RESULTS SCREENING
 
-def check_eval_results(cnm, idx):
+def check_eval_results(cnm, idx, plot_contours=False):
     """Checks results of component evaluation and determines why the component got rejected or accepted
 
     Args:
@@ -27,7 +27,6 @@ def check_eval_results(cnm, idx):
         idx = list(idx)
     except:
         idx = [idx]
-
     snr_min = cnm.params.quality['SNR_lowest']
     snr_max = cnm.params.quality['min_SNR']
     r_min = cnm.params.quality['rval_lowest']
@@ -107,6 +106,10 @@ def check_eval_results(cnm, idx):
             else:
                 print('This should not appear, check code logic!\n\n')
 
+    if plot_contours:
+        plt.figure()
+        out = cm.utils.visualization.plot_contours(cnm.estimates.A[:, idx], cnm.estimates.Cn,
+                                                   display_numbers=False, colors='r')
 
 def plot_component_traces(cnm, idx=None, param='F_dff'):
     # plots components in traces and color-graded
@@ -161,18 +164,28 @@ def reject_component(cnm, idx):
     return cnm
 
 
-def accept_component(cnm, idx):
+def accept_component(cnm, idx_list):
     """
     Re-assigns component from the bad to the good component array
 
     :param cnm: cnm object that stores the estimates object
-    :param idx: index this component has in the idx_components_bad list
+    :param idx: list of indices of this component in idx_components_bad
     """
-    # add component to the accepted list
-    cnm.estimates.idx_components = np.append(cnm.estimates.idx_components, cnm.estimates.idx_components_bad[idx])
-    # remove component from the rejected list
-    cnm.estimates.idx_components_bad = np.delete(cnm.estimates.idx_components_bad, idx)
-    return cnm
+    idx_list = np.array(idx_list)
+    # make mask for bad_idx
+    bad_mask = np.ones(len(cnm.estimates.idx_components_bad), dtype=bool)
+    bad_mask[idx_list] = False
+
+    # get global indices of to-be-accepted components
+    glob_idx = cnm.estimates.idx_components_bad[idx_list]
+
+    # delete components from idx_components_bad
+    cnm.estimates.idx_components_bad = cnm.estimates.idx_components_bad[bad_mask]
+
+    # append accepted components to idx_components
+    cnm.estimates.idx_components = np.sort(np.concatenate((cnm.estimates.idx_components, glob_idx)))
+
+    print(f'Manually accepted components {glob_idx} ({idx_list} in idx_components_bad).')
 
 #%% CORRELATION FUNCTIONS
 
