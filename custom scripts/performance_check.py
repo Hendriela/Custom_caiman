@@ -208,7 +208,6 @@ def load_performance_data(roots, novel, norm_date):
                         '0' = normalization to the first session,
                         str in format 'YYYYMMDD' = norm. to the session of the respective day (neg for previous days).
     """
-
     data = []
     for root in roots:
         for step in os.walk(root):
@@ -254,6 +253,21 @@ def load_performance_data(roots, novel, norm_date):
                 session_norm = sess
 
     return df
+
+
+def save_multi_performance(path, overwrite=False):
+    """
+    Wrapper function for save_performance_data that goes through folders and looks for sessions that have no
+    performance.txt yet. Session folders are determined by the presence of the LOG.txt file.
+    :param path: Top-level directory where subdirectories are searched.
+    :param path: bool flag whether to overwrite existing performance.txt files.
+    """
+    for (dirpath, dirnames, filenames) in os.walk(path):
+        if len([x for x in filenames if 'TDT LOG' in x]) == 1:
+            if 'performance.txt' not in filenames or overwrite:
+                print(f'Computing performance of session {dirpath}.')
+                save_performance_data(dirpath)
+    print('Everything processed!')
 
 
 def save_performance_data(session):
@@ -658,10 +672,13 @@ def plot_single_mouse(data, mouse):
     ax.set(ylim=(0, 1), ylabel='licks in reward zone [%]', title=mouse)
 
 
-def plot_all_mice_avg(data):
+def plot_all_mice_avg(data, rotate_labels=False):
     plt.figure()
     ax = sns.lineplot(x='session', y='licking', data=data)
     ax.set(ylim=(0, 1), ylabel='licks in reward zone [%]', title='Average of all mice')
+    if rotate_labels:
+        labels = ax.get_xticklabels()
+        ax.set_xticklabels(labels, rotation=45, ha='right')
 
 
 def plot_all_mice_separately(data, rotate_labels=False):
