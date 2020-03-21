@@ -7,6 +7,7 @@ from timeit import default_timer as timer
 from ScanImageTiffReader import ScanImageTiffReader
 from datetime import datetime
 import performance_check as performance
+from pathlib import Path
 
 
 def load_file(path):
@@ -61,28 +62,25 @@ def align_behavior(root, performance_check=False, overwrite=False, verbose=False
     :return: saves merged_behavior.txt for each aligned trial
     """
     # list that includes session that have been processed to avoid processing a session multiple times
-    processed_folders = []
     processed_sessions = []
     for step in os.walk(root):
         if len(step[2]) > 0:   # check if there are files in the current folder
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
                 if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:
-                    if step[0] not in processed_folders:  # check if trial folder has been processed
-                        if len(glob(step[0] + r'\\file*.tif')) > 0:  # check if there is an imaging file for this trial
-                            align_files(step[0], imaging=True, verbose=verbose, enc_unit=enc_unit)
-                            processed_folders.append(step[0])
-                        else:
-                            align_files(step[0], imaging=False, verbose=verbose, enc_unit=enc_unit)
-                            processed_folders.append(step[0])
+                    if len(glob(step[0] + r'\\file*.tif')) > 0:  # check if there is an imaging file for this trial
+                        sess_folder = str(Path(step[0]).parents[0])     # if yes, the one folder up is the session path
+                        if sess_folder not in processed_sessions:        # check if session folder has been processed
+                            align_files(sess_folder, imaging=True, verbose=verbose, enc_unit=enc_unit)
+                    else:
+                        sess_folder = step[0]
+                        if sess_folder not in processed_sessions:
+                            align_files(sess_folder, imaging=False, verbose=verbose, enc_unit=enc_unit)
 
-                        # calculate licking and stopping performance
-                        # position of session folder hardcoded at position 8, be careful if folder structure changes!
-                        if performance_check:
-                            folders = step[0].split(os.path.sep)
-                            session_path = os.path.join(folders[0], os.path.sep, *folders[1:9])
-                            if session_path not in processed_sessions:
-                                performance.save_performance_data(session_path)
-                                processed_sessions.append(session_path)
+                    # calculate licking and stopping performance
+                    if performance_check:
+                        performance.save_performance_data(sess_folder)
+                        processed_sessions.append(sess_folder)
+                    processed_sessions.append(step[0])
 
                 else:
                     if verbose:
@@ -124,11 +122,16 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
         else:
             return matched_file[0]
 
-    if not imaging or root.split('\\')[-1] == '1':
-        print(f'\nStart processing session {root}...')
-    enc_files = glob(root + r'\\Encoder*.txt')
-    pos_files = glob(root + r'\\TCP*.txt')
-    trig_files = glob(root + r'\\TDT TASK*.txt')
+    print(f'\nStart processing session {root}...')
+    if imaging:
+        enc_files = glob(root + r'\\**\\Encoder*.txt')
+        pos_files = glob(root + r'\\**\\TCP*.txt')
+        trig_files = glob(root + r'\\**\\TDT TASK*.txt')
+
+    else:
+        enc_files = glob(root + r'\\Encoder*.txt')
+        pos_files = glob(root + r'\\TCP*.txt')
+        trig_files = glob(root + r'\\TDT TASK*.txt')
 
     if not len(enc_files) == len(pos_files) & len(enc_files) == len(trig_files):
         print(f'Uneven numbers of encoder, position and trigger files in folder {root}!')
@@ -146,7 +149,7 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
             print(f'\nNow processing trial {counter} of {len(enc_files)}, time stamp {timestamp}...')
         frame_count = None
         if imaging:
-            movie_path = glob(root + '\*.tif')[0]
+            movie_path = glob(str(Path(file).parents[0]) + r'\\*.tif')[0]
             with ScanImageTiffReader(movie_path) as tif:
                 frame_count = tif.shape()[0]
         merge, proc_time = align_behavior_files(file, pos_file, trig_file, imaging=imaging, frame_count=frame_count,
@@ -154,7 +157,10 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
 
         if merge is not None and proc_time is not None:
             # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
-            file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
+            if imaging:
+                file_path = os.path.join(str(Path(file).parents[0]), f'merged_behavior_{str(timestamp)}.txt')
+            else:
+                file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
             np.savetxt(file_path, merge, delimiter='\t',
                        fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i', '%.2f'],
                        header='Time\tVR pos\tlicks\tframe\tencoder\tcm/s')
@@ -248,6 +254,9 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
         trig_idx = []
         for block in trig_blocks:
             trigger[block, 2] = 0  # set the whole period to 0
+            if np.isnan(np.mean(block)):
+                print(f'No frame trigger in {trig_path}. Check file!')
+                return None, None
             trigger[int(round(np.mean(block))), 2] = 1
             trig_idx.append(int(round(np.mean(block))))
 
