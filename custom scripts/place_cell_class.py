@@ -18,6 +18,7 @@ import gui_without_movie as gui
 from caiman.utils import visualization
 import pandas as pd
 from statannot import add_stat_annotation
+from multisession_registration import draw_single_contour
 
 
 class PlaceCellFinder:
@@ -394,7 +395,8 @@ class PlaceCellFinder:
                                 # set the bad frame in the behavior array to 0 to skip it during binning
                                 behavior[trial][frame_idx[i], 3] = np.nan
                         else:
-                            return print('Encoder unit not recognized, behavior could not be aligned.')
+                            pass
+                            #return print('Encoder unit not recognized, behavior could not be aligned.')
                     else:
                         if behavior[trial][0, 4] > -30:
                             behavior_masks[-1][i] = False
@@ -422,7 +424,7 @@ class PlaceCellFinder:
         if remove_resting_frames:
             for i in range(len(new_frame_list)):
                 frame_list_count = new_frame_list[i]
-                if frame_list_count-1 != np.nansum(bin_frame_count[:, i]):
+                if frame_list_count != np.nansum(bin_frame_count[:, i]):
                     print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
         else:
             # double check if number of frames are correct
@@ -903,6 +905,37 @@ class PlaceCellFinder:
     def load_gui(self):
         gui.run_gui(data=self.cnmf)
 
+    def plot_separate_pc_contours(self):
+        """
+        Plots the contours of all place cells in separate plots. Clicking on a place cell prints out its index so it can
+        be removed in case it is no real cell or a duplicate.
+        """
+
+        pc_idx = [x[0] for x in self.place_cells]
+        lcm = self.cnmf.estimates.Cn
+        n_cols = 6
+        n_rows = ceil(len(pc_idx)/n_cols)
+        fig, ax = plt.subplots(n_rows, n_cols, squeeze=False, figsize=(15, 8))
+
+        i = 0
+        for row in range(n_rows):
+            for col in range(n_cols):
+                if i < len(pc_idx):
+                    curr_ax = ax[row, col]
+                    com = draw_single_contour(ax=curr_ax, spatial=self.cnmf.estimates.A[:, pc_idx[i]], template=lcm)
+                    curr_ax.set_picker(True)
+                    curr_ax.set_url(i)
+                    i += 1
+                    plt.show()
+
+        def onpick(event):
+            this_plot = event.artist  # save artist (axis) where the pick was triggered
+            print(plt.getp(this_plot, 'url'))
+
+        fig.canvas.mpl_connect('pick_event', onpick)
+        plt.tight_layout()
+        plt.show()
+
     def plot_binned_neurons(self, idx=None, sliced=False):
         if idx:
             if sliced:
@@ -1018,7 +1051,7 @@ class PlaceCellFinder:
         # trace_fig.tight_layout()
         plt.show()
 
-    def plot_pc_location(self, save=False, color='w', display_numbers=False):
+    def plot_pc_location(self, save=False, color='r', display_numbers=False):
         """
         Plots the contours of all place cells on the local correlation image via CaImAns plot_contours.
         :return:
