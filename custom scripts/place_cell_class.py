@@ -581,7 +581,7 @@ class PlaceCellFinder:
 
         return bin_activity, bin_avg_activity
 
-    def find_place_cells(self):
+    def find_place_cells(self, show_prog_bar=False):
         """
         Wrapper function that checks every neuron for place fields by calling find_place_field_neuron().
         Also initializes params['place_results'], where results from place cell checks are stored for each neuron.
@@ -592,7 +592,8 @@ class PlaceCellFinder:
         self.place_cells = []
         for i in range(self.bin_avg_activity.shape[0]):
             self.find_place_field_neuron(self.bin_avg_activity[i, :], i)
-            progress(i+1, self.bin_avg_activity.shape[0], status='Processing neurons...', percent=False)
+            if show_prog_bar:
+                progress(i+1, self.bin_avg_activity.shape[0], status='Processing neurons...', percent=False)
         print(f'Done! {len(self.place_cells)} place cells found in total!')
 
     def find_place_field_neuron(self, data, neuron_id):
@@ -797,6 +798,39 @@ class PlaceCellFinder:
 
         return p_counter/1000   # return p-value of this neuron (number of place fields after 1000 shuffles)
 
+    def reject_place_cells(self, rej):
+        """
+        Moves place cells from the place_cells to the place_cells_reject list.
+        :param rej: list, contains global indices of place cells to be rejected.
+        :return:
+        """
+        # get global indices of all place cells
+        pc_idx = np.array([x[0] for x in self.place_cells])
+
+        # find the rejected place cells in that list
+        rej_idx = []
+        no_idx = []
+        for i in rej:
+            if i in pc_idx:
+                rej_idx.append(np.where(pc_idx == i)[0][0])
+            else:
+                no_idx.append(i)
+
+        # stop the function if an index couldn't be found.
+        if len(no_idx) > 0:
+            return print(f'The following cells are no place cells: {no_idx}.')
+
+        # Make a mask that is False at every rejected place cell index
+        mask = np.ones(len(self.place_cells), dtype=bool)
+        mask[rej] = False
+
+        # append bad cells to the place_cells_reject list
+        self.place_cells_reject.append(list(np.array(self.place_cells)[~mask]))
+
+        # remove bad cells from place_cells list
+        self.place_cells.append(list(np.array(self.place_cells)[mask]))
+
+
 #%% Spatial information
 
     def get_spatial_information(self, bin_width=None, n_bins=None, trace='F_dff', remove_stationary=True, save=False):
@@ -993,7 +1027,7 @@ class PlaceCellFinder:
         :return:
         """
         if type(idx) != int:
-            return 'Idx has to be a single digit!'
+            return 'Idx has to be an integer!'
 
         traces = self.bin_activity[self.place_cells[idx][0]]
         place_fields = self.place_cells[idx][1]
