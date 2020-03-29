@@ -810,31 +810,21 @@ class PlaceCellFinder:
         :param rej: list, contains global indices of place cells to be rejected.
         :return:
         """
-        # get global indices of all place cells
-        pc_idx = np.array([x[0] for x in self.place_cells])
 
-        # find the rejected place cells in that list
-        rej_idx = []
-        no_idx = []
-        for i in rej:
-            if i in pc_idx:
-                rej_idx.append(np.where(pc_idx == i)[0][0])
-            else:
-                no_idx.append(i)
+        # extract tuples of rejected place cells
+        bad_cells = [x for x in self.place_cells if x[0] in rej]
 
-        # stop the function if an index couldn't be found.
-        if len(no_idx) > 0:
-            return print(f'The following cells are no place cells: {no_idx}.')
-
-        # Make a mask that is False at every rejected place cell index
-        mask = np.ones(len(self.place_cells), dtype=bool)
-        mask[rej_idx] = False
+        # check if any cell in rej couldnt be found in place_cells
+        bad_pc_idx = [x[0] for x in bad_cells]
+        false_pc = [x for x in rej if x not in bad_pc_idx]
+        if len(false_pc) > 0:
+            return print(f'The following cells are not in place_cells: {false_pc}!')
 
         # append bad cells to the place_cells_reject list
-        self.place_cells_reject.append(list(np.array(self.place_cells)[~mask]))
+        self.place_cells_reject = self.place_cells_reject + bad_cells
 
-        # remove bad cells from place_cells list
-        self.place_cells.append(list(np.array(self.place_cells)[mask]))
+        # extract tuples of place cells that are not rejected
+        self.place_cells = [x for x in self.place_cells if x[0] not in rej]
 
 
 #%% Spatial information
