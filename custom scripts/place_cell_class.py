@@ -280,8 +280,14 @@ class PlaceCellFinder:
                     # if Dombecks criterion of 2-0.5 sigma should be used, the transient has to be extended
                     if type(thresh) == tuple:
                         for j in range(len(blocks)-1):
-                            new_stop = np.where(trial[blocks[j][0]:] <= thresh[1] * sigma)[0][0]
-                            blocks[j] = np.arange(blocks[j][0], new_stop+blocks[j][0]+1)
+                            # test if the transient comes back down to 0.5sigma at all until the end
+                            if np.all(trial[blocks[j][0]:] >= thresh[1] * sigma):
+                                # if this transient goes until the end, the last stop is the last index of the trial
+                                new_stop = len(trial)-1
+                            else:
+                                # otherwise find the index where it crosses the 2nd threshold
+                                new_stop = np.where(trial[blocks[j][0]:] <= thresh[1] * sigma)[0][0]
+                            blocks[j] = np.arange(blocks[j][0], blocks[j][0]+new_stop)
 
                     # find blocks of >500 ms length (use frame rate in cnmf object) and merge them in one array
                     duration = int(self.params['trans_length'] / (1 / self.cnmf.params.data['fr']))
@@ -822,7 +828,7 @@ class PlaceCellFinder:
 
         # Make a mask that is False at every rejected place cell index
         mask = np.ones(len(self.place_cells), dtype=bool)
-        mask[rej] = False
+        mask[rej_idx] = False
 
         # append bad cells to the place_cells_reject list
         self.place_cells_reject.append(list(np.array(self.place_cells)[~mask]))
@@ -979,12 +985,12 @@ class PlaceCellFinder:
                     traces = self.bin_avg_activity[idx[0], idx[2]]
                 else:
                     print('Idx has to be either int or list. If sliced, list has to have length 2.')
-                    return
+                    #return
             else:
                 traces = self.bin_avg_activity[idx]
         else:
             traces = self.bin_avg_activity
-        if traces.shape[0] < 30:
+        if (len(traces.shape) > 1 and traces.shape[0] < 30) or len(traces.shape) == 1:
             fig, ax = plt.subplots(nrows=traces.shape[0], ncols=2, sharex=True, figsize=(20, 12))
             for i in range(traces.shape[0]):
                 im = ax[i, 1].pcolormesh(traces[i, np.newaxis])
@@ -1010,13 +1016,41 @@ class PlaceCellFinder:
             traces = self.bin_activity[idx]
         else:
             traces = self.session[idx]
-        fig, ax = plt.subplots(nrows=len(traces), ncols=1, sharex=True, figsize=(20, 12))
+
+        # Get global y-axis scaling
+        max_y = 0.05 * ceil(traces.max() / 0.05)
+        min_y = 0.05 * floor(traces.min() / 0.05)
+
+        # Get positions of accepted place fields
+        place_field_idx = [x[1] for x in self.place_cells if x[0] == idx][0]
+
+        fig, ax = plt.subplots(nrows=len(traces), ncols=2, sharex=True, figsize=(20, 12))
         for i in range(len(traces)):
-            ax[i].plot(traces[i])
-            ax[i].set_title(f'{i + 1}', x=-0.02, y=-0.4)
+            ax[i, 0].plot(traces[i])
+            ax[i, 0].set_ylim(min_y, max_y)
+            img = ax[i, 1].pcolormesh(traces[i, np.newaxis], vmax=max_y, vmin=min_y, cmap='jet')
+            ax[i, 0].spines['top'].set_visible(False)
+            ax[i, 0].spines['right'].set_visible(False)
+            ax[i, 0].set_yticks([])
+            ax[i, 1].set_yticks([])
+            ax[i, 1].spines['top'].set_visible(False)
+            ax[i, 1].spines['right'].set_visible(False)
+
+            # draw place field
+            for field in place_field_idx:
+                ax[i, 0].axvspan(field[0], field[-1], color='r', alpha=0.3)
         if vr_aligned:
-            ax[i].set_xlim(0, self.params['n_bins'])
-        fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+            ax[i, 0].set_xlim(0, self.params['n_bins'])
+
+        # plot color bar
+        fraction = 0.10  # fraction of original axes to use for colorbar
+        half_size = int(np.round(ax.shape[0] / 2))  # plot colorbar in half of the figure
+        cbar = fig.colorbar(img, ax=ax[half_size:, 1], fraction=fraction, label=r'$\Delta$F/F')  # draw color bar
+        cbar.ax.tick_params(labelsize=12)
+        cbar.ax.yaxis.label.set_size(15)
+
+        fig.subplots_adjust(left=0.1, right=1 - (fraction + 0.05), top=0.9, bottom=0.1)
+        fig.suptitle(f'Neuron {idx}', fontsize=18)
 
     def plot_single_place_cell(self, idx):
         """
