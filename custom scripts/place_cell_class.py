@@ -13,6 +13,7 @@ from math import ceil, floor
 import os
 import re
 from behavior_import import progress
+from performance_check import is_session_novel
 from ScanImageTiffReader import ScanImageTiffReader
 import gui_without_movie as gui
 from caiman.utils import visualization
@@ -135,6 +136,22 @@ class PlaceCellFinder:
             self.params['mouse'] = self.params['root'].split('/')[-3]
             self.params['session'] = self.params['root'].split('/')[-2]
             self.params['network'] = self.params['root'].split('/')[-1]
+
+        # get regions of reward zones
+        if is_session_novel(self.params['root']):
+            zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
+            self.params['novel'] = True
+        else:
+            zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
+            self.params['novel'] = False
+
+        # Transform coordinates from VR-coordinates to bin indices
+        zone_borders = zone_borders + 10                                # Change scaling from -10-110 to 0-120 VR coords
+        zone_borders = zone_borders / (120 / self.params['n_bins'])     # Apply scale from VR coordinates to bins
+        zone_length = int(np.round(zone_borders[0, 1] - zone_borders[0, 0]))    # Get length of reward zones
+        zone_borders[:, 0] = np.array(zone_borders[:, 0], dtype=int)            # Round down first zone bin
+        zone_borders[:, 1] = zone_borders[:, 0] + zone_length                   # Add RZ length to first bin idx
+        self.params['zone_borders'] = np.array(zone_borders, dtype=int)         # Transform to int and save param
 
     def change_param(self, new_params):
         """
@@ -1042,12 +1059,13 @@ class PlaceCellFinder:
         fig.subplots_adjust(left=0.1, right=1 - (fraction + 0.05), top=0.9, bottom=0.1)
         fig.suptitle(f'Neuron {idx}', fontsize=18)
 
-    def plot_single_place_cell(self, idx):
+    def plot_single_place_cell(self, idx, show_reward_zones=True):
         """
         Plots all trials of a single place cell in a line graph and pcolormesh. The location of the accepted place
         fields of the cell is shaded red in the line plot.
         :param idx: Index of the to-be-plotted place cell (following the indexing of self.place_cells, not cnm indexing,
                     i.e. idx=0 shows the first place cell, not the first extracted component)
+        :param show_reward_zones: bool flag whether reward zones should be shown as a grey shaded area in the line graph
         :return:
         """
         if type(idx) != int:
@@ -1055,6 +1073,23 @@ class PlaceCellFinder:
 
         traces = self.bin_activity[self.place_cells[idx][0]]
         place_fields = self.place_cells[idx][1]
+
+        if show_reward_zones and 'zone_borders' not in self.params.keys():
+            if is_session_novel(self.params['root']):
+                zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
+                self.params['novel'] = True
+            else:
+                zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
+                self.params['novel'] = False
+
+            # Transform coordinates from VR-coordinates to bin indices
+            zone_borders = zone_borders+10                              # Change scaling from -10-110 to 0-120 VR coords
+            zone_borders = zone_borders/(120/self.params['n_bins'])     # Apply scale from VR coordinates to bins
+            zone_length = int(np.round(zone_borders[0, 1] - zone_borders[0, 0]))    # Get length of reward zones
+            zone_borders[:, 0] = np.array(zone_borders[:, 0], dtype=int)            # Round down first zone bin
+            zone_borders[:, 1] = zone_borders[:, 0] + zone_length                   # Add RZ length to first bin idx
+            self.params['zone_borders'] = np.array(zone_borders, dtype=int)         # Transform to int and save param
+
         # plot components
         if len(traces.shape) == 1:
             nrows = 1
@@ -1075,7 +1110,12 @@ class PlaceCellFinder:
 
             # shade locations of place fields
             for field in place_fields:
-                trace_ax[i,0].axvspan(field.min(), field.max(), facecolor='r', alpha=0.2)
+                trace_ax[i, 0].axvspan(field.min(), field.max(), facecolor='r', alpha=0.2)
+
+            # shade locations of reward zones
+            if show_reward_zones:
+                for zone in self.params['zone_borders']:
+                    trace_ax[i, 0].axvspan(zone[0], zone[1], facecolor='grey', alpha=0.2)
 
             if i == trace_ax[:, 0].size - 1:
                 trace_ax[i, 0].spines['top'].set_visible(False)
@@ -1126,7 +1166,8 @@ class PlaceCellFinder:
             plt.savefig(os.path.join(self.params['root'], 'place_cell_contours.png'))
             plt.close()
 
-    def plot_all_place_cells(self, save=False, show_neuron_id=False, show_place_fields=True, sort='field', fname='place_cells'):
+    def plot_all_place_cells(self, save=False, show_neuron_id=False, show_place_fields=True, sort='field',
+                             show_reward_zones=True, fname='place_cells'):
         """
         Plots all place cells in the data set by line graph and pcolormesh.
         :param save: bool flag whether the figure should be automatically saved in the root and closed afterwards.
@@ -1134,6 +1175,8 @@ class PlaceCellFinder:
         :param show_place_fields: bool flag whether place fields should be marked red in the line graph
         :param sort: str, how should the place cells be sorted? 'Max' sorts them for the earliest location of the
         maximum in each trace, 'field' sorts them for the earliest place field.
+        :param show_reward_zones: bool flag whether reward zones should be shown as a grey shaded area in the line graph
+        :param fname: str, file name of the .png file if save=True.
         :return:
         """
 
@@ -1144,6 +1187,24 @@ class PlaceCellFinder:
 
         traces = self.bin_avg_activity[place_cell_idx]
         n_neurons = traces.shape[0]
+
+        # Get regions of reward zones
+        if show_reward_zones and 'zone_borders' not in self.params.keys():
+            if is_session_novel(self.params['root']):
+                zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
+                self.params['novel'] = True
+            else:
+                zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
+                self.params['novel'] = False
+
+            # Transform coordinates from VR-coordinates to bin indices
+            zone_borders = zone_borders+10                              # Change scaling from -10-110 to 0-120 VR coords
+            zone_borders = zone_borders/(120/self.params['n_bins'])     # Apply scale from VR coordinates to bins
+            zone_length = int(np.round(zone_borders[0, 1] - zone_borders[0, 0]))    # Get length of reward zones
+            zone_borders[:, 0] = np.array(zone_borders[:, 0], dtype=int)            # Round down first zone bin
+            zone_borders[:, 1] = zone_borders[:, 0] + zone_length                   # Add RZ length to first bin idx
+            self.params['zone_borders'] = np.array(zone_borders, dtype=int)         # Transform to int and save param
+
         if n_neurons > 0:
             # figure out y-axis limits by rounding the maximum value in traces up to the next 0.05 step
             max_y = 0.05 * ceil(traces.max() / 0.05)
@@ -1176,10 +1237,19 @@ class PlaceCellFinder:
                 img = trace_ax[i, 1].pcolormesh(curr_trace, vmax=max_y, vmin=min_y, cmap='jet')
                 trace_ax[i, 0].plot(traces[curr_neur])
                 trace_ax[i, 0].set_ylim(bottom=min_y, top=max_y)
+
+                # plot place fields as shaded red area
                 if show_place_fields:
                     curr_place_fields = self.place_cells[curr_neur][1]
                     for field in curr_place_fields:
                         trace_ax[i, 0].plot(field, traces[curr_neur][field], color='red')
+
+                # plot reward zones as shaded grey areas
+                if show_reward_zones:
+                    for zone in self.params['zone_borders']:
+                        trace_ax[i, 0].axvspan(zone[0], zone[1], facecolor='grey', alpha=0.2)
+
+                # clean up axes
                 if i == trace_ax[:, 0].size - 1:
                     trace_ax[i, 0].spines['top'].set_visible(False)
                     trace_ax[i, 0].spines['right'].set_visible(False)
