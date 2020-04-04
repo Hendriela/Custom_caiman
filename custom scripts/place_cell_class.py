@@ -458,7 +458,6 @@ class PlaceCellFinder:
 
         self.behavior = behavior
         self.params['bin_frame_count'] = bin_frame_count
-        print('\nSuccessfully aligned traces with VR position.')
 
         # bin the activity for every neuron to the VR position, construct bin_activity and bin_avg_activity
         self.bin_activity = []
@@ -1059,13 +1058,14 @@ class PlaceCellFinder:
         fig.subplots_adjust(left=0.1, right=1 - (fraction + 0.05), top=0.9, bottom=0.1)
         fig.suptitle(f'Neuron {idx}', fontsize=18)
 
-    def plot_single_place_cell(self, idx, show_reward_zones=True):
+    def plot_single_place_cell(self, idx, save=False, show_reward_zones=True, fname='single_place_cell'):
         """
         Plots all trials of a single place cell in a line graph and pcolormesh. The location of the accepted place
         fields of the cell is shaded red in the line plot.
         :param idx: Index of the to-be-plotted place cell (following the indexing of self.place_cells, not cnm indexing,
                     i.e. idx=0 shows the first place cell, not the first extracted component)
         :param show_reward_zones: bool flag whether reward zones should be shown as a grey shaded area in the line graph
+        :param fname: str, base filename that will be extended with the neuron index before saving
         :return:
         """
         if type(idx) != int:
@@ -1148,6 +1148,11 @@ class PlaceCellFinder:
         trace_fig.subplots_adjust(left=0.1, right=1-(fraction+0.05), top=0.9, bottom=0.1)
         # trace_fig.tight_layout()
         plt.show()
+
+        if save:
+            filename = fname + f'_{idx}_neuron_{self.place_cells[idx][0]}'
+            plt.savefig(os.path.join(self.params['root'], f'{ fname}.png'))
+            plt.close()
 
     def plot_pc_location(self, save=False, color='r', display_numbers=False):
         """
