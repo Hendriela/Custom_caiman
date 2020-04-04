@@ -216,6 +216,24 @@ def get_local_correlation(movie):
     return lcm
 
 
+def save_local_correlation(movie, path):
+    cor = get_local_correlation(movie)
+    fname = path + r'\local_correlation_image.tif'
+    io.imsave(fname, cor.astype('float32'))
+    print(f'Saved local correlation image at {fname}.')
+    return fname
+
+
+def save_average_image(movie, path):
+    avg = np.zeros(movie.shape[1:])
+    for row in range(movie.shape[1]):
+        for col in range(movie.shape[2]):
+            curr_pix = movie[:, row, col]
+            avg[row, col] = np.mean(curr_pix)
+    fname = path + r'\mean_intensity_image.tif'
+    io.imsave(fname, avg.astype('float32'))
+
+
 def run_evaluation(images, cnm, dview):
     cnm.estimates.evaluate_components(images, params=cnm.params, dview=dview)
     return cnm
@@ -240,7 +258,7 @@ def run_source_extraction(images, params, dview):
 #%% Motion correction wrapper functions
 
 
-def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=False):
+def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=False, get_images=True):
     """
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
     to save disk space. Function automatically finds sessions and performs correction on whole sessions separately.
@@ -261,7 +279,7 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
     for step in os.walk(root):
         if len(glob(step[0] + r'\\file_0*.tif')) > 0:
             up_dir = step[0].rsplit(os.sep, 1)[0]
-            if len(glob(up_dir + r'memmap__d1_*.mmap')) == 0 and up_dir not in dir_list:
+            if len(glob(up_dir + r'\\memmap__d1_*.mmap')) == 0 and up_dir not in dir_list:
                 dir_list.append(up_dir)   # this makes a list of all folders that contain single-trial imaging folders
 
     mmap_list = []
@@ -338,6 +356,13 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
             # remove temporary corrected.tif files
             for file in temp_files:
                 os.remove(file)
+
+            # compute local correlation and mean intensity image
+            if get_images:
+                print(f'Finished. Now computing local correlation and mean intensity images...')
+                mmap_file, images = load_mmap(session)
+                save_local_correlation(images, session)
+                save_average_image(images, session)
 
             print('Finished!')
 

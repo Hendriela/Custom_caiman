@@ -93,7 +93,7 @@ roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32\20200322
          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40\20200323']
 
 for root in roots:
-    motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True, remove_c_order=True)
+    motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True, remove_c_order=True, get_images=True)
 
 
 
@@ -424,4 +424,18 @@ def compare_trans_only(obj, idx):
         else:
             ax[i, 2].plot(obj.bin_avg_activity[idx])
             ax[i, 2].set_xticks([])
+
+#%% avg compute test
+path = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39\20200318'
+mmap_file, images = pipe.load_mmap(path)
+avg = np.zeros(images.shape[1:])
+tot_pix = images.shape[1]*images.shape[2]
+count = 1
+for row in range(images.shape[1]):
+    for col in range(images.shape[2]):
+        curr_pix = images[:, row, col]
+        avg[row, col] = np.mean(curr_pix)
+        pipe.progress(count, tot_pix, status=f'Computed {count}/{int(tot_pix)} pixels...')
+        count += 1
+
 
