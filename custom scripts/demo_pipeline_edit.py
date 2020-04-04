@@ -148,12 +148,12 @@ def main():
     # during motion correction, although be careful about the components near
     # the boundaries
 
-    mmap_file = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2\1\file_00001_els__d1_512_d2_512_d3_1_order_F_frames_1147_.mmap',
-                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2\2\file_00002_els__d1_512_d2_512_d3_1_order_F_frames_2520_.mmap',
-                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2\3\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_3814_.mmap',
-                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2\4\file_00004_els__d1_512_d2_512_d3_1_order_F_frames_5154_.mmap',
-                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2\5\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_2677_.mmap',
-                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2\6\file_00006_els__d1_512_d2_512_d3_1_order_F_frames_3685_.mmap']
+    mmap_file = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191219\N4\1\file_00001_els__d1_512_d2_512_d3_1_order_F_frames_2911_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191219\N4\2\file_00002_els__d1_512_d2_512_d3_1_order_F_frames_3493_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191219\N4\3\file_00003_els__d1_512_d2_512_d3_1_order_F_frames_2125_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191219\N4\4\file_00004_els__d1_512_d2_512_d3_1_order_F_frames_4755_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191219\N4\5\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_1586_.mmap',
+                 r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191219\N4\6\file_00006_els__d1_512_d2_512_d3_1_order_F_frames_1606_.mmap']
 
     fname_new = r'E:\PhD\Data\DG\M14_20191014\N1\memmap__d1_512_d2_512_d3_1_order_C_frames_34939_.mmap'
 

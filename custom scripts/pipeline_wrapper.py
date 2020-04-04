@@ -6,6 +6,8 @@ import caiman as cm
 import matplotlib.pyplot as plt
 import os
 import performance_check as performance
+import numpy as np
+import seaborn as sns
 
 """
 Complete pipeline for place cell analysis, from motion correction to place cell finding
@@ -32,7 +34,7 @@ pw_rigid = True  # flag to select rigid vs pw_rigid motion correction
 max_shifts = [int(a / b) for a, b in zip(max_shift_um, dxy)]
 # start a new patch for pw-rigid motion correction every x pixels
 strides = tuple([int(a / b) for a, b in zip(patch_motion_um, dxy)])
-# overlap between pathes (size of patch in pixels: strides+overlaps)
+# overlap between patches (size of patch in pixels: strides+overlaps)
 overlaps = (12, 12)
 # maximum deviation allowed for patch with respect to rigid shifts
 max_deviation_rigid = 3
@@ -59,8 +61,8 @@ opts = cnmf.params.CNMFParams(params_dict=mc_dict)
 root = pipe.set_file_paths()
 
 #%% Align behavioral data
-
-behavior.align_behavior(root, performance_check=True, verbose=False, overwrite=False)
+root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200321'
+behavior.align_behavior(root, performance_check=False, verbose=False, overwrite=False)
 
 # evaluate behavior
 mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18',
@@ -73,10 +75,24 @@ performance.multi_mouse_performance(mouse_list, precise_duration=False, separate
 
 #%% Perform motion correction
 
+roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32\20200322',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200322',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200322',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M35\20200322',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200322',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200322',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39\20200322',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40\20200322',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32\20200323',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200323',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200323',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M35\20200323',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200323',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200323',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39\20200323',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40\20200323']
 
 for root in roots:
-    if root == r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191129a':
-        opts.change_params({'dxy': (0.83, 0.76)})
     motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True, remove_c_order=True)
 
 
@@ -84,36 +100,6 @@ for root in roots:
 
 #%% CaImAn source extraction
 mmap_file, images = pipe.load_mmap(root)
-
-#%%
-p = 1  # order of the autoregressive system
-gnb = 3  # number of global background components (3)
-merge_thr = 0.70  # merging threshold, max correlation allowed (0.86)
-rf = 25
-# half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
-stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
-K = 20  # number of components per patch (10)
-gSig = [6, 6]
-# initialization method (if analyzing dendritic data using 'sparse_nmf')
-method_init = 'greedy_roi'
-ssub = 2  # spatial subsampling during initialization
-tsub = 2  # temporal subsampling during intialization
-
-# parameters for component evaluation
-opts_dict = {'fnames': None,
-             'nb': gnb,
-             'rf': rf,
-             'K': K,
-             'gSig': gSig,
-             'stride': stride_cnmf,
-             'method_init': method_init,
-             'rolling_sum': True,
-             'merge_thr': merge_thr,
-             'only_init': True,
-             'ssub': ssub,
-             'tsub': tsub}
-
-opts = opts.change_params(params_dict=opts_dict)
 
 #%% whole pipeline
 
@@ -155,13 +141,13 @@ opts = cnmf.params.CNMFParams(params_dict=mc_dict)
 
 # extraction parameters
 p = 1  # order of the autoregressive system
-gnb = 3  # number of global background components (3)
-merge_thr = 0.86  # merging threshold, max correlation allowed (0.86)
+gnb = 2  # number of global background components (3)
+merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
 rf = 25
 # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
-stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
+stride_cnmf = 20  # amount of overlap between the patches in pixels (20)
 K = 20  # number of components per patch (10)
-gSig = [4, 4] # expected half-size of neurons in pixels
+gSig = [5, 5]  # expected half-size of neurons in pixels
 # initialization method (if analyzing dendritic data using 'sparse_nmf')
 method_init = 'greedy_roi'
 ssub = 2  # spatial subsampling during initialization
@@ -182,10 +168,10 @@ opts_dict = {'fnames': None,
 opts = opts.change_params(params_dict=opts_dict)
 
 # evaluation parameters
-min_SNR = 6  # signal to noise ratio for accepting a component (default 2)
-SNR_lowest = 3
-rval_thr = 0.7  # space correlation threshold for accepting a component (default 0.85)
-cnn_thr = 0.6  # threshold for CNN based classifier (default 0.99)
+min_SNR = 7  # signal to noise ratio for accepting a component (default 2)
+SNR_lowest = 4
+rval_thr = 0.95  # space correlation threshold for accepting a component (default 0.85)
+cnn_thr = 0.99  # threshold for CNN based classifier (default 0.99)
 cnn_lowest = 0.1  # neurons with cnn probability lower than this value are rejected (default 0.1)
 
 opts_dict = {'decay_time': decay_time,
@@ -198,7 +184,7 @@ opts_dict = {'decay_time': decay_time,
 opts = opts.change_params(params_dict=opts_dict)
 
 # place cell parameters
-params = {'root': None,                  # main directory of this session
+pcf_params = {'root': None,                  # main directory of this session
           'trans_length': 0.5,           # minimum length in seconds of a significant transient
           'trans_thresh': 4,             # factor of sigma above which a transient is significant
           'bin_length': 5,               # length in cm VR distance of each bin in which to group the dF/F traces (has to be divisor of track_length
@@ -211,11 +197,22 @@ params = {'root': None,                  # main directory of this session
           'trans_time': 0.2,             # fraction of the (unbinned!) signal while the mouse is located in
                                          # the place field that should consist of significant transients
           'track_length': 400,           # length in cm of the virtual reality corridor
-          'split_size': 10}              # size in frames of bootstrapping segments
+          'split_size': 50}              # size in frames of bootstrapping segments
 
 #%%
-root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19'
-pipe.whole_caiman_pipeline_mouse(root, opts, params, dview, make_lcm=True, network='N2')
+roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191121b\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191122a\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191125\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191203b\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191204\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191205\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191206\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191207\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191219\N1']
+
+
+for root in roots:
+    pipe.whole_caiman_pipeline_mouse(root, opts, pcf_params, dview, make_lcm=True, network='N1')
 
 #%% separate functions
 cnm = pipe.run_source_extraction(images, opts, dview=dview)
@@ -224,23 +221,50 @@ cnm = pipe.run_source_extraction(images, opts, dview=dview)
 #else:
 lcm = pipe.get_local_correlation(images)
 cnm.estimates.Cn = lcm
-cnm.estimates.plot_contours(img=lcm)
+cnm.estimates.plot_contours(img=lcm, display_numbers=False)
 plt.savefig(os.path.join(root, 'all_components.png'))
 plt.close()
 
+#%% serial evaluation
+root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32\20200318'
+
+#%% perform extraction
+motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True, remove_c_order=True)
+
+root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32\20200322'
+
+mmap_file, images = pipe.load_mmap(root)
+cnm_params = cnm_params.change_params({'fnames': mmap_file[0]})
+cnm = pipe.run_source_extraction(images, cnm_params, dview=dview)
+pipe.save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False, overwrite=True)
+lcm = cm.local_correlations(images, swap_dim=False)
+lcm[np.isnan(lcm)] = 0
+cnm.estimates.Cn = lcm
+pipe.save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False, overwrite=True)
+cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
+plt.tight_layout()
+fig = plt.gcf()
+fig.set_size_inches((10, 10))
+plt.savefig(os.path.join(root, 'pre_sel_components.png'))
+pipe.save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False, overwrite=True)
+plt.close()
+
+
+#%% load pre-extracted data
+cnm = pipe.load_cnmf(root, 'cnm_pre_selection.hdf5')
+mmap_file, images = pipe.load_mmap(root)
 #%% COMPONENT EVALUATION
 # the components are evaluated in three ways:
 #   a) the shape of each component must be correlated with the data
 #   b) a minimum peak SNR is required over the length of a transient
 #   c) each shape passes a CNN based classifier
-min_SNR = 6  # signal to noise ratio for accepting a component (default 2)
-SNR_lowest = 3
-rval_thr = 0.7  # space correlation threshold for accepting a component (default 0.85)
-cnn_thr = 0.4  # threshold for CNN based classifier (default 0.99)
-cnn_lowest = 0.01  # neurons with cnn probability lower than this value are rejected (default 0.1)
+min_SNR = 10  # signal to noise ratio for accepting a component (default 2)
+SNR_lowest = 5.5
+rval_thr = 0.95  # space correlation threshold for accepting a component (default 0.85)
+cnn_thr = 0.99  # threshold for CNN based classifier (default 0.99)
+cnn_lowest = 0.05  # neurons with cnn probability lower than this value are rejected (default 0.1)
 
-cnm.params.set('quality', {'decay_time': decay_time,
-                           'SNR_lowest': SNR_lowest,
+cnm.params.set('quality', {'SNR_lowest': SNR_lowest,
                            'min_SNR': min_SNR,
                            'rval_thr': rval_thr,
                            'use_cnn': True,
@@ -248,7 +272,39 @@ cnm.params.set('quality', {'decay_time': decay_time,
                            'cnn_lowest': cnn_lowest})
 cnm = pipe.run_evaluation(images, cnm, dview=dview)
 
-cnm.estimates.plot_contours(img=cnm.estimates.Cn, idx=cnm.estimates.idx_components, display_numbers=False)
+cnm.estimates.plot_contours(img=cnm.estimates.Cn, idx=cnm.estimates.idx_components, display_numbers=True)
+
+pipe.save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False, overwrite=True)
+cnm.estimates.select_components(use_object=True)
+cnm.estimates.detrend_df_f(quantileMin=8, frames_window=int(len(cnm.estimates.C[0])/3))
+cnm.params.data['dff_window'] = int(len(cnm.estimates.C[0])/3)
+pipe.save_cnmf(cnm, path=os.path.join(root, 'cnm_results.hdf5'), overwrite=True, verbose=False)
+cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
+plt.tight_layout()
+fig = plt.gcf()
+fig.set_size_inches((10, 10))
+plt.savefig(os.path.join(root, 'components.png'))
+plt.close()
+
+pcf_params['root'] = root
+
+pcf = pc.PlaceCellFinder(cnm, pcf_params)
+# split traces into trials
+pcf.split_traces_into_trials()
+# align the frames to the VR position using merged behavioral data
+pcf.save()
+pcf.import_behavior_and_align_traces(remove_resting_frames=True)
+pcf.params['remove_resting_frames'] = True
+# create significant-transient-only traces
+pcf.create_transient_only_traces()
+pcf.save(overwrite=True)
+# look for place cells
+pcf.find_place_cells()
+# save pcf object
+if len(pcf.place_cells) > 0:
+    pcf.plot_all_place_cells(save=False, show_neuron_id=True)
+pcf.save(overwrite=True)
+
 plt.savefig(os.path.join(root, 'eval_components.png'))
 pipe.save_cnmf(cnm, root=root)
 print(f'Finished with {root}!')
@@ -258,7 +314,7 @@ cnm.estimates.view_components(images, img=cnm.estimates.Cn,
 cnm.estimates.view_components(images, img=cnm.estimates.Cn,
                                idx=cnm.estimates.idx_components_bad)
 cnm.estimates.select_components(use_object=True)
-cnm.estimates.detrend_df_f(quantileMin=8, frames_window=500)
+
 cnm.estimates.view_components(img=cnm.estimates.Cn)
 
 #pipe.save_cnmf(cnm, root=root)
@@ -281,18 +337,91 @@ params = {'root': root,                  # main directory of this session
           'split_size': 10}              # size in frames of bootstrapping segments
 
 #%%
-pcf = pc.PlaceCellFinder(cnm, params)
+# r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191203a\N1',
+# r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191203b\N1',
+# r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191205\N1',
+# r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191206\N1',
 
-# split traces into trials
-pcf.split_traces_into_trials()
-# create significant-transient-only traces
-pcf.create_transient_only_traces()
-# align the frames to the VR position using merged behavioral data
-pcf.import_behavior_and_align_traces()
-# look for place cells
-pcf.find_place_cells()
-pcf.plot_all_place_cells()
-# save pcf object
-pcf.save()
+roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191207\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191208\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191127a\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191206\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191207\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191208\N1']
 
+count = 0
+for root in roots:
+    cm.stop_server(dview=dview)
+    c, dview, n_processes = cm.cluster.setup_cluster(
+        backend='local', n_processes=None, single_thread=False)
+    mmap_file, images = pipe.load_mmap(root)
+    cnm_params = cnm_params.change_params({'fnames': mmap_file[0]})
+    if count%2 == 0:
+        cnm_params = cnm_params.change_params({'nb': 3})
+    else:
+        cnm_params = cnm_params.change_params({'nb': 2})
+    cnm = pipe.run_source_extraction(images, cnm_params, dview=dview)
+    pipe.save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False, overwrite=True)
+    lcm = cm.local_correlations(images, swap_dim=False)
+    lcm[np.isnan(lcm)] = 0
+    cnm.estimates.Cn = lcm
+    pipe.save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False, overwrite=True)
+    cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
+    plt.tight_layout()
+    fig = plt.gcf()
+    fig.set_size_inches((10, 10))
+    plt.savefig(os.path.join(root, 'pre_sel_components.png'))
+    plt.close()
+    count += 1
+    print('Done! \n \n \n \n')
+
+#%% Performance evaluation
+
+
+
+path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M35',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M36',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41']
+
+path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3']
+
+data = performance.load_performance_data(roots=path, novel=False, norm_date=None)
+
+performance.plot_all_mice_avg(data, rotate_labels=True)
+performance.plot_all_mice_separately(data, rotate_labels=True)
+performance.plot_single_mouse(data, 'M39')
+
+def compare_trans_only(obj, idx):
+    n_cols = 3
+    n_rows = obj.params['n_trial']+1
+
+    fig, ax = plt.subplots(n_rows, n_cols)
+
+    data = obj.session[idx]
+    data_trans = obj.session_trans[idx]
+
+    y_min = min(np.hstack(data))
+    y_max = max(np.hstack(data))
+
+    for i in range(n_rows):
+        if i < n_rows-1:
+            ax[i, 0].plot(data[i])
+            ax[i, 0].set_xticks([])
+            ax[i, 2].set_ylim(y_min, y_max)
+            ax[i, 1].plot(data_trans[i])
+            ax[i, 1].set_xticks([])
+            ax[i, 2].set_ylim(y_min, y_max)
+            ax[i, 2].plot(obj.bin_activity[idx][i])
+            ax[i, 2].set_xticks([])
+            ax[i, 2].set_ylim(y_min, y_max)
+
+        else:
+            ax[i, 2].plot(obj.bin_avg_activity[idx])
+            ax[i, 2].set_xticks([])
 
