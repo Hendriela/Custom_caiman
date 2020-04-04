@@ -15,6 +15,10 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import place_cell_class as pc
+from behavior_import import progress
+from skimage import io
+import preprocess as pre
+import tifffile as tif
 
 #%% File and directory handling
 
@@ -25,6 +29,7 @@ def set_file_paths():
     root.attributes('-topmost', True)
     root.after_idle(root.attributes, '-topmost', False)
     root_dir = filedialog.askdirectory(title='Select folder that contains all trial folders')
+    root_dir = root_dir.replace('/', '\\')
     root.withdraw()
     print(f'Root directory:\n {root_dir}')
     return root_dir
@@ -61,11 +66,14 @@ def save_cnmf(cnm, root=None, path=None, overwrite=False, verbose=True):
             cnm.save(save_path)
 
 
-def load_cnmf(root, cnm_filename='cnm_results.hdf5'):
+def load_cnmf(root, cnm_filename='cnm_results_manual.hdf5'):
     cnm_filepath = os.path.join(root, cnm_filename)
     cnm_file = glob(cnm_filepath)
     if len(cnm_file) < 1:
-        raise FileNotFoundError(f'No file with the name {cnm_filepath} found.')
+        if cnm_filename != 'cnm_results.hdf5':
+            return load_cnmf(root, 'cnm_results.hdf5')
+        else:
+            raise FileNotFoundError(f'No file with the name {cnm_filepath} found.')
     else:
         print(f'Loading file {cnm_file[0]}...')
         return cnmf.load_CNMF(cnm_file[0])
@@ -90,18 +98,27 @@ def load_mmap(root):
         return mmap_file[0], images
 
 
-def load_pcf(root):
-    pcf_path = glob(root + r'\\pcf_results.pickle')
-    if len(pcf_path) < 1:
-        pcf_path = glob(root + r'\\pcf_results')
+def load_pcf(root, fname=None):
+    if fname is not None:
+        pcf_path = glob(os.path.join(root, fname+'.pickle'))
         if len(pcf_path) < 1:
-            raise FileNotFoundError(f'No pcf file found in {root}.')
+            raise FileNotFoundError(f'No pcf file found in {os.path.join(root, fname)}.')
+    else:
+        pcf_path = glob(root + r'\\pcf_results_manual.pickle')
+        if len(pcf_path) < 1:
+            pcf_path = glob(root + r'\\pcf_results.pickle')
+            if len(pcf_path) < 1:
+                pcf_path = glob(root + r'\\pcf_results')
+                if len(pcf_path) < 1:
+                    raise FileNotFoundError(f'No pcf file found in {root}.')
+            elif len(pcf_path) > 1:
+                raise FileNotFoundError(f'More than one pcf file found in {root}.')
         elif len(pcf_path) > 1:
             raise FileNotFoundError(f'More than one pcf file found in {root}.')
-    elif len(pcf_path) > 1:
-        raise FileNotFoundError(f'More than one pcf file found in {root}.')
+    print(f'Loading file {pcf_path[0]}...')
     with open(pcf_path[0], 'rb') as file:
         obj = pickle.load(file)
+
     return obj
 
 #%% CNMF wrapper functions
@@ -114,7 +131,8 @@ def whole_caiman_pipeline_mouse(root, cnm_params, pcf_params, dview, make_lcm=Tr
                 if network == 'all' or network == step[0][-2:]:     # is it the correct network?
                     whole_caiman_pipeline_session(step[0], cnm_params, pcf_params, dview, make_lcm)
 
-def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=False, save_pre_sel_img=True, overwrite=False):
+def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=False, save_pre_sel_img=True,
+                                  overwrite=False, only_extraction=False):
     """
     Wrapper for the complete caiman and place cell pipeline. Performs source extraction, evaluation and place cell
     search for one session/network (one mmap file).
@@ -127,7 +145,7 @@ def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=
     """
     print(f'\nStarting processing of {root}...')
     mmap_file, images = load_mmap(root)
-    cnm_params = cnm_params.change_params({'fnames': mmap_file})
+    cnm_params = cnm_params.change_params({'fnames': mmap_file[0]})
     pcf_params['root'] = root
     cnm = run_source_extraction(images, cnm_params, dview=dview)
     save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False, overwrite=overwrite)
@@ -152,42 +170,48 @@ def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=
     print('\tFinished, now evaluating components...')
     cnm = run_evaluation(images, cnm, dview=dview)
     save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), overwrite=True, verbose=False)
-    cnm.estimates.select_components(use_object=True)
+    if not only_extraction:
+        cnm.estimates.select_components(use_object=True)
     print('\tFinished, now creating dF/F trace...')
-    cnm.estimates.detrend_df_f(quantileMin=8, frames_window=500)
-    if make_lcm:
-        cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
-        plt.tight_layout()
-        fig = plt.gcf()
-        fig.set_size_inches((10, 10))
-        plt.savefig(os.path.join(root, 'components.png'))
-        plt.close()
-    print('\tFinished, now searching for place cells...')
-    pcf = pc.PlaceCellFinder(cnm, pcf_params)
-    # split traces into trials
-    pcf.split_traces_into_trials()
-    # create significant-transient-only traces
-    pcf.create_transient_only_traces()
-    # align the frames to the VR position using merged behavioral data
-    pcf.save()
-    pcf.import_behavior_and_align_traces()
-    # look for place cells
-    pcf.find_place_cells()
-    # save pcf object
-    if len(pcf.place_cells) > 0:
-        pcf.plot_all_place_cells(save=True, show_neuron_id=True)
-    pcf.save(overwrite=True)
-    # delete cnmf object if pcf object could be saved successfully (cnmf is included in pcf)
-    os.remove(os.path.join(root, 'cnm_pre_selection.hdf5'))
-    print('Finished!')
+    cnm.estimates.detrend_df_f(quantileMin=8, frames_window=5000)
+    cnm.params.data['dff_window'] = 5000
+    if not only_extraction:
+        save_cnmf(cnm, path=os.path.join(root, 'cnm_results.hdf5'), overwrite=True, verbose=False)
+        if make_lcm:
+            cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
+            plt.tight_layout()
+            fig = plt.gcf()
+            fig.set_size_inches((10, 10))
+            plt.savefig(os.path.join(root, 'components.png'))
+            plt.close()
+        print('\tFinished, now searching for place cells...')
+        pcf = pc.PlaceCellFinder(cnm, pcf_params)
+        # split traces into trials
+        pcf.split_traces_into_trials()
+        # align the frames to the VR position using merged behavioral data
+        pcf.save()
+        pcf.import_behavior_and_align_traces(remove_resting_frames=True)
+        pcf.params['remove_resting_frames'] = True
+        # create significant-transient-only traces
+        pcf.create_transient_only_traces()
+        pcf.save(overwrite=True)
+        # look for place cells
+        pcf.find_place_cells()
+        # save pcf object
+        if len(pcf.place_cells) > 0:
+            pcf.plot_all_place_cells(save=False, show_neuron_id=True)
+        pcf.save(overwrite=True)
+        # delete cnmf object if pcf object could be saved successfully (cnmf is included in pcf)
+        print('Finished!')
 
-def get_local_correlation(images):
+
+def get_local_correlation(movie):
     """
     Calculates local correlation map of a movie.
-    :param images:  mmap file of the movie with the dimensions [n_frames x X x Y]
+    :param movie:  mmap file of the movie with the dimensions [n_frames x X x Y]
     :return lcm: local correlation map
     """
-    lcm = cm.local_correlations(images, swap_dim=False)
+    lcm = cm.local_correlations(movie, swap_dim=False)
     lcm[np.isnan(lcm)] = 0
     return lcm
 
@@ -235,9 +259,9 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
     # First, get a list of all folders that include contiguous imaging sessions (have to be motion corrected together)
     dir_list = []
     for step in os.walk(root):
-        if len(glob(step[0] + r'\\file*.tif')) > 0:
+        if len(glob(step[0] + r'\\file_0*.tif')) > 0:
             up_dir = step[0].rsplit(os.sep, 1)[0]
-            if len(glob(up_dir + r'\\memmap__d1_*.mmap')) == 0 and up_dir not in dir_list:
+            if len(glob(up_dir + r'memmap__d1_*.mmap')) == 0 and up_dir not in dir_list:
                 dir_list.append(up_dir)   # this makes a list of all folders that contain single-trial imaging folders
 
     mmap_list = []
@@ -262,18 +286,37 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
             # list of all .tif files of that session which should be corrected together, sorted by their trial number
             file_list = glob(session + r'\\*\\file*.tif')
             file_list.sort(key=natural_keys)
-            print(f'\nNow starting to motion correct session {session} ({len(file_list)} trials).')
-            # perform motion correction
+            print(f'\nNow starting to process session {session} ({len(file_list)} trials).')
 
-            ### FOR M25 ###
-            if session[-2:] == r'N3':
-                params.change_params({'dxy': (0.83, 0.76)})
-            else:
-                params.change_params({'dxy': (1.66, 1.52)})
-            ###
-            mc = MotionCorrect(file_list, dview=dview, **params.get_group('motion'))
+            # Preprocessing
+            temp_files = []
+            for raw_file in file_list:
+                ### Preprocessing steps from Adrian:
+                ### (https://github.com/HelmchenLabSoftware/adrian_pipeline/blob/master/schema/img.py#L401)
+                stack = io.imread(raw_file)
+
+                # correct stack and also crop artifact on left side of image
+                stack = pre.correct_line_shift_stack(stack, crop_left=20, crop_right=20)
+
+                # Make movie positive (negative values crash NON-NEGATIVE matrix factorisation)
+                stack = stack - int(np.percentile(stack, 0.1))
+
+                new_path = raw_file[:-4] + '_corrected.tif'  # avoid overwriting
+                tif.imwrite(new_path, data=stack)
+                temp_files.append(new_path)
+
+            # Perform motion correction
+
+            # ### FOR M25 ###
+            # if session[-2:] == r'N3':
+            #     params.change_params({'dxy': (0.83, 0.76)})
+            # else:
+            #     params.change_params({'dxy': (1.66, 1.52)})
+            # ###
+            mc = MotionCorrect(temp_files, dview=dview, **params.get_group('motion'))
             mc.motion_correct(save_movie=True)
             border_to_0 = 0 if mc.border_nan == 'copy' else mc.border_to_0
+
             # memory map the file in order 'C'
             print(f'Finished motion correction. Starting to save files in C-order...')
             fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C', border_to_0=border_to_0)
@@ -291,6 +334,11 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
                         path = line[:-1]
                         os.remove(path)
                 os.remove(temp_file)
+
+            # remove temporary corrected.tif files
+            for file in temp_files:
+                os.remove(file)
+
             print('Finished!')
 
     else:
@@ -299,3 +347,237 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
     return mmap_list, dview
 
 
+
+#%% Spatial information
+
+def si_formula(data, position, n_bins=60):
+    """
+    True function that actually calculates spatial information. Data and position should be preprocessed.
+    :param data: np.array containing neural data (spike probabilities); shape (#samples x #neurons)
+    :param position: np.array containing position data for every sample; shape (#samples x 1)
+    :param n_bins: number of bins the data should be binned into. Default is 60.
+    :return spatial_info: 1D np.array with shape (#neurons) containing SI value for every neuron
+    """
+    # bin data into n_bins, get mean event rate per bin
+    bin_borders = np.linspace(int(min(position)), int(max(position)), n_bins)
+    idx = np.digitize(position, bin_borders)  # get indices of bins
+
+    # get fraction of bin occupancy
+    unique_elements, counts_elements = np.unique(idx, return_counts=True)
+    bin_freq = np.array([x / np.sum(counts_elements) for x in counts_elements])
+
+    # get mean spikes/s for each bin
+    bin_mean_act = np.zeros((n_bins, data.shape[1]))
+    for bin_nr in range(n_bins):
+        curr_bin_idx = np.where(idx == bin_nr + 1)[0]
+        bin_act = data[curr_bin_idx]
+        bin_mean_act[bin_nr, :] = np.sum(bin_act, axis=0) / (bin_act.shape[0] / 30)  # firing rate per second
+        # bin_mean_act[bin_nr, :] = np.mean(bin_act, axis=0)    # firing rate per frame
+    total_firing_rate = np.sum(data, axis=0) / (data.shape[0] / 30)
+    # total_firing_rate = np.mean(data, axis=0)
+
+    # calculate spatial information content
+    spatial_info = np.zeros(len(total_firing_rate))
+    for cell in range(len(total_firing_rate)):
+        curr_trace = bin_mean_act[:, cell]
+        tot_act = total_firing_rate[cell]  # this is the total dF/F averaged across all bins
+        bin_si = np.zeros(n_bins)  # initialize array that holds SI value for each bin
+        for i in range(n_bins):
+            # apply the SI formula to every bin
+            if curr_trace[i] <= 0 or tot_act <= 0:
+                bin_si[i] = np.nan
+            else:
+                bin_si[i] = curr_trace[i] * np.log2(curr_trace[i] / tot_act) * bin_freq[i]
+        if np.all(np.isnan(bin_si)):
+            spatial_info[cell] = np.nan
+        else:
+            spatial_info[cell] = np.nansum(bin_si)
+
+    return spatial_info
+
+
+def get_spatial_info(all_data, behavior, n_bootstrap=2000):
+
+    # %% remove samples where the mouse was stationary (less than 30 movement per frame)
+    all_position = []
+    behavior_masks = []
+    for trial in behavior:
+        all_position.append(trial[np.where(trial[:, 3] == 1), 1])  # get position of mouse during every frame
+        behavior_masks.append(np.ones(int(np.nansum(trial[:, 3])), dtype=bool))  # bool list for every frame of that trial
+        frame_idx = np.where(trial[:, 3] == 1)[0]  # find sample_idx of all frames
+        for i in range(len(frame_idx)):
+            if i != 0:
+                if np.nansum(trial[frame_idx[i - 1]:frame_idx[i], 4]) > -30:  # make index of the current frame False if
+                    behavior_masks[-1][i] = False  # the mouse didn't move much during the frame
+            else:
+                if trial[0, 4] > -30:
+                    behavior_masks[-1][i] = False
+    all_position = np.hstack(all_position).T
+    # trial_lengths = [int(np.sum(trial)) for trial in behavior_masks]
+
+    behavior_mask = np.hstack(behavior_masks)
+    data = all_data[behavior_mask]
+    position = all_position[behavior_mask]
+
+    # dimension extension necessary if input data is only from one neuron
+    if len(data.shape) == 1:
+        data = data[..., np.newaxis]
+    # remove data points where decoding was nan (beginning and end)
+    nan_mask = np.isnan(data[:, 0])
+    data = data[~nan_mask]
+    position = position[~nan_mask]
+
+    # get SI of every cell
+    si_raw = si_formula(data, position)
+
+    if n_bootstrap > 0:
+        # Bootstrapping:
+        # Create new data trace by taking a random value of original data and adding it to a random idx of a new array.
+        # Do this X times for every neuron. Normalize raw SI by the average bootstrapped SI for every neuron.
+        si_norm = np.zeros((len(si_raw), 2))
+        for cell in range(len(si_norm)):
+            progress(cell + 1, len(si_norm), status=f'Performing bootstrapping (cell {cell + 1}/{len(si_norm)})')
+            orig_data = data[:, cell]
+            cell_boot = np.zeros((len(orig_data), n_bootstrap))
+            for j in range(n_bootstrap):
+                # get a new trace from the original one by randomly selecting data points for every index
+                new_trace = np.zeros(len(orig_data))  # initialize empty array for new trace
+                for idx in range(len(orig_data)):  # go through entries in new_trace
+                    rand_idx = np.random.randint(0, len(orig_data) - 1)  # get a random idx to fill in the current entry
+                    new_trace[idx] = orig_data[
+                        rand_idx]  # fill the current entry with the random entry of the orig data
+                # get spatial information of the newly constructed trace and add it to the cell-wide array
+                cell_boot[:, j] = new_trace
+            # perform bootstrapping (pretend that every random trace is a different cell)
+            si_boot = si_formula(cell_boot, position)
+            # after bootstrapping, normalize the SI of the current cell by the average bootstrapped SI
+            si_norm[cell, 0] = si_raw[cell] / np.mean(si_boot)
+            # add percentage of higher bootstrap SI than original SI
+            si_norm[cell, 1] = sum(si > si_raw[cell] for si in si_boot) / n_bootstrap
+        return si_norm
+
+    else:
+        return si_raw
+
+def check_eval_results(cnm, idx, plot_contours=False):
+    """Checks results of component evaluation and determines why the component got rejected or accepted
+
+    Args:
+        cnm:                caiman CNMF object containing estimates and evaluate_components() results
+
+        idx:                int or iterable (array, list...)
+                            index or list of indices of components to be checked
+
+    Returns:
+        printout of evaluation results
+    """
+    try:
+        iter(idx)
+        idx = list(idx)
+    except:
+        idx = [idx]
+    snr_min = cnm.params.quality['SNR_lowest']
+    snr_max = cnm.params.quality['min_SNR']
+    r_min = cnm.params.quality['rval_lowest']
+    r_max = cnm.params.quality['rval_thr']
+    cnn_min = cnm.params.quality['cnn_lowest']
+    cnn_max = cnm.params.quality['min_cnn_thr']
+
+    for i in range(len(idx)):
+        snr = cnm.estimates.SNR_comp[idx[i]]
+        r = cnm.estimates.r_values[idx[i]]
+        cnn = cnm.estimates.cnn_preds[idx[i]]
+        cnn_round = str(round(cnn, 2))
+
+        red_start = '\033[1;31;49m'
+        red_end = '\033[0;39;49m'
+
+        green_start = '\033[1;32;49m'
+        green_end = '\033[0;39;49m'
+
+        upper_thresh_failed = 0
+        lower_thresh_failed = False
+
+        print(f'Checking component {idx[i]+1}...')
+        if idx[i] in cnm.estimates.idx_components:
+            print(green_start+f'\nComponent {idx[i]+1} got accepted, all lower threshold were passed!'+green_end+'\n\n\tUpper thresholds:\n')
+
+            if snr >= snr_max:
+                print(green_start+f'\tSNR of {round(snr,2)} exceeds threshold of {snr_max}\n'+green_end)
+            else:
+                print(f'\tSNR of {round(snr,2)} does not exceed threshold of {snr_max}\n')
+
+            if r >= r_max:
+                print(green_start+f'\tR-value of {round(r,2)} exceeds threshold of {r_max}\n'+green_end)
+            else:
+                print(f'\tR-value of {round(r,2)} does not exceed threshold of {r_max}\n')
+
+            if cnn >= cnn_max:
+                print(green_start+'\tCNN-value of '+cnn_round+f' exceeds threshold of {cnn_max}\n'+green_end)
+            else:
+                print('\tCNN-value of '+cnn_round+f' does not exceed threshold of {cnn_max}\n')
+            print(f'\n')
+
+        else:
+            print(f'\nComponent {idx[i] + 1} did not get accepted. \n\n\tChecking thresholds:\n')
+
+            if snr >= snr_max:
+                print(green_start+f'\tSNR of {round(snr,2)} exceeds upper threshold of {snr_max}\n'+green_end)
+            elif snr >= snr_min and snr < snr_max:
+                print(f'\tSNR of {round(snr,2)} exceeds lower threshold of {snr_min}, but not upper threshold of {snr_max}\n')
+                upper_thresh_failed += 1
+            else:
+                print(red_start+f'\tSNR of {round(snr,2)} does not pass lower threshold of {snr_min}\n'+red_end)
+                lower_thresh_failed = True
+
+            if r >= r_max:
+                print(green_start+f'\tR-value of {round(r,2)} exceeds upper threshold of {r_max}\n'+green_end)
+            elif r >= r_min and r < r_max:
+                print(f'\tR-value of {round(r,2)} exceeds lower threshold of {r_min}, but not upper threshold of {r_max}\n')
+                upper_thresh_failed += 1
+            else:
+                print(f'\tR-value of {round(r,2)} does not pass lower threshold of {r_min}\n')
+                lower_thresh_failed = True
+
+            if cnn >= cnn_max:
+                print(green_start+'\tCNN-value of '+cnn_round+f' exceeds threshold of {cnn_max}\n'+green_end)
+            elif cnn >= cnn_min and cnn < cnn_max:
+                print('\tCNN-value of '+cnn_round+f' exceeds lower threshold of {cnn_min}, but not upper threshold of {cnn_max}\n')
+                upper_thresh_failed += 1
+            else:
+                print(red_start+'\tCNN-value of '+cnn_round+f' does not pass lower threshold of {cnn_min}\n'+red_end)
+                lower_thresh_failed = True
+
+            if lower_thresh_failed:
+                print(red_start+f'Result: Component {idx[i]+1} got rejected because it failed at least one lower threshold!\n\n'+red_end)
+            elif upper_thresh_failed == 3 and not lower_thresh_failed:
+                print(red_start+f'Result: Component {idx[i]+1} got rejected because it met all lower, but no upper thresholds!\n\n'+red_end)
+            else:
+                print('This should not appear, check code logic!\n\n')
+
+    if plot_contours:
+        plt.figure()
+        out = cm.utils.visualization.plot_contours(cnm.estimates.A[:, idx], cnm.estimates.Cn,
+                                                   display_numbers=False, colors='r')
+
+
+def reject_cells(cnm, idx):
+    mask = np.ones(len(cnm.estimates.idx_components), dtype=bool)
+    mask[idx] = False
+
+    bad_cells = cnm.estimates.idx_components[~mask]
+
+    cnm.estimates.idx_components_bad = np.concatenate((cnm.estimates.idx_components_bad, bad_cells))
+    cnm.estimates.idx_components = cnm.estimates.idx_components[mask]
+    return cnm
+
+
+def accept_cells(cnm, idx):
+    mask = np.ones(len(cnm.estimates.idx_components_bad), dtype=bool)
+    mask[idx] = False
+
+    good_cells = cnm.estimates.idx_components_bad[~mask]
+
+    cnm.estimates.idx_components = np.concatenate((cnm.estimates.idx_components, good_cells))
+    cnm.estimates.idx_components_bad = cnm.estimates.idx_components_bad[mask]
+    return cnm
