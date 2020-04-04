@@ -6,50 +6,228 @@ import matplotlib.pyplot as plt
 import os
 from sklearn.svm import LinearSVC
 from sklearn import preprocessing
-from math import ceil
+from math import ceil, floor
 import pickle
+from statannot import add_stat_annotation
+from ScanImageTiffReader import ScanImageTiffReader
+from scipy import stats
+from behavior_import import progress
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from glob import glob
 
-roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191121b\N2',
+#r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191121b\N2',
+roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191122a\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191125\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191126b\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191127a\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191203a\N1',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191122a\N2',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191125\N2',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191126b\N2',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191127a\N2',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2',
          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191205\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191121b\N1',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191204\N1\pcf_results_nobadtrials.pickle',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191121b\N1',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191204\N1']
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191206\N2',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191207\N2',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191208\N2',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2']
+    #
+    #      r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191121b\N1',
+    #      r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191204\N1\pcf_results_nobadtrials.pickle',
+    #      r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191205\N1',
+    #      r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191121b\N1',
+    #      r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191204\N1']
 
-#%% spatial information
+#%% re-compute dF/F and save data for peter to deconvolve
+aim = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\calcium_data_peter'
 for root in roots:
-    if root == r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191204\N1\pcf_results_nobadtrials.pickle':
-        with open(root, 'rb') as file:
-            pcf = pickle.load(file)
-    else:
-        pcf = pipe.load_pcf(root)
-
-    pcf.import_behavior_and_align_traces(remove_resting_frames=True)
+    pcf_old = pipe.load_pcf(root)
+    # pcf.cnmf.estimates.detrend_df_f(quantileMin=8, frames_window=4000)
+    # pcf.params['dff_frame_window'] = 4000
+    # # recompute place cells with new dF/F
+    # pcf.split_traces_into_trials()
+    # # align the frames to the VR position using merged behavioral data
+    # pcf.import_behavior_and_align_traces(remove_resting_frames=True)
+    # pcf.params['remove_resting_frames'] = True
+    # # create significant-transient-only traces
     # pcf.create_transient_only_traces()
+    # # look for place cells
     # pcf.find_place_cells()
+    # # save pcf object
     # if len(pcf.place_cells) > 0:
-    #     pcf.plot_all_place_cells(save=False, show_neuron_id=True)
-    # pcf.save('pcf_results_no_resting')
-    spatial_info = pcf.get_spatial_information(trace='S')
+    pcf.plot_all_place_cells(save=True, show_neuron_id=True, fname='place_cells_old_dff')
+    # pcf.save(file_name='pcf_results_new_dff')
+    #
+    # fname = 'dff_' + pcf.params['mouse'] + '_' + pcf.params['session']
+    # np.save(os.path.join(aim, fname), pcf.cnmf.estimates.F_dff)
+
+#%% combine all pcf objects into one big one and plot place cells
+pcf_list = []
+for root in roots:
+    self = pipe.load_pcf(root)
+    behavior = []
+    is_faulty = False
+    count = 0
+    # find directories, files and frame counts
+    self.params['frame_list'] = []
+    for trial in self.params['trial_list']:
+        if len(glob(trial + '//*.mmap')) == 1:
+            self.params['frame_list'].append(int(glob(trial + '//*.mmap')[0].split('_')[-2]))
+        elif len(glob(trial + '//*.tif')) == 1:
+            with ScanImageTiffReader(glob(trial + '//*.tif')[0]) as tif:
+                frame_count = tif.shape()[0]
+            self.params['frame_list'].append(frame_count)
+        else:
+            print(f'No movie files found at {trial}!')
+
+    if self.params['trial_list'] is not None:
+        for trial in self.params['trial_list']:
+            path = glob(trial + '//merged_behavior*.txt')
+            if len(path) >= 1:
+                # if there are more than 1 behavior file, load the latest
+                mod_times = [os.path.getmtime(file) for file in path]
+                behavior.append(np.loadtxt(path[np.argmax(mod_times)], delimiter='\t'))
+                count_list = int(self.params['frame_list'][count])
+                count_imp = int(np.nansum(behavior[-1][:, 3]))
+                if count_imp != count_list:
+                    print(f'Contradicting frame counts in trial {trial} (no. {count}):\n'
+                          f'\tExpected {count_list} frames, imported {count_imp} frames...')
+                    is_faulty = True
+                count += 1
+            else:
+                print(f'Couldnt find behavior file at {trial}')
+        if is_faulty:
+            raise Exception('Frame count mismatch detected, stopping analysis.')
+    else:
+        raise Exception('You have to provide trial_list before aligning data to VR position!')
+    self.behavior = behavior
+    pcf_list.append(self)
+
+# place_cell_data
+# for pcf in pcf_list:
+#     dff_tot = 0
+
+#%% spatial information functions
+
+#%%
+
+all_sess_si = []
+# for root in roots:
+#     if root == r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191204\N1\pcf_results_nobadtrials.pickle':
+#         with open(root, 'rb') as file:
+#             pcf = pickle.load(file)
+#     else:
+#         pcf = pipe.load_pcf(root)
+
+for pcf in pcf_list:
+
+    #data_all = np.load(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2\deconvolved_PR.npy').T
+    # data_all = pcf.cnmf.estimates.F_dff.T
+    # position_all = []
+    # for trial in range(len(pcf.behavior)):
+    #     position_all.append(pcf.behavior[trial][np.where(pcf.behavior[trial][:, 3] == 1), 1])
+    # position_all = np.hstack(position_all).T
+
+    spatial_info = pipe.get_spatial_info(pcf.cnmf.estimates.F_dff.T, pcf.behavior, n_bootstrap=0)
+
+    # %% plot spatial info
     pc_label = []
     pc_idx = [x[0] for x in pcf.place_cells]
     pc_rej = [x[0] for x in pcf.place_cells_reject]
     for cell_idx in range(len(spatial_info)):
         if cell_idx in pc_idx:
-            pc_label.append('accepted')
-        elif cell_idx in pc_rej:
-            pc_label.append('rejected')
+            pc_label.append('yes')
+        # elif cell_idx in pc_rej:
+        #     pc_label.append('rejected')
         else:
             pc_label.append('no')
-    df = pd.DataFrame(data={'SI': spatial_info, 'Place cell': pc_label, 'dummy': np.zeros(len(spatial_info))})
-    plt.figure()
-    sns.stripplot(x='dummy', y='SI', data=df, hue='Place cell')
-    file_dir = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\spatial information'
-    mouse = pcf.params['mouse']
-    session = pcf.params['session']
-    file_name = f'spatial_info_{mouse}_{session}_no_rest.png'
-    plt.title(f'Spatial info {mouse}, {session}')
-    plt.savefig(os.path.join(file_dir, file_name))
+
+    # add sample size to labels
+    no_count = pc_label.count('no')
+    acc_count = pc_label.count('yes')
+    rej_count = pc_label.count('rejected')
+    pc_label = [f'no (n={no_count})' if x == 'no' else x for x in pc_label]
+    pc_label = [f'yes (n={acc_count})' if x == 'yes' else x for x in pc_label]
+    pc_label = [f'rejected (n={rej_count})' if x == 'rejected' else x for x in pc_label]
+
+    df = pd.DataFrame(data={'SI [bits/sec]': spatial_info, 'Place cell': pc_label, 'dummy': np.zeros(len(spatial_info))})
+
+    # file_dir = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\spatial information\no_trial_split_bartosformula'
+    # mouse = pcf.params['mouse']
+    # session = pcf.params['session']
+    # file_name = f'spatial_info_{mouse}_{session}.png'
+    # fig = plt.figure()
+    # plt.title(f'Spatial info {mouse}, {session}')
+    # ax = sns.barplot(x='Place cell', y='SI [bits/sec]', data=df)
+    # if acc_count > 3: # only perform statistical test if there are at least 4 place cells detected
+    #     results = add_stat_annotation(ax, data=df, x='Place cell', y='SI [bits/sec]', text_format='full',
+    #                                   box_pairs=[(f'yes (n={acc_count})', f'no (n={no_count})')], test='Mann-Whitney',
+    #                                   verbose=2)
+    # sns.stripplot(x='Place cell', y='SI [bits/sec]', data=df, linewidth=1)
+    # plt.savefig(os.path.join(file_dir, file_name))
+    # if root[57:60] == 'M19':
+    all_sess_si.append(df)
+
+#%% plot SI over time
+
+# create unified dataframe
+all_sess_df = pd.concat(all_sess_si, ignore_index=True)
+all_sess_df = all_sess_df.rename(columns={'dummy': 'session'})
+# label different sessions
+session_dates = ['20191122', '20191125', '20191126', '20191127', '20191203', '20191122', '20191125', '20191126',
+                 '20191127', '20191204', '20191205', '20191206', '20191207', '20191208', '20191219']
+session_cellcount = [x.shape[0] for x in all_sess_si]
+session_label = np.zeros(np.sum(session_cellcount), dtype='object')
+last_idx = 0
+for i in range(len(session_dates)):
+    next_idx = last_idx+session_cellcount[i]
+    session_label[last_idx:next_idx] = session_dates[i]
+    last_idx = next_idx
+
+all_sess_df['session'] = session_label
+
+# change place cell label (remove n)
+pc_labels = list(all_sess_df['Place cell'])                  # temporarily save labels in a list
+pc_labels = ['no' if 'no' in x else x for x in pc_labels]    # replace all 'no' labels
+pc_labels = ['yes' if 'yes' in x else x for x in pc_labels]  # replace all 'yes' labels
+all_sess_df['Place cell'] = pc_labels                        # put edited list back into dataframe
+
+# filter out all place cells with SI = 0
+
+ax = sns.lineplot(x='session', y='SI [bits/sec]', data=all_sess_df)
+xlabels = ax.get_xticklabels()
+print(xlabels)
+ax.set_xticklabels(xlabels, rotation=45, horizontalalignment='right')
+plt.tight_layout()
+
+#%% SI barplot
+
+fig = plt.figure()
+ax = sns.barplot(x='Place cell', y='SI [bits/sec]', data=all_sess_df)
+results = add_stat_annotation(ax, data=all_sess_df, x='Place cell', y='SI [bits/sec]', text_format='full',
+                              box_pairs=[(f'yes', f'no')], test='Mann-Whitney',
+                              verbose=2)
+sns.stripplot(x='Place cell', y='SI [bits/sec]', data=all_sess_df, linewidth=1)
+
+#%% compare pre- and poststroke
+#pre_si = pd.concat(all_sess_si[1:6])['SI [bits/sec]']
+#post_si = pd.concat(all_sess_si[6:])['SI [bits/sec]']
+pre_si = pd.concat(all_sess_si[1:6])
+post_d1 = all_sess_si[6]
+post_d2 = all_sess_si[7]
+post_d3 = all_sess_si[8]
+# make list for column labels
+pre_post_df = pd.DataFrame(pd.concat([pre_si, post_si], ignore_index=True))
+pre_post_label = np.zeros(len(pre_post_df), dtype='object')
+pre_post_label[:len(pre_si)] = 'pre'
+pre_post_label[len(pre_si):] = 'post'
+pre_post_df['Stroke'] = pre_post_label
+
+ax = sns.violinplot(x='Stroke', y='SI [bits/sec]', data=pre_post_df)
+results = add_stat_annotation(ax, data=pre_post_df, x='Stroke', y='SI [bits/sec]',
+                              box_pairs=[('pre', 'post')], test='Mann-Whitney')
+plt.figure();
+sns.barplot(x='Stroke', y='SI [bits/sec]', data=pre_post_df)
 
 #%% position decoding
 for root in roots:
@@ -149,5 +327,160 @@ for root in roots:
     plt.savefig(os.path.join(file_dir, file_name))
 
 
-#%%
+#%% fraction of transients (crude activity levels)
+ratio_df = pd.DataFrame()
+for root in roots:
+    pcf = pipe.load_pcf(root)
 
+    # combine transient only traces of all neurons into one array
+    sess_trans = np.vstack([np.concatenate(x) for x in pcf.session_trans])
+    # calculate transient ratio (how many frames consist of significant transients)
+    trans_ratio = np.sum(sess_trans, axis=1)/sess_trans.shape[1]
+
+    # create place cell labels
+    pc_idx = [x[0] for x in pcf.place_cells]
+    pc_labels = np.zeros(len(trans_ratio), dtype=object)
+    pc_labels[:] = 'no'
+    pc_labels[pc_idx] = 'yes'
+
+    # create session label:
+    sess_label = [root[61:69]]*len(trans_ratio)
+
+    # put data into a data frame
+    curr_df = pd.DataFrame({'data': trans_ratio, 'session': sess_label, 'pc': pc_labels})
+
+    # merge dataframes
+    if ratio_df.empty:
+        ratio_df = curr_df
+    else:
+        ratio_df = pd.concat((ratio_df, curr_df))
+
+#%% correlation coefficients
+
+ratio_df = pd.DataFrame()
+for root in roots:
+    pcf = pipe.load_pcf(root)
+
+    coef_matrix = np.corrcoef(pcf.cnmf.estimates.F_dff)  # create correlation matrix
+    top_idx = np.triu_indices(coef_matrix.shape[0])      # get indices of top triangle
+    # coef_matrix[top_idx] = 100                          # set top triangle to arbitrary value for later filtering
+    # corrcoef = coef_matrix.flatten()                     # flatten array into a 1D array
+    # corrcoef = corrcoef[np.where(corrcoef != 100)]       # remove previously marked indices
+    diag_idx = np.diag_indices(coef_matrix.shape[0])
+    coef_matrix[diag_idx] = np.nan
+    corrcoef = np.nanmean(coef_matrix, axis=1)
+
+
+    # create place cell labels
+    pc_idx = [x[0] for x in pcf.place_cells]
+    pc_labels = np.zeros(len(corrcoef), dtype=object)
+    pc_labels[:] = 'no'
+    pc_labels[pc_idx] = 'yes'
+
+    # create session label:
+    sess_label = [root[61:69]]*len(corrcoef)
+
+    # put data into a data frame
+    curr_df = pd.DataFrame({'data': corrcoef, 'session': sess_label, 'pc': pc_labels})
+
+    # merge dataframes
+    if ratio_df.empty:
+        ratio_df = curr_df
+    else:
+        ratio_df = pd.concat((ratio_df, curr_df))
+
+
+#%% plot fraction of transients
+
+ratio_df_filtered = ratio_df[ratio_df['session'] != '20191121']
+ratio_df_filtered = ratio_df_filtered[ratio_df_filtered['session'] != '20191126']
+
+
+ax = sns.violinplot(x='session', y='data', hue='pc', data=ratio_df_filtered)
+ax = sns.lineplot(x='session', y='data', data=ratio_df_filtered)
+
+# results = add_stat_annotation(ax, data=pre_post_df, x='Stroke', y='SI [bits/sec]',
+#                               box_pairs=[('pre', 'post')], test='Mann-Whitney')
+
+def plot_all_place_cells_manual(place_cell_list, save=False, show_neuron_id=False, show_place_fields=True,
+                                sort='field', fname='place_cells'):
+    """
+    Plots all place cells in the data set by line graph and pcolormesh.
+    :param save: bool flag whether the figure should be automatically saved in the root and closed afterwards.
+    :param show_neuron_id: bool flag whether neuron ID should be plotted next to the line graphs
+    :param show_place_fields: bool flag whether place fields should be marked red in the line graph
+    :param sort: str, how should the place cells be sorted? 'Max' sorts them for the earliest location of the
+    maximum in each trace, 'field' sorts them for the earliest place field.
+    :return:
+    """
+    n_neurons = 0
+    trace_list = []
+    for pcf_obj in place_cell_list:
+        place_cell_idx = [x[0] for x in pcf_obj.place_cells]
+
+        traces = pcf_obj.bin_avg_activity[place_cell_idx]
+        n_neurons += traces.shape[0]
+    # figure out y-axis limits by rounding the maximum value in traces up to the next 0.05 step
+        max_y = 0.05 * ceil(traces.max() / 0.05)
+        min_y = 0.05 * floor(traces.min() / 0.05)
+        trace_list.append(traces)
+    traces = np.vstack(trace_list)
+
+    # sort neurons after different criteria
+    bins = []
+    for i in range(n_neurons):
+        bins.append((i, np.argmax(traces[i, :])))
+    bins_sorted = sorted(bins, key=lambda tup: tup[1])
+
+    traces_sort = np.zeros(traces.shape)
+    for j in range(len(bins_sorted)):
+        traces_sort[j] = traces[bins_sorted[j][0]]
+
+    # remove bad neurons
+    bad_traces = np.array([18, 139, 140, 191, 207, 209, 234])
+    traces_final = np.delete(traces_sort, bad_traces, axis=0)
+
+    fig = plt.figure()
+    img = plt.pcolormesh(traces_final, vmax=max_y, vmin=min_y, cmap='jet')
+    ax = plt.gca()
+    ax.invert_yaxis()
+
+    # set x ticks to VR position, not bin number
+    ax.set_xlim(0, traces.shape[1])
+    x_locs, labels = plt.xticks()
+    plt.xticks(x_locs, (x_locs * 5).astype(int), fontsize=15)
+    plt.yticks(fontsize=15)
+    # set axis labels and tidy up graph
+    ax.set_xlabel('VR position [cm]', fontsize=18)
+    ax.set_ylabel('# neuron', fontsize=18)
+
+    # plot color bar
+    # create axis for colorbar
+    # axins = inset_axes(ax,
+    #                    width="3%",  # width = 5% of parent_bbox width
+    #                    height="50%",  # height : 50%
+    #                    loc='lower left',
+    #                    bbox_to_anchor=(1., 0., 1, 1),
+    #                    bbox_transform=ax.transAxes,
+    #                    borderpad=0.2)
+    cbar = fig.colorbar(img, ax=ax, fraction=.08, label=r'$\Delta$F/F')  # draw color bar
+    # cbar = fig.colorbar(img, cax=axins, label=r'$\Delta$F/F')  # draw color bar
+    cbar.ax.tick_params(labelsize=12)
+    cbar.ax.yaxis.label.set_size(15)
+
+    # align all plots
+    trace_fig.subplots_adjust(left=0.1, right=1 - (fraction + 0.05), top=0.9, bottom=0.1)
+    plt.show()
+
+    if save:
+        plt.savefig(os.path.join(self.params['root'], f'{fname}.png'))
+        plt.close()
+    # else:
+    #     plt.figure()
+    #     mouse = self.params['mouse']
+    #     session = self.params['session']
+    #     network = self.params['network']
+    #     plt.title(f'All place cells of mouse {mouse}, session {session}, network {network}', fontsize=16)
+    #     if save:
+    #         plt.savefig(os.path.join(self.params['root'], f'{fname}.png'))
+    #         plt.close()
