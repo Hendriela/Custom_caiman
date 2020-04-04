@@ -43,118 +43,114 @@ def bin_activity_to_vr(neuron_traces, n_bins, bin_frame_count):
 
     return bin_act, bin_avg_act
 
-
-# working standard functions
-
-
 #%% manual spatial information with Peters data
 peter = np.load(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2\deconvolved_PR.npy')
 decon = np.load(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2\deconvolved.npy')
 dff = np.load(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2\dff.npy')
 transients = peter
 #%% split trace into trials
-def spatial_info_per_trial():
-    root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2'
-    n_neuron = transients.shape[0]
-    session = list(np.zeros(n_neuron))
-    frame_list = [1369, 1659, 1207, 1191, 1077, 1148, 1118, 920]
-    n_trials = len(frame_list)
 
-    for neuron in range(n_neuron):
-        curr_neuron = list(np.zeros(n_trials))  # initialize neuron-list
-        session_trace = transients[neuron]  # temp-save DF/F session trace of this neuron
+root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2'
+n_neuron = transients.shape[0]
+session = list(np.zeros(n_neuron))
+frame_list = [1369, 1659, 1207, 1191, 1077, 1148, 1118, 920]
+n_trials = len(frame_list)
 
-        for trial in range(n_trials):
-            # extract trace of the current trial from the whole session
-            if len(session_trace) > frame_list[trial]:
-                trial_trace, session_trace = session_trace[:frame_list[trial]], session_trace[frame_list[trial]:]
-                curr_neuron[trial] = trial_trace  # save trial trace in this neuron's list
-            elif len(session_trace) == frame_list[trial]:
-                curr_neuron[trial] = session_trace
-            else:
-                print('Error in PlaceCellFinder.split_traces()')
-        session[neuron] = curr_neuron  # save data from this neuron to the big session list
+for neuron in range(n_neuron):
+    curr_neuron = list(np.zeros(n_trials))  # initialize neuron-list
+    session_trace = transients[neuron]  # temp-save DF/F session trace of this neuron
 
-    # import behavior and align traces
-    behavior = []
-    is_faulty = False
-    count = 0
-    n_bins = 40
-    bin_width = 10
-
-    for step in os.walk(root):
-        folder_list = step[1]
-        break
-    trial_list = [os.path.join(root, folder) for folder in folder_list]
-
-    for trial in trial_list:
-        path = glob(trial + '//merged_behavior*.txt')
-        if len(path) == 1:
-            behavior.append(np.loadtxt(path[0], delimiter='\t'))
-            count_list = int(frame_list[count])
-            count_imp = int(np.sum(behavior[-1][:, 3]))
-            if count_imp != count_list:
-                print(f'Contradicting frame counts in trial {trial} (no. {count}):\n'
-                      f'\tExpected {count_list} frames, imported {count_imp} frames...')
-                is_faulty = True
-            count += 1
+    for trial in range(n_trials):
+        # extract trace of the current trial from the whole session
+        if len(session_trace) > frame_list[trial]:
+            trial_trace, session_trace = session_trace[:frame_list[trial]], session_trace[frame_list[trial]:]
+            curr_neuron[trial] = trial_trace  # save trial trace in this neuron's list
+        elif len(session_trace) == frame_list[trial]:
+            curr_neuron[trial] = session_trace
         else:
-            print(f'Couldnt find behavior file at {trial}')
-    if is_faulty:
-        raise Exception('Frame count mismatch detected, stopping analysis.')
+            print('Error in PlaceCellFinder.split_traces()')
+    session[neuron] = curr_neuron  # save data from this neuron to the big session list
 
-    bin_frame_count = np.zeros((n_bins, n_trials), 'int')
-    for trial in range(len(behavior)):  # go through vr data of every trial and prepare it for analysis
+#%% import behavior and align traces
+behavior = []
+is_faulty = False
+count = 0
+n_bins = 40
+bin_width = 10
 
-        # bin data in distance chunks
-        bin_borders = np.linspace(-10, 110, n_bins)
-        idx = np.digitize(behavior[trial][:, 1], bin_borders)  # get indices of bins
+for step in os.walk(root):
+    folder_list = step[1]
+    break
+trial_list = [os.path.join(root, folder) for folder in folder_list]
 
-        # check how many frames are in each bin
-        for i in range(n_bins):
-            bin_frame_count[i, trial] = np.sum(behavior[trial][np.where(idx == i + 1), 3])
+for trial in trial_list:
+    path = glob(trial + '//merged_behavior*.txt')
+    if len(path) == 1:
+        behavior.append(np.loadtxt(path[0], delimiter='\t'))
+        count_list = int(frame_list[count])
+        count_imp = int(np.sum(behavior[-1][:, 3]))
+        if count_imp != count_list:
+            print(f'Contradicting frame counts in trial {trial} (no. {count}):\n'
+                  f'\tExpected {count_list} frames, imported {count_imp} frames...')
+            is_faulty = True
+        count += 1
+    else:
+        print(f'Couldnt find behavior file at {trial}')
+if is_faulty:
+    raise Exception('Frame count mismatch detected, stopping analysis.')
 
-    # double check if number of frames are correct
-    for i in range(len(frame_list)):
-        frame_list_count = frame_list[i]
-        if frame_list_count != np.sum(bin_frame_count[:, i]):
-            print(
-                f'Frame count not matching in trial {i + 1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
+bin_frame_count = np.zeros((n_bins, n_trials), 'int')
+for trial in range(len(behavior)):  # go through vr data of every trial and prepare it for analysis
 
-    # bin the activity for every neuron to the VR position, construct bin_activity and bin_avg_activity
-    bin_activity = []
-    bin_avg_activity = np.zeros((n_neuron, n_bins))
-    for neuron in range(n_neuron):
-        neuron_bin_activity, neuron_bin_avg_activity = bin_activity_to_vr(session[neuron], n_bins, bin_frame_count)
-        bin_activity.append(neuron_bin_activity)
-        bin_avg_activity[neuron, :] = neuron_bin_avg_activity
+    # bin data in distance chunks
+    bin_borders = np.linspace(-10, 110, n_bins)
+    idx = np.digitize(behavior[trial][:, 1], bin_borders)  # get indices of bins
+
+    # check how many frames are in each bin
+    for i in range(n_bins):
+        bin_frame_count[i, trial] = np.sum(behavior[trial][np.where(idx == i + 1), 3])
+
+# double check if number of frames are correct
+for i in range(len(frame_list)):
+    frame_list_count = frame_list[i]
+    if frame_list_count != np.sum(bin_frame_count[:, i]):
+        print(
+            f'Frame count not matching in trial {i + 1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
+
+# bin the activity for every neuron to the VR position, construct bin_activity and bin_avg_activity
+bin_activity = []
+bin_avg_activity = np.zeros((n_neuron, n_bins))
+for neuron in range(n_neuron):
+    neuron_bin_activity, neuron_bin_avg_activity = bin_activity_to_vr(session[neuron], n_bins, bin_frame_count)
+    bin_activity.append(neuron_bin_activity)
+    bin_avg_activity[neuron, :] = neuron_bin_avg_activity
 
 
-    #%% spatial information
-    # calculate average fraction of time spent in this field via the new bin_frame_count
-    fractions = np.zeros((bin_frame_count.shape[0], bin_frame_count.shape[1]))
-    for trial in range(bin_frame_count.shape[1]):
-        # divide every bin_frame_count in the trial by the total amount of frames in that bin
-        fractions[:, trial] = bin_frame_count[:, trial] / np.sum(bin_frame_count[:, trial])
-    avg_fractions = np.mean(fractions, axis=1)
+#%% spatial information
+# calculate average fraction of time spent in this field via the new bin_frame_count
+fractions = np.zeros((bin_frame_count.shape[0], bin_frame_count.shape[1]))
+for trial in range(bin_frame_count.shape[1]):
+    # divide every bin_frame_count in the trial by the total amount of frames in that bin
+    fractions[:, trial] = bin_frame_count[:, trial] / np.sum(bin_frame_count[:, trial])
+avg_fractions = np.mean(fractions, axis=1)
 
-    # get a value for spatial information for each cell
-    spatial_info = np.zeros(n_neuron)
-    for cell in range(n_neuron):
-        curr_trace = bin_avg_activity[cell]  # this is the binned activity of the current cell
-        dff_tot = np.mean(curr_trace)  # this is the total dF/F averaged across all bins
-        bin_si = np.zeros(bin_frame_count.shape[0])  # initialize array that holds SI value for each bin
-        for i in range(bin_frame_count.shape[0]):
-            # apply the SI formula to every bin
-            bin_si[i] = curr_trace[i] * np.log(curr_trace[i] / dff_tot) * avg_fractions[i]
-        spatial_info[cell] = np.sum(bin_si)
+# get a value for spatial information for each cell
+spatial_info = np.zeros(n_neuron)
+for cell in range(n_neuron):
+    curr_trace = bin_avg_activity[cell]  # this is the binned activity of the current cell
+    dff_tot = np.mean(curr_trace)  # this is the total dF/F averaged across all bins
+    bin_si = np.zeros(bin_frame_count.shape[0])  # initialize array that holds SI value for each bin
+    for i in range(bin_frame_count.shape[0]):
+        # apply the SI formula to every bin
+        bin_si[i] = curr_trace[i] * np.log(curr_trace[i] / dff_tot) * avg_fractions[i]
+    spatial_info[cell] = np.sum(bin_si)
 
 #%% Spatial information not split by trials (Peters data)
 
 root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2'
 pcf = pipe.load_pcf(root)
-#data_all = np.load(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2\deconvolved_PR.npy').T
-data_all = pcf.cnmf.estimates.F_dff.T
+data_all = np.load(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2\deconvolved_PR.npy').T
+#data_all = pcf.cnmf.estimates.F_dff.T
 position_all = []
 for trial in range(len(pcf.behavior)):
     position_all.append(pcf.behavior[trial][np.where(pcf.behavior[trial][:, 3] == 1), 1])
@@ -214,7 +210,7 @@ for cell in range(len(total_firing_rate)):
         if curr_trace[i] <= 0 or tot_act <= 0:
             bin_si[i] = 0
         else:
-            bin_si[i] = curr_trace[i] * np.log2(curr_trace[i] / tot_act) * bin_freq[i]
+            bin_si[i] = curr_trace[i] / tot_act * np.log2(curr_trace[i] / tot_act) * bin_freq[i]
     spatial_info[cell] = np.sum(bin_si)
 #%% plot spatial info
 pc_label = []
