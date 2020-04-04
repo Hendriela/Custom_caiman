@@ -262,10 +262,11 @@ def save_multi_performance(path, overwrite=False):
     :param path: Top-level directory where subdirectories are searched.
     :param path: bool flag whether to overwrite existing performance.txt files.
     """
+    print(f'Computing performance of session...')
     for (dirpath, dirnames, filenames) in os.walk(path):
         if len([x for x in filenames if 'TDT LOG' in x]) == 1:
             if 'performance.txt' not in filenames or overwrite:
-                print(f'Computing performance of session {dirpath}.')
+                print(f'\t{dirpath}')
                 save_performance_data(dirpath)
     print('Everything processed!')
 
