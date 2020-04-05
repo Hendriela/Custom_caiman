@@ -93,7 +93,8 @@ roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32\20200322
          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40\20200323']
 
 for root in roots:
-    motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True, remove_c_order=True, get_images=True)
+    motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True, remove_c_order=True,
+                                                get_images=True, overwrite=True)
 
 
 

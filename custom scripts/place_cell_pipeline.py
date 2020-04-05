@@ -79,7 +79,7 @@ def load_cnmf(root, cnm_filename='cnm_results_manual.hdf5'):
         return cnmf.load_CNMF(cnm_file[0])
 
 
-def load_mmap(root):
+def load_mmap(root, fname=None):
     """
     Loads the motion corrected mmap file of the whole session for CaImAn procedure.
     :param root: folder that holds the session mmap file (should hold only one mmap file)
@@ -88,7 +88,13 @@ def load_mmap(root):
     """
     mmap_file = glob(root + r'\\*.mmap')
     if len(mmap_file) > 1:
-        raise FileNotFoundError(f'Found more than one mmap file in {root}. Movie could not be loaded.')
+        if fname is None:
+            raise FileNotFoundError(f'Found more than one mmap file in {root}. Movie could not be loaded.')
+        elif os.path.join(root, fname) in mmap_file:
+            print(f'Loading file {os.path.join(root, fname)}...')
+            Yr, dims, T = cm.load_memmap(os.path.join(root, fname))
+            images = np.reshape(Yr.T, [T] + list(dims), order='F')
+            return os.path.join(root, fname), images
     elif len(mmap_file) < 1:
         raise FileNotFoundError(f'No mmap file found in {root}.')
     else:
@@ -232,6 +238,8 @@ def save_average_image(movie, path):
             avg[row, col] = np.mean(curr_pix)
     fname = path + r'\mean_intensity_image.tif'
     io.imsave(fname, avg.astype('float32'))
+    print(f'Saved local correlation image at {fname}.')
+    return fname
 
 
 def run_evaluation(images, cnm, dview):
@@ -258,7 +266,7 @@ def run_source_extraction(images, params, dview):
 #%% Motion correction wrapper functions
 
 
-def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=False, get_images=True):
+def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=False, get_images=True, overwrite=False):
     """
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
     to save disk space. Function automatically finds sessions and performs correction on whole sessions separately.
@@ -266,6 +274,8 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
     :param params: cnm.params object that holds all parameters necessary for motion correction
     :param remove_f_order: bool flag whether F-order files should be removed to save disk space
     :param remove_c_order: bool flag whether single-trial C-order files should be removed to save disk space
+    :param get_images: bool flag whether local correlation and mean intensity images should be computed after mot corr
+    :param overwrite: bool flag whether correction should be performed even if a memmap file already exists
     :return mmap_list: list that includes paths of mmap files for all processed sessions
     """
     def atoi(text):
@@ -279,7 +289,7 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
     for step in os.walk(root):
         if len(glob(step[0] + r'\\file_0*.tif')) > 0:
             up_dir = step[0].rsplit(os.sep, 1)[0]
-            if len(glob(up_dir + r'\\memmap__d1_*.mmap')) == 0 and up_dir not in dir_list:
+            if len(glob(up_dir + r'\\memmap__d1_*.mmap')) == 0 or overwrite and up_dir not in dir_list:
                 dir_list.append(up_dir)   # this makes a list of all folders that contain single-trial imaging folders
 
     mmap_list = []
@@ -289,6 +299,8 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
             print('\nF-order files will be removed after processing.')
         if remove_c_order:
             print('Single-trial C-order files will be removed after processing.')
+        if get_images:
+            print('Local correlation and mean intensity images will be created after processing.')
 
         print(f'\nFound {len(dir_list)} sessions that have not yet been motion corrected:')
         for session in dir_list:
@@ -360,9 +372,10 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
             # compute local correlation and mean intensity image
             if get_images:
                 print(f'Finished. Now computing local correlation and mean intensity images...')
-                mmap_file, images = load_mmap(session)
-                save_local_correlation(images, session)
-                save_average_image(images, session)
+                Yr, dims, T = cm.load_memmap(fname_new)
+                images = np.reshape(Yr.T, [T] + list(dims), order='F')
+                out = save_local_correlation(images, session)
+                out = save_average_image(images, session)
 
             print('Finished!')
 
