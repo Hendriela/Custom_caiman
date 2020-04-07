@@ -231,16 +231,16 @@ def load_performance_data(roots, novel, norm_date):
                 mouse = step[0].split(os.path.sep)[-2]
 
                 # store data of this session and this mouse in a temporary DataFrame which is added to the global list
-                data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'session': sess, 'mouse': mouse}))
+                data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'mouse': mouse, 'session_date': sess}))
 
     df = pd.concat(data, ignore_index=True)
 
     # give sessions a continuous id for plotting
-    all_sess = sorted(df['session'].unique())
+    all_sess = sorted(df['session_date'].unique())
     count = 0
     df['sess_id'] = -1
     for session in all_sess:
-        df.loc[df['session'] == session, 'sess_id'] = count
+        df.loc[df['session_date'] == session, 'sess_id'] = count
         count += 1
 
     # normalize days if necessary # todo: fix with new DF and dict structure
@@ -251,6 +251,12 @@ def load_performance_data(roots, novel, norm_date):
                 session_norm = normalize_dates(df['mouse'] == key, norm_date[key])
             else:
                 session_norm = sess
+    elif type(norm_date) == str:
+        session_norm = normalize_dates(list(df['session_date']), norm_date)
+    else:
+        session_norm = df['session_date']
+
+    df['sess_norm'] = session_norm
 
     return df
 
@@ -669,21 +675,25 @@ def normalize_dates(date_list, norm_date):
 
 def plot_single_mouse(data, mouse):
     plt.figure()
-    ax = sns.lineplot(x='session', y='licking', data=data[data['mouse'] == mouse])
-    ax.set(ylim=(0, 1), ylabel='licks in reward zone [%]', title=mouse)
+    sessions = np.sort(data['sess_norm'].unique())
+    ax = sns.lineplot(x='sess_id', y='licking', data=data[data['mouse'] == mouse])
+    ax.set(ylim=(0, 1), ylabel='licks in reward zone [%]', title=mouse,
+           xticks=range(len(sessions)), xticklabels=sessions)
 
 
 def plot_all_mice_avg(data, rotate_labels=False):
     plt.figure()
-    ax = sns.lineplot(x='session', y='licking', data=data)
-    ax.set(ylim=(0, 1), ylabel='licks in reward zone [%]', title='Average of all mice')
+    sessions = np.sort(data['sess_norm'].unique())
+    ax = sns.lineplot(x='sess_id', y='licking', data=data)
+    ax.set(ylim=(0, 1), ylabel='licks in reward zone [%]', title='Average of all mice',
+           xticks=range(len(sessions)), xticklabels=sessions)
     if rotate_labels:
         labels = ax.get_xticklabels()
         ax.set_xticklabels(labels, rotation=45, ha='right')
 
 
 def plot_all_mice_separately(data, rotate_labels=False):
-    sessions = data['session'].unique()
+    sessions = np.sort(data['sess_norm'].unique())
     grid = sns.FacetGrid(data, col='mouse', col_wrap=3, height=3, aspect=2)
     grid.map(sns.lineplot, 'sess_id', 'licking')
     grid.set_axis_labels('session', 'licks in reward zone [%]')
