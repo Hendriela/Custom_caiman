@@ -19,6 +19,7 @@ from behavior_import import progress
 from skimage import io
 import preprocess as pre
 import tifffile as tif
+from datetime import datetime
 
 #%% File and directory handling
 
@@ -83,8 +84,9 @@ def load_mmap(root, fname=None):
     """
     Loads the motion corrected mmap file of the whole session for CaImAn procedure.
     :param root: folder that holds the session mmap file (should hold only one mmap file)
+    :param fname: str, name of the specific mmap file. Necessary if there are multiple mmap files in the same directory.
     :return images: memory-mapped array of the whole session (format [n_frame x X x Y])
-    :return mmap_file[0]: path to the loaded mmap file
+    :return str: path to the loaded mmap file
     """
     mmap_file = glob(root + r'\\*.mmap')
     if len(mmap_file) > 1:
@@ -127,7 +129,42 @@ def load_pcf(root, fname=None):
 
     return obj
 
+
+def load_manual_neuron_coordinates(path, fname=None):
+    """
+    Loads the .txt table containing coordinates of manually selected neurons through Adrians GUI. Files have the file
+    name 'clicked_neurons_[DATE]_[TIME].txt' to prevent overwriting of multiple annotation sessions. If a specific
+    fname is not provided and multiple files are found, the most recent file is loaded by default.
+    :param path: str, path to the session directory
+    :param fname: str, optional, specific filename of the file to be loaded. If None, the most recent file is loaded.
+    :return: list of tuples of (x, y) coordinates of manually selected neurons
+    """
+
+    file_list = glob(path+r'\clicked_neurons_*.txt')
+    if fname is not None:
+        if os.path.join(path, fname) in file_list:
+            filename = os.path.join(path, fname)
+            print(f'Loading specific .txt file: {fname}!')
+        else:
+            return FileNotFoundError(f'No file found at {os.path.join(path, fname)}.')
+    else:
+        if len(file_list) == 1:
+            filename = file_list[0]
+            print(f'Loading .txt file: {filename[-35:]}!')
+        elif len(file_list) > 1:
+            dates = [datetime.strptime(x[-19:-4], '%Y%m%d_%H%M%S') for x in file_list]  # Get date and time of files
+            filename = file_list[dates.index(max(dates))]  # Get path of most recent file
+            print(f'Loading most recent .txt file: {filename[-35:]}!')
+        elif len(file_list) == 0:
+            return FileNotFoundError(f'No files found at {path}.')
+        else:
+            return ValueError(f'Loading of clicked_neuron.txt at {path} unsuccessful...')
+
+    coords = np.loadtxt(filename, delimiter='\t', skiprows=1, dtype='int16')
+    return list(zip(coords[:, 1], coords[:, 2]))
+
 #%% CNMF wrapper functions
+
 
 def whole_caiman_pipeline_mouse(root, cnm_params, pcf_params, dview, make_lcm=True, network='all', overwrite=False):
 
@@ -136,6 +173,7 @@ def whole_caiman_pipeline_mouse(root, cnm_params, pcf_params, dview, make_lcm=Tr
             if len([s for s in step[2] if 'place_cells' in s]) == 0 or overwrite:    # has it already been processed?
                 if network == 'all' or network == step[0][-2:]:     # is it the correct network?
                     whole_caiman_pipeline_session(step[0], cnm_params, pcf_params, dview, make_lcm)
+
 
 def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=False, save_pre_sel_img=True,
                                   overwrite=False, only_extraction=False):
@@ -238,7 +276,7 @@ def save_average_image(movie, path):
             avg[row, col] = np.mean(curr_pix)
     fname = path + r'\mean_intensity_image.tif'
     io.imsave(fname, avg.astype('float32'))
-    print(f'Saved local correlation image at {fname}.')
+    print(f'Saved mean intensity image at {fname}.')
     return fname
 
 
@@ -255,23 +293,118 @@ def run_source_extraction(images, params, dview):
     :param params: CNMFParams object holding all required parameters
     :return cnm object with extracted components
     """
+    temp_p = params.get('temporal', 'p')
     params = params.change_params({'p': 0})
     cnm = cnmf.CNMF(params.get('patch', 'n_processes'), params=params, dview=dview)
     cnm = cnm.fit(images)
-    cnm.params.change_params({'p': params.get('temporal', 'p')})
+    cnm.params.change_params({'p': temp_p})
     cnm2 = cnm.refit(images, dview=dview)
-    cnm2.estimates.dims = (512, 512)
+    cnm2.estimates.dims = images.shape[1:]
     return cnm2
 
+
+# def run_neuron_selection_gui(path):
+#     """
+#     Runs Adrians GUI for manually selecting neurons from a session's .mmap file.
+#     :param path: str, directory of an imaging session that holds the corresponding .mmap file
+#     :return:
+#     """
+#     import subprocess
+#     path = r'W:\\Neurophysiology-Storage1\\Wahl\\Hendrik\\PhD\\Data\\Batch3\\M37\\20200318'
+#     script_path = r'C:\\Users\\hheise\\PycharmProjects\\Caiman\\custom scripts\\manual_neuron_selection_gui.py'
+#     command = ['python', script_path, '--session', path]
+#     stout = subprocess.run(command)
+
+
+def manual_neuron_extraction(root, movie, params, dview, fname=None):
+    """
+    Run Caimans source extraction with neurons manually selected by Adrians selection GUI.
+    :param root: str, path of session directory
+    :param movie: mmap file of this session's movie
+    :param params: CNMFParams object
+    :param dview: link to Caiman processing cluster
+    :param fname: str, optional, specific clicked_neurons.txt file to load (if several for one session exist).
+    :return:
+    """
+
+    # Load coordinates of manually selected neurons (saved by Adrians GUI in a .txt table)
+    coords = load_manual_neuron_coordinates(root, fname)
+
+    dims = movie.shape[1:]                                      # Get dimensions of movie
+    A = np.zeros((np.prod(dims), len(coords)), dtype=bool)      # Prepare array that will hold all neuron masks
+    neuron_half_size = params.init['gSig'][0]                   # Get expected half-size in pixels of neurons
+
+    # Set kernel of neuronal shape (circle with a diameter the size of expected neurons)
+    import skimage.morphology
+    kernel = skimage.morphology.disk(radius=neuron_half_size - 0.1)  # -0.1 to remove single pixels
+
+    # Create a mask for each neuron (circle around the coordinates) and add the flattened version to A
+    for i, neuron in enumerate(coords):
+        mask = np.zeros(shape=dims)
+        x = neuron[0]
+        y = neuron[1]
+        # create circle around neuron location
+        mask[y, x] = 1
+        mask = skimage.morphology.dilation(mask, kernel)
+        mask = mask == 1  # change to boolean type
+
+        # flatten the mask to a 1D array and add it to A
+        A[:, i] = mask.flatten('F')
+
+    # make sure the caiman parameter are set correctly for manual masks
+    params.set('patch', {'only_init': False})
+    params.set('patch', {'rf': None})
+
+    # run refinement of masks and extraction of traces
+    params = params.change_params({'p': 1})
+    cnm = cnmf.CNMF(params.get('patch', 'n_processes'), params=params, dview=dview, Ain=A)  # A is passed to CNMF object
+    cnm.fit(movie)
+    cnm.estimates.dims = movie.shape[1:]
+
+    return cnm
+
+"""   Not really working, FOV shift is too unreliable in some parts of the FOV to automatically select neurons
+def import_template_coordinates(curr_path, temp_path):
+
+    # Load template coordinates from .txt file
+    template_coords = load_manual_neuron_coordinates(temp_path)
+
+    # Load mean intensity and local correlation images from current and template sessions
+    avg_curr = io.imread(curr_path + r'\mean_intensity_image.tif')
+    avg_temp = io.imread(temp_path + r'\mean_intensity_image.tif')
+    cor_curr = io.imread(curr_path + r'\local_correlation_image.tif')
+    cor_temp = io.imread(temp_path + r'\local_correlation_image.tif')
+
+
+    # Compute piecewise shift of current vs template images
+    from multisession_registration import piecewise_fov_shift, shift_com
+    x_shift_avg, y_shift_avg = piecewise_fov_shift(avg_temp, avg_curr, n_patch=1)
+    x_shift_cor, y_shift_cor = piecewise_fov_shift(cor_temp, cor_curr)
+
+    # Shift coordinates according to the map
+    temp_coord_shift_avg = [shift_com(x, (x_shift_avg[x[0], x[1]], y_shift_avg[x[0], x[1]]), avg_temp.shape) for x in template_coords]
+
+
+    fig, ax = plt.subplots(1, 2, True, True)
+    ax[0].imshow(avg_curr)
+    ax[1].imshow(avg_temp)
+    for x_temp, x_shift in zip(template_coords, temp_coord_shift_avg):
+        cross = ax[1].plot(x_temp[0], x_temp[1], 'x', color='red')         # Plot cross on template average image (should fit)
+        cross = ax[0].plot(x_temp[0], x_temp[1], 'x', color='red')         # Plot cross on current average image (should not fit)
+        cross = ax[0].plot(x_shift[0], x_shift[1], 'x', color='yellow')    # Plot adjusted cross on current average image (should fit)
+"""
 #%% Motion correction wrapper functions
 
 
-def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=False, get_images=True, overwrite=False):
+def motion_correction(root, params, dview, percentile=0.1,
+                      remove_f_order=True, remove_c_order=False, get_images=True, overwrite=False):
     """
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
     to save disk space. Function automatically finds sessions and performs correction on whole sessions separately.
     :param root: str; path in which imaging sessions are searched (files should be in separate trial folders)
     :param params: cnm.params object that holds all parameters necessary for motion correction
+    :param dview: link to Caimans processing server
+    :param percentile: float, percentile that should be added to the .tif files to avoid negative pixel values
     :param remove_f_order: bool flag whether F-order files should be removed to save disk space
     :param remove_c_order: bool flag whether single-trial C-order files should be removed to save disk space
     :param get_images: bool flag whether local correlation and mean intensity images should be computed after mot corr
@@ -329,7 +462,7 @@ def motion_correction(root, params, dview, remove_f_order=True, remove_c_order=F
                 stack = pre.correct_line_shift_stack(stack, crop_left=20, crop_right=20)
 
                 # Make movie positive (negative values crash NON-NEGATIVE matrix factorisation)
-                stack = stack - int(np.percentile(stack, 0.1))
+                stack = stack - int(np.percentile(stack, percentile))
 
                 new_path = raw_file[:-4] + '_corrected.tif'  # avoid overwriting
                 tif.imwrite(new_path, data=stack)
