@@ -456,6 +456,11 @@ class PlaceCellFinder:
                 if frame_list_count != np.sum(bin_frame_count[:, i]):
                     print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
 
+        # check that every bin has at least one frame in it
+        if np.any(bin_frame_count == 0):
+            zero_idx = np.where(bin_frame_count == 0)
+            raise ValueError('No frame in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0], zero_idx[1])))
+
         self.behavior = behavior
         self.params['bin_frame_count'] = bin_frame_count
 
@@ -1028,7 +1033,9 @@ class PlaceCellFinder:
         min_y = 0.05 * floor(traces.min() / 0.05)
 
         # Get positions of accepted place fields
-        place_field_idx = [x[1] for x in self.place_cells if x[0] == idx][0]
+        place_field_idx = [x[1] for x in self.place_cells if x[0] == idx]
+        if len(place_field_idx) > 0:
+            place_field_idx = place_field_idx[0]
 
         fig, ax = plt.subplots(nrows=len(traces), ncols=2, sharex=True, figsize=(20, 12))
         for i in range(len(traces)):
