@@ -7,8 +7,6 @@ import matplotlib.pyplot as plt
 from keras.models import load_model
 from keras import backend as K
 
-#%%
-
 
 def get_noise_levels(traces, framerate):
     """
@@ -79,6 +77,7 @@ def predict_spikes(data, params=None, thresh=True, plot_noise_levels=False, verb
             if key not in params.keys():
                 params[key] = default_params[key]
 
+    # Transform data structure because Peter's algorithm works with an array of shape (#timestamps, #neurons)
     data = data.T
 
     ## Compute noise level of all neurons of the dataset
@@ -165,18 +164,3 @@ def predict_spikes(data, params=None, thresh=True, plot_noise_levels=False, verb
     K.clear_session()
 
     return Y_predict
-
-
-"""
-Set model configuration and parameters.
-"""
-param = {'smoothing': 0.2,     # std of Gaussian smoothing in time (sec) [default 0.2] #todo way to get smoothing from model?
-          'ensemble_size': 5,   # use ensemble learning [5]
-          'frame_rate': 30,     # frame/sampling rate of the recording in Hz [default 30]
-          'pretrained_model_folder': (r'C:\Users\hheise\PycharmProjects\Caiman\Calibrated-inference-of-spiking-master'
-                                      r'\pretrained_models\all_good_datasets_30Hz_ensemblesize5'),
-
-          # Determines how the time window used as input is positioned around the actual time point
-          'windowsize': 64,     # default 64 time points
-          'before_frac': 0.5,   # default 0.5 and 0.5 (window symmetrically over time point)
-          'after_frac': 0.5}
