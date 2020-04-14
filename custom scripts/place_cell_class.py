@@ -471,7 +471,7 @@ class PlaceCellFinder:
         self.params['bin_frame_count'] = bin_frame_count
         self.params['bin_frame_count_all'] = bin_frame_count_all
 
-    def bin_activity_to_vr(self, remove_resting=True):
+    def bin_activity_to_vr(self, remove_resting=None):
         """
         Bins activity trace of every neuron to the VR position. This brings the neuronal activity during all trials
         to a uniform length.
@@ -483,6 +483,14 @@ class PlaceCellFinder:
         :param remove_resting: bool flag whether resting frames should be removed before binning. This choice will
                                affect downstream analysis steps and will thus be saved in params['resting_removed'].
         """
+
+        if remove_resting is None:
+            if 'resting_removed' in self.params.keys():
+                remove_resting = self.params['resting_removed']
+            else:
+                remove_resting = True
+                print('Remove resting not provided. Default to True.')
+
         # bin the activity for every neuron to the VR position, construct bin_activity and bin_avg_activity
         self.bin_activity = []
         self.bin_avg_activity = np.zeros((self.params['n_neuron'], self.params['n_bins']))
