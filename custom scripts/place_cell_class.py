@@ -349,19 +349,13 @@ class PlaceCellFinder:
             plt.close()
         return sigma
 
-    def import_behavior_and_align_traces(self, remove_resting_frames=False, encoder_unit='raw'):
+    def import_behavior_and_align_traces(self, encoder_unit='raw'):
         """
         Imports behavioral data (merged_behavior.txt) and aligns the calcium traces to the VR position.
         Behavioral data is saved in the 'behavior' list that includes one array per trial with the following structure:
             universal time stamp -- VR position -- lick sensor -- 2p trigger -- encoder (speed)
         Frames per bin are saved in bin_frame_count, an array of shape [n_bins x n_trials] showing the number of frames
         that have to be averaged for each bin in every trial (stored in params).
-        Binned calcium data is saved in two formats:
-            - as bin_activity, a list of neurons that consist of an array with shape [n_bins x n_trials] and stores
-              the binned dF/F for every trial.
-            - as bin_avg_activity, an array of shape [n_neuron x n_bins] that contain the dF/F for each bin of every
-              neuron, averaged across trials. This is what will mainly be used for place cell analysis.
-        :param remove_resting_frames: bool flag whether frames where the mouse didnt move should be removed
         :param encoder_unit
         :return: Updated PCF object with behavior and binned data
         """
@@ -390,49 +384,71 @@ class PlaceCellFinder:
         else:
             raise Exception('You have to provide trial_list before aligning data to VR position!')
 
-        if remove_resting_frames:
-            # How to remove resting frames
-            # - for every trial, make a mask with length n_frames (one entry per frame) that is True for frames where
-            #   the mouse ran and False where the mouse was stationary
-            # - temporarily save the new frame list with new frame counts (check binned frames with this list)
-            # - update self.session
+        self.behavior = behavior
 
-            # create a bool mask for every trial that tells if a frame should be included or not
-            behavior_masks = []
-            for trial in range(len(behavior)):
-                # bool list for every frame of that trial (used to later filter out dff samples)
-                behavior_masks.append(np.ones(int(np.nansum(behavior[trial][:, 3])), dtype=bool))
-                frame_idx = np.where(behavior[trial][:, 3] == 1)[0]  # find sample_idx of all frames
-                for i in range(len(frame_idx)):
-                    if i != 0:
-                        if encoder_unit == 'speed':
-                            if np.mean(behavior[trial][frame_idx[i - 1]:frame_idx[i], 5]) >= 2.5:
-                                # set index of mask to False (excluded in later analysis)
-                                behavior_masks[-1][i] = False
-                                # set the bad frame in the behavior array to 0 to skip it during binning
-                                behavior[trial][frame_idx[i], 3] = np.nan
-                        elif encoder_unit == 'raw':
-                            if np.sum(behavior[trial][frame_idx[i - 1]:frame_idx[i], 4]) > 30:
-                                # set index of mask to False (excluded in later analysis)
-                                behavior_masks[-1][i] = False
-                                # set the bad frame in the behavior array to 0 to skip it during binning
-                                behavior[trial][frame_idx[i], 3] = np.nan
-                        else:
-                            pass
-                            #return print('Encoder unit not recognized, behavior could not be aligned.')
-                    else:
-                        if behavior[trial][0, 4] > -30:
+        # Get frame counts for each bin for complete dataset (moving and resting frames)
+        bin_frame_count_all = np.zeros((self.params['n_bins'], self.params['n_trial']), 'int')
+        for trial in range(len(behavior)):  # go through vr data of every trial and prepare it for analysis
+
+            # bin data in distance chunks
+            bin_borders = np.linspace(-10, 110, self.params['n_bins'])
+            idx = np.digitize(behavior[trial][:, 1], bin_borders)  # get indices of bins
+
+            # check how many frames are in each bin
+            for i in range(self.params['n_bins']):
+                bin_frame_count_all[i, trial] = np.nansum(behavior[trial][np.where(idx == i + 1), 3])
+
+        # double check if number of frames are correct
+        for i in range(len(self.params['frame_list'])):
+            frame_list_count = self.params['frame_list'][i]
+            if frame_list_count != np.sum(bin_frame_count_all[:, i]):
+                raise ValueError(f'Frame count not matching in trial {i + 1}: Frame list says {frame_list_count}, '
+                                 f'import says {np.sum(bin_frame_count_all[:, i])}')
+
+            # check that every bin has at least one frame in it
+        if np.any(bin_frame_count_all == 0):
+            zero_idx = np.where(bin_frame_count_all == 0)
+            raise ValueError('No frame in bfc_all in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0],
+                                                                                                zero_idx[1])))
+
+        ##########################################################################################################
+        ##################### Get frame counts for each bin for only moving frames ###############################
+        # How to remove resting frames
+        # - for every trial, make a mask with length n_frames (one entry per frame) that is True for frames where
+        #   the mouse ran and False where the mouse was stationary
+        # - temporarily save the new frame list with new frame counts (check binned frames with this list)
+        # - update self.session
+
+        # create a bool mask for every trial that tells if a frame should be included or not
+        behavior_masks = []
+        for trial in range(len(behavior)):
+            # bool list for every frame of that trial (used to later filter out dff samples)
+            behavior_masks.append(np.ones(int(np.nansum(behavior[trial][:, 3])), dtype=bool))
+            frame_idx = np.where(behavior[trial][:, 3] == 1)[0]  # find sample_idx of all frames
+            for i in range(len(frame_idx)):
+                if i != 0:
+                    if encoder_unit == 'speed':
+                        if np.mean(behavior[trial][frame_idx[i - 1]:frame_idx[i], 5]) <= 2.5:
+                            # set index of mask to False (excluded in later analysis)
                             behavior_masks[-1][i] = False
+                            # set the bad frame in the behavior array to 0 to skip it during bin_frame_counting
                             behavior[trial][frame_idx[i], 3] = np.nan
+                    elif encoder_unit == 'raw':
+                        if np.sum(behavior[trial][frame_idx[i - 1]:frame_idx[i], 4]) < 30:
+                            # set index of mask to False (excluded in later analysis)
+                            behavior_masks[-1][i] = False
+                            # set the bad frame in the behavior array to 0 to skip it during bin_frame_counting
+                            behavior[trial][frame_idx[i], 3] = np.nan
+                    else:
+                        pass
+                        #return print('Encoder unit not recognized, behavior could not be aligned.')
+                else:
+                    if behavior[trial][0, 4] > -30:
+                        behavior_masks[-1][i] = False
+                        behavior[trial][frame_idx[i], 3] = np.nan
+        self.params['resting_mask'] = behavior_masks
 
-            # update the list of frames per trial to account for removed frames (-1 because the first frame is not counted
-            new_frame_list = [int(np.sum(trial)) for trial in behavior_masks]
-
-            # remove still frames from dF/F arrays
-            for neuron in range(len(self.session)):
-                for trial in range(len(behavior_masks)):
-                    self.session[neuron][trial] = self.session[neuron][trial][behavior_masks[trial]]
-
+        # get new bin_frame_count
         bin_frame_count = np.zeros((self.params['n_bins'], self.params['n_trial']), 'int')
         for trial in range(len(behavior)):  # go through vr data of every trial and prepare it for analysis
 
@@ -444,149 +460,74 @@ class PlaceCellFinder:
             for i in range(self.params['n_bins']):
                 bin_frame_count[i, trial] = np.nansum(behavior[trial][np.where(idx == i + 1), 3])
 
-        if remove_resting_frames:
-            for i in range(len(new_frame_list)):
-                frame_list_count = new_frame_list[i]
-                if frame_list_count != np.nansum(bin_frame_count[:, i]):
-                    print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
-        else:
-            # double check if number of frames are correct
-            for i in range(len(self.params['frame_list'])):
-                frame_list_count = self.params['frame_list'][i]
-                if frame_list_count != np.sum(bin_frame_count[:, i]):
-                    print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
-
         # check that every bin has at least one frame in it
         if np.any(bin_frame_count == 0):
             zero_idx = np.where(bin_frame_count == 0)
             raise ValueError('No frame in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0], zero_idx[1])))
 
-        self.behavior = behavior
-        self.params['bin_frame_count'] = bin_frame_count
+        ############################################################################################################
 
+        # if everything worked fine, we can save the frame count parameters
+        self.params['bin_frame_count'] = bin_frame_count
+        self.params['bin_frame_count_all'] = bin_frame_count_all
+
+    def bin_activity_to_vr(self, remove_resting=True):
+        """
+        Bins activity trace of every neuron to the VR position. This brings the neuronal activity during all trials
+        to a uniform length.
+        Binned calcium data is saved in two formats:
+            - bin_activity, a list of neurons, each element being an array with shape [n_bins x n_trials] that stores
+              the binned dF/F for every trial.
+            - bin_avg_activity, an array of shape [n_neuron x n_bins] that contain the dF/F for each bin of every
+              neuron, averaged across trials. This is what will mainly be used for place cell analysis.
+        :param remove_resting: bool flag whether resting frames should be removed before binning. This choice will
+                               affect downstream analysis steps and will thus be saved in params['resting_removed'].
+        """
         # bin the activity for every neuron to the VR position, construct bin_activity and bin_avg_activity
         self.bin_activity = []
         self.bin_avg_activity = np.zeros((self.params['n_neuron'], self.params['n_bins']))
         for neuron in range(self.params['n_neuron']):
-            neuron_bin_activity, neuron_bin_avg_activity = self.bin_activity_to_vr(self.session[neuron])
-            self.bin_activity.append(neuron_bin_activity)
-            self.bin_avg_activity[neuron, :] = neuron_bin_avg_activity
+            if remove_resting:
+                # if resting frames should be removed, mask data before binning (trial-wise)
+                self.params['resting_removed'] = remove_resting
+                data = [None] * self.params['n_trial']
+                for idx in range(len(data)):
+                    data[idx] = self.session[neuron][idx][self.params['resting_mask'][idx]]
+                n_bin_act, n_bin_avg_act = self.bin_neuron_activity_to_vr(self.session[neuron],
+                                                                          bf_count=self.params['bin_frame_count'])
+            else:
+                self.params['resting_removed'] = remove_resting
+                n_bin_act, n_bin_avg_act = self.bin_neuron_activity_to_vr(self.session[neuron],
+                                                                          bf_count=self.params['bin_frame_count_all'])
+            self.bin_activity.append(n_bin_act)
+            self.bin_avg_activity[neuron, :] = n_bin_avg_act
         print('\nSuccessfully aligned calcium data to the VR position bins.'
               '\nResults are stored in pcf.bin_activity and pcf.bin_avg_activity.\n')
 
-    def rebin_traces(self, bin_width, trace, overwrite=False, save=True):
-        """
-        Re-bins calcium traces of extracted cells to a new bin_width. Used for spatial information calculation.
-        :param bin_width: int, width of the new bins in cm
-        :return bin_frame_count: np.array with dims (#bins x #trials), frames contained in each bin for new bin_width
-        """
-        # re-calculate n_bins according to new bin_width and new bin_frame_count
-        if self.params['track_length'] % bin_width == 0:
-            n_bins = int(self.params['track_length'] / bin_width)
-        else:
-            raise Exception('Bin_width has to be a divisor of track_length!')
-
-        bin_frame_count = np.zeros((n_bins, self.params['n_trial']), 'int')
-        for trial in range(len(self.behavior)):  # go through vr data of every trial and prepare it for analysis
-
-            # bin data in distance chunks
-            bin_borders = np.linspace(-10, 110, n_bins)
-            idx = np.digitize(self.behavior[trial][:, 1], bin_borders)  # get indices of bins
-
-            # check how many frames are in each bin
-            for i in range(n_bins):
-                bin_frame_count[i, trial] = np.nansum(self.behavior[trial][np.where(idx == i + 1), 3])
-
-        # double check if number of frames are correct
-        for i in range(len(self.params['frame_list'])):
-            frame_list_count = self.params['frame_list'][i]
-            if frame_list_count != np.nansum(bin_frame_count[:, i]):
-                print(f'Frame count not matching in trial {i+1}: Frame list says {frame_list_count}, import says {np.sum(bin_frame_count[:, i])}')
-
-        if save:
-            # initialize dictionaries that holds the re-binned data and averaged data
-            if not hasattr(self, 're_bin_activity') or self.re_bin_activity is None:
-                self.re_bin_activity = {bin_width: []}
-            else:
-                if bin_width in self.re_bin_activity.keys() and not overwrite:
-                    raise Exception(f'Data has already been binned to a bin_width of {bin_width}!')
-                else:
-                    self.re_bin_activity[bin_width] = []
-            if not hasattr(self, 're_bin_avg_activity') or self.re_bin_avg_activity is None:
-                self.re_bin_avg_activity = {bin_width: np.zeros((self.params['n_neuron'], n_bins))}
-            else:
-                if bin_width in self.re_bin_avg_activity.keys() and not overwrite:
-                    raise Exception(f'Data has already been binned to a bin_width of {bin_width}!')
-                else:
-                    self.re_bin_avg_activity[bin_width] = np.zeros((self.params['n_neuron'], n_bins))
-            if not hasattr(self, 'new_bfc') or self.new_bfc is None:
-                self.new_bfc = {bin_width: bin_frame_count}
-            else:
-                if bin_width in self.re_bin_avg_activity.keys() and not overwrite:
-                    raise Exception(f'Data has already been binned to a bin_width of {bin_width}!')
-                else:
-                    self.new_bfc[bin_width] = bin_frame_count
-
-            # re-bin session traces according to new bin parameters
-            for neuron in range(self.params['n_neuron']):
-                bin_act, bin_avg_act = self.bin_activity_to_vr(self.session[neuron],
-                                                               n_bins=n_bins, bin_frame_count=bin_frame_count)
-                self.re_bin_activity[bin_width].append(bin_act)
-                self.re_bin_avg_activity[bin_width][neuron, :] = bin_avg_act
-        else:
-
-            # if the trace is not dff, data has to be split into trials before analysis
-            if trace != 'F_dff':
-                data = getattr(self.cnmf.estimates, trace)
-                n_neuron = data.shape[0]
-                n_trials = self.params['n_trial']
-                frame_list = self.params['frame_list']
-                session = list(np.zeros(n_neuron))
-
-                for neuron in range(n_neuron):
-                    curr_neuron = list(np.zeros(n_trials))  # initialize neuron-list
-                    session_trace = data[neuron]  # temp-save DF/F session trace of this neuron
-
-                    for trial in range(n_trials):
-                        # extract trace of the current trial from the whole session
-                        if len(session_trace) > frame_list[trial]:
-                            trial_trace, session_trace = session_trace[:frame_list[trial]], session_trace[
-                                                                                            frame_list[trial]:]
-                            curr_neuron[trial] = trial_trace  # save trial trace in this neuron's list
-                        elif len(session_trace) == frame_list[trial]:
-                            curr_neuron[trial] = session_trace
-                        else:
-                            print('Error in PlaceCellFinder.split_traces()')
-                    session[neuron] = curr_neuron  # save data from this neuron to the big session list
-            else:
-                session = self.session
-
-            bin_avg_activity = np.zeros((self.params['n_neuron'], n_bins))
-            for neuron in range(self.params['n_neuron']):
-                bin_act, bin_avg_act = self.bin_activity_to_vr(session[neuron],
-                                                               n_bins=n_bins, bin_frame_count=bin_frame_count)
-                bin_avg_activity[neuron, :] = bin_avg_act
-
-            return bin_frame_count, bin_avg_activity
-
-    def bin_activity_to_vr(self, neuron_traces, n_bins=None, bin_frame_count=None):
+    def bin_neuron_activity_to_vr(self, neuron_traces, n_bins=None, bf_count=None):
         """
         Takes bin_frame_count and bins the dF/F traces of all trials of one neuron to achieve a uniform trial length
         for place cell analysis. Procedure for every trial: Algorithm goes through every bin and extracts the
         corresponding frames according to bin_frame_count.
         :param neuron_traces: list of arrays that contain the dF/F traces of a neuron. From self.session[n_neuron]
         :param n_bins: int, number of bins the trace should be split into
-        :param bin_frame_count: np.array containing the number of frames in each bin
+        :param bf_count: np.array containing the number of frames in each bin
         :return: bin_activity (list of trials), bin_avg_activity (1D array) for this neuron
         """
         if n_bins is None:
             n_bins = self.params['n_bins']
-        if bin_frame_count is None:
-            bin_frame_count = self.params['bin_frame_count']
+        if bf_count is None:
+            if self.params['resting_removed']:
+                bin_frame_count = self.params['bin_frame_count']
+        else:
+            bin_frame_count = bf_count
 
         bin_activity = np.zeros((self.params['n_trial'], n_bins))
         for trial in range(self.params['n_trial']):
-            curr_trace = neuron_traces[trial]
+            if self.params['resting_removed']:
+                curr_trace = neuron_traces[trial][self.params['resting_mask'][trial]]
+            else:
+                curr_trace = neuron_traces[trial]
             curr_bins = bin_frame_count[:, trial]
             curr_act_bin = np.zeros(n_bins)
             for bin_no in range(n_bins):
@@ -770,13 +711,22 @@ class PlaceCellFinder:
         :return: boolean value whether the criterion is passed or not
         """
         place_frames_trace = []  # stores the trace of all trials when the mouse was in a place field as one data row
-        for trial in range(self.params['bin_frame_count'].shape[1]):
-            # get the start and end frame for the current place field from the bin_frame_count array that stores how
-            # many frames were pooled for each bin
-            curr_place_frames = (np.sum(self.params['bin_frame_count'][:place_field[0], trial]),
-                                 np.sum(self.params['bin_frame_count'][:place_field[-1] + 1, trial]))
-            # attach the transient-only trace in the place field during this trial to the array
-            place_frames_trace.append(self.session_trans[neuron_id][trial][curr_place_frames[0]:curr_place_frames[1] + 1])
+        for trial in range(self.params['n_trial']):
+            if self.params['resting_removed']:
+                # get the start and end frame for the current place field from the bin_frame_count array that stores how
+                # many frames were pooled for each bin
+                curr_place_frames = (np.sum(self.params['bin_frame_count'][:place_field[0], trial]),
+                                     np.sum(self.params['bin_frame_count'][:place_field[-1] + 1, trial]))
+                # use masked session_trans data to remove resting frames
+                sess_trans_masked = self.session_trans[neuron_id][trial][self.params['resting_mask'][trial]]
+                # attach the transient-only trace in the place field during this trial to the array
+                place_frames_trace.append(sess_trans_masked[curr_place_frames[0]:curr_place_frames[1] + 1])
+            else:
+                curr_place_frames = (np.sum(self.params['bin_frame_count_all'][:place_field[0], trial]),
+                                     np.sum(self.params['bin_frame_count_all'][:place_field[-1] + 1, trial]))
+                # attach the transient-only trace in the place field during this trial to the array
+                place_frames_trace.append(
+                    self.session_trans[neuron_id][trial][curr_place_frames[0]:curr_place_frames[1] + 1])
 
         # create one big 1D array that includes all frames where the mouse was located in the place field
         # as this is the transient-only trace, we make it boolean, with False = no transient and True = transient
@@ -809,7 +759,11 @@ class PlaceCellFinder:
                 shuffle.append(curr_shuffle)
 
             # bin trials to VR position
-            bin_act, bin_avg_act = self.bin_activity_to_vr(shuffle)
+            if self.params['resting_removed']:
+                bf_count = self.params['bin_frame_count']
+            else:
+                bf_count = self.params['bin_frame_count_all']
+            bin_act, bin_avg_act = self.bin_neuron_activity_to_vr(shuffle, bf_count=bf_count)
 
             # perform place cell analysis on binned and trial-averaged activity of shuffled neuron trace
             smooth_trace = self.smooth_trace(bin_avg_act)
@@ -817,8 +771,8 @@ class PlaceCellFinder:
 
             # if the trace has passed pre-screening, continue with place cell criteria
             if len(pot_place_blocks) > 0:
-                place_fields_passed = self.apply_pf_criteria(
-                    smooth_trace, pot_place_blocks, neuron_id, save_results=False)
+                place_fields_passed = self.apply_pf_criteria(smooth_trace, pot_place_blocks,
+                                                             neuron_id, save_results=False)
                 # if the shuffled trace contained a place cell that passed all 3 criteria, count it
                 if len(place_fields_passed) > 0:
                     p_counter += 1
@@ -1069,8 +1023,8 @@ class PlaceCellFinder:
         """
         Plots all trials of a single place cell in a line graph and pcolormesh. The location of the accepted place
         fields of the cell is shaded red in the line plot.
-        :param idx: Index of the to-be-plotted place cell (following the indexing of self.place_cells, not cnm indexing,
-                    i.e. idx=0 shows the first place cell, not the first extracted component)
+        :param idx: Index of the to-be-plotted place cell (following the indexing of Caiman, same idx as displayed in
+                    plot_all_place_cells())
         :param show_reward_zones: bool flag whether reward zones should be shown as a grey shaded area in the line graph
         :param fname: str, base filename that will be extended with the neuron index before saving
         :return:
@@ -1078,8 +1032,11 @@ class PlaceCellFinder:
         if type(idx) != int:
             return 'Idx has to be an integer!'
 
-        traces = self.bin_activity[self.place_cells[idx][0]]
-        place_fields = self.place_cells[idx][1]
+        traces = self.bin_activity[idx]
+        place_fields = [x[1] for x in self.place_cells if x[0] == idx]
+
+        if len(place_fields) == 0:
+            return print(f'Neuron {idx} is no place cell!')
 
         if show_reward_zones and 'zone_borders' not in self.params.keys():
             if is_session_novel(self.params['root']):
