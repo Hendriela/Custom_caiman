@@ -384,7 +384,7 @@ class PlaceCellFinder:
         else:
             raise Exception('You have to provide trial_list before aligning data to VR position!')
 
-        self.behavior = behavior
+        self.behavior = behavior.copy()
 
         # Get frame counts for each bin for complete dataset (moving and resting frames)
         bin_frame_count_all = np.zeros((self.params['n_bins'], self.params['n_trial']), 'int')
@@ -427,6 +427,7 @@ class PlaceCellFinder:
             frame_idx = np.where(behavior[trial][:, 3] == 1)[0]  # find sample_idx of all frames
             for i in range(len(frame_idx)):
                 if i != 0:
+                    # TODO: implement smoothing speed (2 s window) before removing (after Harvey 2009)
                     if encoder_unit == 'speed':
                         if np.mean(behavior[trial][frame_idx[i - 1]:frame_idx[i], 5]) <= 2.5:
                             # set index of mask to False (excluded in later analysis)
@@ -434,7 +435,7 @@ class PlaceCellFinder:
                             # set the bad frame in the behavior array to 0 to skip it during bin_frame_counting
                             behavior[trial][frame_idx[i], 3] = np.nan
                     elif encoder_unit == 'raw':
-                        if np.sum(behavior[trial][frame_idx[i - 1]:frame_idx[i], 4]) < 30:
+                        if abs(np.sum(behavior[trial][frame_idx[i - 1]:frame_idx[i], 4])) < 30:
                             # set index of mask to False (excluded in later analysis)
                             behavior_masks[-1][i] = False
                             # set the bad frame in the behavior array to 0 to skip it during bin_frame_counting
