@@ -408,8 +408,15 @@ class PlaceCellFinder:
             # check that every bin has at least one frame in it
         if np.any(bin_frame_count_all == 0):
             zero_idx = np.where(bin_frame_count_all == 0)
-            raise ValueError('No frame in bfc_all in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0],
-                                                                                                zero_idx[1])))
+            # if not, take a frame of the next bin (or the previous bin in case its the last bin
+            if zero_idx[0] == 79 and bin_frame_count_all[78, zero_idx[1]] > 1:
+                bin_frame_count_all[78, zero_idx[1]] -= 1
+                bin_frame_count_all[79, zero_idx[1]] += 1
+            elif zero_idx[0] < 79 and bin_frame_count_all[zero_idx[0]+1, zero_idx[1]] > 1:
+                bin_frame_count_all[zero_idx[0]+1, zero_idx[1]] -= 1
+                bin_frame_count_all[zero_idx[0], zero_idx[1]] += 1
+            else:
+                raise ValueError('No frame in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0], zero_idx[1])))
 
         ##########################################################################################################
         ##################### Get frame counts for each bin for only moving frames ###############################
@@ -464,7 +471,15 @@ class PlaceCellFinder:
         # check that every bin has at least one frame in it
         if np.any(bin_frame_count == 0):
             zero_idx = np.where(bin_frame_count == 0)
-            raise ValueError('No frame in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0], zero_idx[1])))
+            # if not, take a frame of the next bin (or the previous bin in case its the last bin
+            if zero_idx[0] == 79 and bin_frame_count[78, zero_idx[1]] > 1:
+                bin_frame_count[78, zero_idx[1]] -= 1
+                bin_frame_count[79, zero_idx[1]] += 1
+            elif zero_idx[0] < 79 and bin_frame_count[zero_idx[0]+1, zero_idx[1]] > 1:
+                bin_frame_count[zero_idx[0]+1, zero_idx[1]] -= 1
+                bin_frame_count[zero_idx[0], zero_idx[1]] += 1
+            else:
+                raise ValueError('No frame in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0], zero_idx[1])))
 
         ############################################################################################################
 
@@ -985,7 +1000,16 @@ class PlaceCellFinder:
         else:
             print(f'Too many neurons to plot ({traces.shape[0]}).')
 
-    def plot_individual_neuron(self, idx, vr_aligned=True):
+    def plot_individual_neuron(self, idx, vr_aligned=True, show_reward_zones=True, save=False):
+        """
+        Plots all trials of a single cell in a line graph and pcolormesh. If the cell is a place cell, the location of
+        the accepted place fields of the cell is shaded red in the line plot.
+        :param idx: Index of the to-be-plotted place cell (following the indexing of Caiman, same idx as displayed in
+                    plot_all_place_cells())
+        :param show_reward_zones: bool flag whether reward zones should be shown as a grey shaded area in the line graph
+        :param save: bool flag whether the figure should be automatically saved.
+        :return:
+        """
         if vr_aligned:
             traces = self.bin_activity[idx]
         else:
@@ -999,53 +1023,6 @@ class PlaceCellFinder:
         place_field_idx = [x[1] for x in self.place_cells if x[0] == idx]
         if len(place_field_idx) > 0:
             place_field_idx = place_field_idx[0]
-
-        fig, ax = plt.subplots(nrows=len(traces), ncols=2, sharex=True, figsize=(20, 12))
-        for i in range(len(traces)):
-            ax[i, 0].plot(traces[i])
-            ax[i, 0].set_ylim(min_y, max_y)
-            img = ax[i, 1].pcolormesh(traces[i, np.newaxis], vmax=max_y, vmin=min_y, cmap='jet')
-            ax[i, 0].spines['top'].set_visible(False)
-            ax[i, 0].spines['right'].set_visible(False)
-            ax[i, 0].set_yticks([])
-            ax[i, 1].set_yticks([])
-            ax[i, 1].spines['top'].set_visible(False)
-            ax[i, 1].spines['right'].set_visible(False)
-
-            # draw place field
-            for field in place_field_idx:
-                ax[i, 0].axvspan(field[0], field[-1], color='r', alpha=0.3)
-        if vr_aligned:
-            ax[i, 0].set_xlim(0, self.params['n_bins'])
-
-        # plot color bar
-        fraction = 0.10  # fraction of original axes to use for colorbar
-        half_size = int(np.round(ax.shape[0] / 2))  # plot colorbar in half of the figure
-        cbar = fig.colorbar(img, ax=ax[half_size:, 1], fraction=fraction, label=r'$\Delta$F/F')  # draw color bar
-        cbar.ax.tick_params(labelsize=12)
-        cbar.ax.yaxis.label.set_size(15)
-
-        fig.subplots_adjust(left=0.1, right=1 - (fraction + 0.05), top=0.9, bottom=0.1)
-        fig.suptitle(f'Neuron {idx}', fontsize=18)
-
-    def plot_single_place_cell(self, idx, save=False, show_reward_zones=True, fname='single_place_cell'):
-        """
-        Plots all trials of a single place cell in a line graph and pcolormesh. The location of the accepted place
-        fields of the cell is shaded red in the line plot.
-        :param idx: Index of the to-be-plotted place cell (following the indexing of Caiman, same idx as displayed in
-                    plot_all_place_cells())
-        :param show_reward_zones: bool flag whether reward zones should be shown as a grey shaded area in the line graph
-        :param fname: str, base filename that will be extended with the neuron index before saving
-        :return:
-        """
-        if type(idx) != int:
-            return 'Idx has to be an integer!'
-
-        traces = self.bin_activity[idx]
-        place_fields = [x[1] for x in self.place_cells if x[0] == idx]
-
-        if len(place_fields) == 0:
-            return print(f'Neuron {idx} is no place cell!')
 
         if show_reward_zones and 'zone_borders' not in self.params.keys():
             if is_session_novel(self.params['root']):
@@ -1063,68 +1040,51 @@ class PlaceCellFinder:
             zone_borders[:, 1] = zone_borders[:, 0] + zone_length                   # Add RZ length to first bin idx
             self.params['zone_borders'] = np.array(zone_borders, dtype=int)         # Transform to int and save param
 
-        # plot components
-        if len(traces.shape) == 1:
-            nrows = 1
-        else:
-            nrows = traces.shape[0]
+        fig, ax = plt.subplots(nrows=len(traces), ncols=2, sharex=True, figsize=(20, 12))
+        for i in range(len(traces)):
+            ax[i, 0].plot(traces[i])
+            ax[i, 0].set_ylim(min_y, max_y)
+            img = ax[i, 1].pcolormesh(traces[i, np.newaxis], vmax=max_y, vmin=min_y, cmap='jet')
+            ax[i, 0].spines['top'].set_visible(False)
+            ax[i, 0].spines['right'].set_visible(False)
+            ax[i, 0].set_yticks([])
+            ax[i, 0].set_ylabel(f'Trial {i+1}', rotation=0, labelpad=30)
+            ax[i, 1].set_yticks([])
+            ax[i, 1].spines['top'].set_visible(False)
+            ax[i, 1].spines['right'].set_visible(False)
 
-        trace_fig, trace_ax = plt.subplots(nrows=nrows, ncols=2, sharex=True, figsize=(15, 4))
-        trace_fig.suptitle(f'Neuron {self.place_cells[idx][0]}', fontsize=16)
-        for i in range(traces.shape[0]):
-
-            max_y = 0.05 * ceil(traces.max() / 0.05)
-            min_y = 0.05 * floor(traces.min() / 0.05)
-
-            curr_trace = traces[i, np.newaxis]
-            img = trace_ax[i, 1].pcolormesh(curr_trace, vmax=max_y, vmin=min_y, cmap='jet')
-            trace_ax[i, 0].plot(traces[i])
-            trace_ax[i, 0].set_ylim(bottom=min_y, top=max_y)
-
-            # shade locations of place fields
-            for field in place_fields:
-                trace_ax[i, 0].axvspan(field.min(), field.max(), facecolor='r', alpha=0.2)
+            # draw place field
+            for field in place_field_idx:
+                ax[i, 0].axvspan(field[0], field[-1], color='r', alpha=0.3)
 
             # shade locations of reward zones
             if show_reward_zones:
                 for zone in self.params['zone_borders']:
-                    trace_ax[i, 0].axvspan(zone[0], zone[1], facecolor='grey', alpha=0.2)
+                    ax[i, 0].axvspan(zone[0], zone[1], facecolor='grey', alpha=0.2)
 
-            if i == trace_ax[:, 0].size - 1:
-                trace_ax[i, 0].spines['top'].set_visible(False)
-                trace_ax[i, 0].spines['right'].set_visible(False)
-                trace_ax[i, 1].set_yticks([])
-                trace_ax[i, 1].spines['top'].set_visible(False)
-                trace_ax[i, 1].spines['right'].set_visible(False)
-            else:
-                trace_ax[i, 0].axis('off')
-                trace_ax[i, 1].axis('off')
-            trace_ax[i, 0].set_title(f'Trial {i + 1}', x=-0.1, y=0.3)
+        if vr_aligned:
+            ax[-1, 0].set_xlim(0, traces.shape[1])
+            x_locs, labels = plt.xticks()
+            plt.xticks(x_locs, (x_locs * self.params['bin_length']).astype(int), fontsize=15)
+            plt.sca(ax[-1, 0])
+            plt.xticks(x_locs, (x_locs * self.params['bin_length']).astype(int), fontsize=15)
+
+            ax[i, 0].set_xlim(0, traces.shape[1])
+            ax[i, 0].set_xlabel('VR position')
+            ax[i, 1].set_xlabel('VR position')
 
         # plot color bar
         fraction = 0.10  # fraction of original axes to use for colorbar
-        half_size = int(np.round(trace_ax.shape[0] / 2))  # plot colorbar in half of the figure
-        cbar = trace_fig.colorbar(img, ax=trace_ax[half_size:, 1],
-                                  fraction=fraction, label=r'$\Delta$F/F')  # draw color bar
+        half_size = int(np.round(ax.shape[0] / 2))  # plot colorbar in half of the figure
+        cbar = fig.colorbar(img, ax=ax[half_size:, 1], fraction=fraction, label=r'$\Delta$F/F')  # draw color bar
         cbar.ax.tick_params(labelsize=12)
         cbar.ax.yaxis.label.set_size(15)
 
-        trace_ax[-1, 0].set_xlim(0, traces.shape[1])
-        x_locs, labels = plt.xticks()
-        plt.xticks(x_locs, (x_locs * self.params['bin_length']).astype(int), fontsize=15)
-        plt.sca(trace_ax[-1, 0])
-        plt.xticks(x_locs, (x_locs * self.params['bin_length']).astype(int), fontsize=15)
-
-        trace_ax[i, 0].set_xlim(0, traces.shape[1])
-        trace_ax[i, 0].set_xlabel('VR position', fontsize=12)
-        trace_ax[i, 1].set_xlabel('VR position', fontsize=12)
-        trace_fig.subplots_adjust(left=0.1, right=1-(fraction+0.05), top=0.9, bottom=0.1)
-        # trace_fig.tight_layout()
-        plt.show()
+        fig.subplots_adjust(left=0.1, right=1 - (fraction + 0.05), top=0.9, bottom=0.1)
+        fig.suptitle(f'Neuron {idx}', fontsize=18)
 
         if save:
-            filename = fname + f'_{idx}_neuron_{self.place_cells[idx][0]}'
-            plt.savefig(os.path.join(self.params['root'], f'{ fname}.png'))
+            plt.savefig(os.path.join(self.params['root'], f'neuron_{idx}.png'))
             plt.close()
 
     def plot_pc_location(self, save=False, color='r', display_numbers=False):
@@ -1240,7 +1200,7 @@ class PlaceCellFinder:
                     trace_ax[i, 0].axis('off')
                     trace_ax[i, 1].axis('off')
                 if show_neuron_id:
-                    trace_ax[i, 0].set_title(f'Neuron {place_cell_idx[curr_neur]}', x=-0.1, y=-0.1)
+                    trace_ax[i, 0].set_ylabel(f'Neuron {place_cell_idx[curr_neur]}', rotation=0, labelpad=30)
 
             # set x ticks to VR position, not bin number
             trace_ax[-1, 0].set_xlim(0, traces.shape[1])
@@ -1374,24 +1334,3 @@ class PlaceCellFinder:
             else:
                 plt.savefig(os.path.join(file_dir, file_name))
 
-    def filter_resting_frames(self):
-        behavior_masks = []
-        for trial in pcf.behavior:
-            behavior_masks.append(np.ones(int(np.sum(trial[:, 3])), dtype=bool))  # bool list for every frame of that trial
-            frame_idx = np.where(trial[:, 3] == 1)[0]  # find sample_idx of all frames
-            for i in range(len(frame_idx)):
-                if i != 0:
-                    if np.sum(trial[frame_idx[i - 1]:frame_idx[i],
-                              4]) > -30:  # make the index of the current frame False if
-                        behavior_masks[-1][i] = False  # the mouse didnt move much during the frame
-                else:
-                    if trial[0, 4] > -30:
-                        behavior_masks[-1][i] = False
-
-        trial_lengths = [int(np.sum(trial)) for trial in behavior_masks]
-
-        behavior_mask = np.hstack(behavior_masks)
-        dff_all = deepcopy(dff)
-        dff = dff_all[behavior_mask]
-        position_all = deepcopy(position)
-        position = position_all[behavior_mask]
