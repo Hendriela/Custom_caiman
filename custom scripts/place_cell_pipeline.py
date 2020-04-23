@@ -355,8 +355,18 @@ def manual_neuron_extraction(root, movie, params, dview, fname=None):
     params.set('patch', {'only_init': False})
     params.set('patch', {'rf': None})
 
+    # # with fit and refit
+    # temp_p = params.get('temporal', 'p')
+    # params = params.change_params({'p': 0})
+    # cnm = cnmf.CNMF(params.get('patch', 'n_processes'), params=params, dview=dview)
+    # cnm = cnm.fit(movie)
+    # cnm.params.change_params({'p': temp_p})
+    # cnm2 = cnm.refit(movie, dview=dview)
+    # cnm2.estimates.dims = movie.shape[1:]
+    # return cnm2
+
     # run refinement of masks and extraction of traces
-    params = params.change_params({'p': 1})
+    # params = params.change_params({'p': 0})
     cnm = cnmf.CNMF(params.get('patch', 'n_processes'), params=params, dview=dview, Ain=A)  # A is passed to CNMF object
     cnm.fit(movie)
     cnm.estimates.dims = movie.shape[1:]
@@ -420,9 +430,9 @@ def motion_correction(root, params, dview, percentile=0.1,
     # First, get a list of all folders that include contiguous imaging sessions (have to be motion corrected together)
     dir_list = []
     for step in os.walk(root):
-        if len(glob(step[0] + r'\\file_0*.tif')) > 0:
+        if len(glob(step[0] + r'\\file_00???.tif')) > 0:
             up_dir = step[0].rsplit(os.sep, 1)[0]
-            if len(glob(up_dir + r'\\memmap__d1_*.mmap')) == 0 or overwrite and up_dir not in dir_list:
+            if (len(glob(up_dir + r'\\memmap__d1_*.mmap')) == 0 or overwrite) and up_dir not in dir_list:
                 dir_list.append(up_dir)   # this makes a list of all folders that contain single-trial imaging folders
 
     mmap_list = []
@@ -447,7 +457,7 @@ def motion_correction(root, params, dview, percentile=0.1,
             c, dview, n_processes = cm.cluster.setup_cluster(backend='local', n_processes=None, single_thread=False)
 
             # list of all .tif files of that session which should be corrected together, sorted by their trial number
-            file_list = glob(session + r'\\*\\file*.tif')
+            file_list = glob(session + r'\\*\\file_00???.tif')
             file_list.sort(key=natural_keys)
             print(f'\nNow starting to process session {session} ({len(file_list)} trials).')
 
@@ -502,13 +512,15 @@ def motion_correction(root, params, dview, percentile=0.1,
             for file in temp_files:
                 os.remove(file)
 
-            # compute local correlation and mean intensity image
+            # compute local correlation and mean intensity image if they do not already exist
             if get_images:
                 print(f'Finished. Now computing local correlation and mean intensity images...')
                 Yr, dims, T = cm.load_memmap(fname_new)
                 images = np.reshape(Yr.T, [T] + list(dims), order='F')
-                out = save_local_correlation(images, session)
-                out = save_average_image(images, session)
+                if not os.path.isfile(os.path.join(session, 'local_correlation_image.tif')):
+                    out = save_local_correlation(images, session)
+                if not os.path.isfile(os.path.join(session, 'mean_intensity_image.tif')):
+                    out = save_average_image(images, session)
 
             print('Finished!')
 
@@ -669,9 +681,9 @@ def check_eval_results(cnm, idx, plot_contours=False):
         upper_thresh_failed = 0
         lower_thresh_failed = False
 
-        print(f'Checking component {idx[i]+1}...')
+        print(f'Checking component {idx[i]}...')
         if idx[i] in cnm.estimates.idx_components:
-            print(green_start+f'\nComponent {idx[i]+1} got accepted, all lower threshold were passed!'+green_end+'\n\n\tUpper thresholds:\n')
+            print(green_start+f'\nComponent {idx[i]} got accepted, all lower threshold were passed!'+green_end+'\n\n\tUpper thresholds:\n')
 
             if snr >= snr_max:
                 print(green_start+f'\tSNR of {round(snr,2)} exceeds threshold of {snr_max}\n'+green_end)
@@ -690,7 +702,7 @@ def check_eval_results(cnm, idx, plot_contours=False):
             print(f'\n')
 
         else:
-            print(f'\nComponent {idx[i] + 1} did not get accepted. \n\n\tChecking thresholds:\n')
+            print(f'\nComponent {idx[i]} did not get accepted. \n\n\tChecking thresholds:\n')
 
             if snr >= snr_max:
                 print(green_start+f'\tSNR of {round(snr,2)} exceeds upper threshold of {snr_max}\n'+green_end)
@@ -720,9 +732,9 @@ def check_eval_results(cnm, idx, plot_contours=False):
                 lower_thresh_failed = True
 
             if lower_thresh_failed:
-                print(red_start+f'Result: Component {idx[i]+1} got rejected because it failed at least one lower threshold!\n\n'+red_end)
+                print(red_start+f'Result: Component {idx[i]} got rejected because it failed at least one lower threshold!\n\n'+red_end)
             elif upper_thresh_failed == 3 and not lower_thresh_failed:
-                print(red_start+f'Result: Component {idx[i]+1} got rejected because it met all lower, but no upper thresholds!\n\n'+red_end)
+                print(red_start+f'Result: Component {idx[i]} got rejected because it met all lower, but no upper thresholds!\n\n'+red_end)
             else:
                 print('This should not appear, check code logic!\n\n')
 
