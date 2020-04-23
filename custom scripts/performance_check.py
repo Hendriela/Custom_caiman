@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from glob import glob
 from math import ceil
+from copy import deepcopy
 
 
 def multi_mouse_performance(mouse_dir_list, novel, precise_duration=False, separate_zones=False, date_0='0'):
@@ -673,33 +674,81 @@ def normalize_dates(date_list, norm_date):
 #%% Plotting
 
 
-def plot_single_mouse(data, mouse):
+def plot_single_mouse(input, mouse, rotate_labels=False, session_range=None):
+    """
+    Plots the performance in % licks in RZ per session of one mouse.
+    :param input: pandas DataFrame from load_performance_data()
+    :param mouse: str, ID of the mouse whose performance should be plotted (according to input['mouse'])
+    :param rotate_labels: bool flag whether x-axis labels should be rotated by 45°
+    :param session_range: optional tuple or list, restricted range of sessions to be displayed (from input['sess_id'])
+    :return:
+    """
+    data = deepcopy(input)
+    data['licking'] = data['licking'] * 100
     plt.figure()
     sessions = np.sort(data['sess_norm'].unique())
     ax = sns.lineplot(x='sess_id', y='licking', data=data[data['mouse'] == mouse])
-    ax.set(ylim=(0, 1), ylabel='licks in reward zone [%]', title=mouse,
-           xticks=range(len(sessions)), xticklabels=sessions)
+    if session_range is None:
+        ax.set(ylim=(0, 100), ylabel='licks in reward zone [%]', title=mouse,
+               xticks=range(len(sessions)), xticklabels=sessions)
+    else:
+        ax.set(ylim=(0, 100), xlim=(session_range[0] - 0.2, session_range[1] + 0.2), ylabel='licks in reward zone [%]',
+               title=mouse, xticks=range(len(sessions)), xticklabels=sessions)
 
-
-def plot_all_mice_avg(data, rotate_labels=False):
-    plt.figure()
-    sessions = np.sort(data['sess_norm'].unique())
-    ax = sns.lineplot(x='sess_id', y='licking', data=data)
-    ax.set(ylim=(0, 1), ylabel='licks in reward zone [%]', title='Average of all mice',
-           xticks=range(len(sessions)), xticklabels=sessions)
     if rotate_labels:
         labels = ax.get_xticklabels()
         ax.set_xticklabels(labels, rotation=45, ha='right')
 
 
-def plot_all_mice_separately(data, rotate_labels=False):
+def plot_all_mice_avg(input, rotate_labels=False, session_range=None):
+    """
+    Plots the performance in % licks in RZ per session averaged over all mice.
+    :param input: pandas DataFrame from load_performance_data()
+    :param rotate_labels: bool flag whether x-axis labels should be rotated by 45°
+    :param session_range: optional tuple or list, restricted range of sessions to be displayed (from input['sess_id'])
+    :return:
+    """
+    data = deepcopy(input)
+    data['licking'] = data['licking'] * 100
+    plt.figure()
+    sessions = np.sort(data['sess_norm'].unique())
+    ax = sns.lineplot(x='sess_id', y='licking', data=data)
+
+    if session_range is None:
+        ax.set(ylim=(0, 100), ylabel='licks in reward zone [%]',
+               title='Average of all mice', xticks=range(len(sessions)), xticklabels=sessions)
+    else:
+        ax.set(ylim=(0, 100), xlim=(session_range[0] - 0.2, session_range[1] + 0.2), ylabel='licks in reward zone [%]',
+               title='Average of all mice', xticks=range(len(sessions)), xticklabels=sessions)
+
+    if rotate_labels:
+        labels = ax.get_xticklabels()
+        ax.set_xticklabels(labels, rotation=45, ha='right')
+
+
+def plot_all_mice_separately(input, rotate_labels=False, session_range=None):
+    """
+    Plots the performance in % licks in RZ per session of all mice in separate graphs.
+    :param input: pandas DataFrame from load_performance_data()
+    :param rotate_labels: bool flag whether x-axis labels should be rotated by 45°
+    :param session_range: optional tuple or list, restricted range of sessions to be displayed (from input['sess_id'])
+    :return:
+    """
+    data = deepcopy(input)
+    data['licking'] = data['licking'] * 100
     sessions = np.sort(data['sess_norm'].unique())
     grid = sns.FacetGrid(data, col='mouse', col_wrap=3, height=3, aspect=2)
     grid.map(sns.lineplot, 'sess_id', 'licking')
     grid.set_axis_labels('session', 'licks in reward zone [%]')
-    out = grid.set(ylim=(0, 1), xlim=(-0.2, len(sessions) - 0.8), xticks=range(len(sessions)), xticklabels=sessions)
+    if session_range is None:
+        out = grid.set(ylim=(0, 100), xlim=(-0.2, len(sessions) - 0.8),
+                       xticks=range(len(sessions)), xticklabels=sessions)
+    else:
+        out = grid.set(ylim=(0, 100), xlim=(session_range[0]-0.2, session_range[1] + 0.2),
+                       xticks=range(len(sessions)), xticklabels=sessions)
     if rotate_labels:
         for ax in grid.axes.ravel():
             ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+
     plt.tight_layout()
 
