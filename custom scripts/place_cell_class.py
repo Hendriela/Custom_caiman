@@ -407,16 +407,18 @@ class PlaceCellFinder:
 
             # check that every bin has at least one frame in it
         if np.any(bin_frame_count_all == 0):
-            zero_idx = np.where(bin_frame_count_all == 0)
+            all_zero_idx = np.where(bin_frame_count_all == 0)
             # if not, take a frame of the next bin (or the previous bin in case its the last bin
-            if zero_idx[0] == 79 and bin_frame_count_all[78, zero_idx[1]] > 1:
-                bin_frame_count_all[78, zero_idx[1]] -= 1
-                bin_frame_count_all[79, zero_idx[1]] += 1
-            elif zero_idx[0] < 79 and bin_frame_count_all[zero_idx[0]+1, zero_idx[1]] > 1:
-                bin_frame_count_all[zero_idx[0]+1, zero_idx[1]] -= 1
-                bin_frame_count_all[zero_idx[0], zero_idx[1]] += 1
-            else:
-                raise ValueError('No frame in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0], zero_idx[1])))
+            for i in range(len(all_zero_idx[0])):
+                zero_idx = (all_zero_idx[0][i], all_zero_idx[1][i])
+                if zero_idx[0] == 79 and bin_frame_count_all[78, zero_idx[1]] > 1:
+                    bin_frame_count_all[78, zero_idx[1]] -= 1
+                    bin_frame_count_all[79, zero_idx[1]] += 1
+                elif zero_idx[0] < 79 and bin_frame_count_all[zero_idx[0]+1, zero_idx[1]] > 1:
+                    bin_frame_count_all[zero_idx[0]+1, zero_idx[1]] -= 1
+                    bin_frame_count_all[zero_idx[0], zero_idx[1]] += 1
+                else:
+                    raise ValueError('No frame in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0], zero_idx[1])))
 
         ##########################################################################################################
         ##################### Get frame counts for each bin for only moving frames ###############################
@@ -470,16 +472,18 @@ class PlaceCellFinder:
 
         # check that every bin has at least one frame in it
         if np.any(bin_frame_count == 0):
-            zero_idx = np.where(bin_frame_count == 0)
+            all_zero_idx = np.where(bin_frame_count == 0)
             # if not, take a frame of the next bin (or the previous bin in case its the last bin
-            if zero_idx[0] == 79 and bin_frame_count[78, zero_idx[1]] > 1:
-                bin_frame_count[78, zero_idx[1]] -= 1
-                bin_frame_count[79, zero_idx[1]] += 1
-            elif zero_idx[0] < 79 and bin_frame_count[zero_idx[0]+1, zero_idx[1]] > 1:
-                bin_frame_count[zero_idx[0]+1, zero_idx[1]] -= 1
-                bin_frame_count[zero_idx[0], zero_idx[1]] += 1
-            else:
-                raise ValueError('No frame in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0], zero_idx[1])))
+            for i in range(len(all_zero_idx[0])):
+                zero_idx = (all_zero_idx[0][i], all_zero_idx[1][i])
+                if zero_idx[0] == 79 and bin_frame_count[78, zero_idx[1]] > 1:
+                    bin_frame_count[78, zero_idx[1]] -= 1
+                    bin_frame_count[79, zero_idx[1]] += 1
+                elif zero_idx[0] < 79 and bin_frame_count[zero_idx[0]+1, zero_idx[1]] > 1:
+                    bin_frame_count[zero_idx[0]+1, zero_idx[1]] -= 1
+                    bin_frame_count[zero_idx[0], zero_idx[1]] += 1
+                else:
+                    raise ValueError('No frame in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0], zero_idx[1])))
 
         ############################################################################################################
 
@@ -1004,7 +1008,7 @@ class PlaceCellFinder:
         """
         Plots all trials of a single cell in a line graph and pcolormesh. If the cell is a place cell, the location of
         the accepted place fields of the cell is shaded red in the line plot.
-        :param idx: Index of the to-be-plotted place cell (following the indexing of Caiman, same idx as displayed in
+        :param idx: Index of the to-be-plotted cell (following the indexing of Caiman, same idx as displayed in
                     plot_all_place_cells())
         :param show_reward_zones: bool flag whether reward zones should be shown as a grey shaded area in the line graph
         :param save: bool flag whether the figure should be automatically saved.
@@ -1188,17 +1192,17 @@ class PlaceCellFinder:
                         trace_ax[i, 0].axvspan(zone[0], zone[1], facecolor='grey', alpha=0.2)
 
                 # clean up axes
-                if i == trace_ax[:, 0].size - 1:
-                    trace_ax[i, 0].spines['top'].set_visible(False)
-                    trace_ax[i, 0].spines['right'].set_visible(False)
-                    #trace_ax[i, 0].tick_params(axis='y', which='major', labelsize=15)
-                    trace_ax[i, 0].set_yticks([])
-                    trace_ax[i, 1].set_yticks([])
-                    trace_ax[i, 1].spines['top'].set_visible(False)
-                    trace_ax[i, 1].spines['right'].set_visible(False)
-                else:
-                    trace_ax[i, 0].axis('off')
-                    trace_ax[i, 1].axis('off')
+                # if i == trace_ax[:, 0].size - 1:
+                trace_ax[i, 0].spines['top'].set_visible(False)
+                trace_ax[i, 0].spines['right'].set_visible(False)
+                #trace_ax[i, 0].tick_params(axis='y', which='major', labelsize=15)
+                trace_ax[i, 0].set_yticks([])
+                trace_ax[i, 1].set_yticks([])
+                trace_ax[i, 1].spines['top'].set_visible(False)
+                trace_ax[i, 1].spines['right'].set_visible(False)
+                # else:
+                #     trace_ax[i, 0].axis('off')
+                #     trace_ax[i, 1].axis('off')
                 if show_neuron_id:
                     trace_ax[i, 0].set_ylabel(f'Neuron {place_cell_idx[curr_neur]}', rotation=0, labelpad=30)
 
