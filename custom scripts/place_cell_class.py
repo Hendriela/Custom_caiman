@@ -829,6 +829,28 @@ class PlaceCellFinder:
         # extract tuples of place cells that are not rejected
         self.place_cells = [x for x in self.place_cells if x[0] not in rej]
 
+    def accept_place_cells(self, acc):
+        """
+        Moves place cells from the place_cells_reject to the place_cells list.
+        :param acc: list, contains global indices of place cells to be accepted.
+        :return:
+        """
+
+        # extract tuples of rejected place cells
+        good_cells = [x for x in self.place_cells_reject if x[0] in acc]
+
+        # check if any cell in rej couldnt be found in place_cells
+        good_pc_idx = [x[0] for x in good_cells]
+        false_pc = [x for x in acc if x not in good_pc_idx]
+        if len(false_pc) > 0:
+            return print(f'The following cells are not in place_cells_reject: {false_pc}!')
+
+        # append bad cells to the place_cells_reject list
+        self.place_cells = self.place_cells + good_cells
+
+        # extract tuples of place cells that are not rejected
+        self.place_cells_reject = [x for x in self.place_cells_reject if x[0] not in acc]
+
 
 #%% Spatial information
 
@@ -1023,10 +1045,17 @@ class PlaceCellFinder:
         max_y = 0.05 * ceil(traces.max() / 0.05)
         min_y = 0.05 * floor(traces.min() / 0.05)
 
-        # Get positions of accepted place fields
+        # Get positions of accepted/potential place fields, remember if place cell is accepted or not
         place_field_idx = [x[1] for x in self.place_cells if x[0] == idx]
+        bad_place_field_idx = [x[1] for x in self.place_cells_reject if x[0] == idx]
         if len(place_field_idx) > 0:
             place_field_idx = place_field_idx[0]
+            accepted = True
+        elif len(bad_place_field_idx) > 0:
+            place_field_idx = bad_place_field_idx[0]
+            accepted = False
+        else:
+            accepted = False
 
         if show_reward_zones and 'zone_borders' not in self.params.keys():
             if is_session_novel(self.params['root']):
@@ -1059,7 +1088,10 @@ class PlaceCellFinder:
 
             # draw place field
             for field in place_field_idx:
-                ax[i, 0].axvspan(field[0], field[-1], color='r', alpha=0.3)
+                if accepted:
+                    ax[i, 0].axvspan(field[0], field[-1], color='r', alpha=0.3)
+                else:
+                    ax[i, 0].axvspan(field[0], field[-1], color='orange', alpha=0.3)
 
             # shade locations of reward zones
             if show_reward_zones:
