@@ -359,7 +359,7 @@ class PlaceCellFinder:
         :param encoder_unit
         :return: Updated PCF object with behavior and binned data
         """
-
+        self.params['n_bins'] = int(self.params['track_length'] / self.params['bin_length'])
         behavior = []
         is_faulty = False
         count = 0
@@ -503,7 +503,7 @@ class PlaceCellFinder:
         :param remove_resting: bool flag whether resting frames should be removed before binning. This choice will
                                affect downstream analysis steps and will thus be saved in params['resting_removed'].
         """
-
+        self.params['n_bins'] = int(self.params['track_length'] / self.params['bin_length'])
         if remove_resting is None:
             if 'resting_removed' in self.params.keys():
                 remove_resting = self.params['resting_removed']
@@ -542,6 +542,7 @@ class PlaceCellFinder:
         :param bf_count: np.array containing the number of frames in each bin
         :return: bin_activity (list of trials), bin_avg_activity (1D array) for this neuron
         """
+        self.params['n_bins'] = int(self.params['track_length'] / self.params['bin_length'])
         if n_bins is None:
             n_bins = self.params['n_bins']
         if bf_count is None:
@@ -1057,7 +1058,7 @@ class PlaceCellFinder:
         else:
             accepted = False
 
-        if show_reward_zones and 'zone_borders' not in self.params.keys():
+        if show_reward_zones:
             if is_session_novel(self.params['root']):
                 zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
                 self.params['novel'] = True
@@ -1163,7 +1164,7 @@ class PlaceCellFinder:
         n_neurons = traces.shape[0]
 
         # Get regions of reward zones
-        if show_reward_zones and 'zone_borders' not in self.params.keys():
+        if show_reward_zones:
             if is_session_novel(self.params['root']):
                 zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
                 self.params['novel'] = True
