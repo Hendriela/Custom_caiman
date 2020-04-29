@@ -50,7 +50,7 @@ def preprocess_test_dataset(dF_traces, before_frac, windowsize, after_frac):
 def predict_spikes(data, params=None, thresh=True, plot_noise_levels=False, verbose=False):
     """
     Perform Peters spike prediction on a single session of dF/F traces.
-    :param data: np.array, shape (#neurons, #timestamps)
+    :param data: np.array, shape (#neurons, #timestamps) of dF/F traces, e.g. directly from cnmf.estimates.F_dff
     :param params: dict, containing all parameters that the spike prediction algorithm needs. If None, take defaults.
     :param thresh: bool flag whether prediction should be thresholded (avoids spike overestimation of noise)
     :param plot_noise_levels: bool flag whether noise levels of the data should be plotted as a histogram
@@ -150,6 +150,9 @@ def predict_spikes(data, params=None, thresh=True, plot_noise_levels=False, verb
 
     # Enforce non-negative spike prediction values
     Y_predict[Y_predict < 0] = 0
+
+    # My edit: substitute NaNs with 0, otherwise Caiman cant save the array in its hdf5 (cant handle nans)
+    # Y_predict = np.nan_to_num(Y_predict)
 
     if thresh:
         # Put threshold on prediction to avoid overestimation of noise

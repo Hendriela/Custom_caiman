@@ -8,6 +8,7 @@ import os
 import performance_check as performance
 import numpy as np
 import seaborn as sns
+#import manual_neuron_selection_gui as selection_gui
 
 """
 Complete pipeline for place cell analysis, from motion correction to place cell finding
@@ -144,11 +145,11 @@ opts = cnmf.params.CNMFParams(params_dict=mc_dict)
 p = 1  # order of the autoregressive system
 gnb = 2  # number of global background components (3)
 merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
-rf = 25
+rf = 50
 # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
 stride_cnmf = 20  # amount of overlap between the patches in pixels (20)
-K = 20  # number of components per patch (10)
-gSig = [5, 5]  # expected half-size of neurons in pixels
+K = 12  # number of components per patch (10)
+gSig = [12, 12]  # expected half-size of neurons in pixels
 # initialization method (if analyzing dendritic data using 'sparse_nmf')
 method_init = 'greedy_roi'
 ssub = 2  # spatial subsampling during initialization
@@ -378,8 +379,6 @@ for root in roots:
 
 #%% Performance evaluation
 
-
-
 path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32',
         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33',
         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M35',
@@ -392,11 +391,11 @@ path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32',
 
 path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3']
 
-data = performance.load_performance_data(roots=path, novel=False, norm_date=None)
+data = performance.load_performance_data(roots=path, novel=False, norm_date='20200318')
 
 performance.plot_all_mice_avg(data, rotate_labels=True)
-performance.plot_all_mice_separately(data, rotate_labels=True)
-performance.plot_single_mouse(data, 'M39')
+performance.plot_all_mice_separately(data, rotate_labels=False)
+performance.plot_single_mouse(data, 'M41')
 
 def compare_trans_only(obj, idx):
     n_cols = 3
@@ -426,17 +425,58 @@ def compare_trans_only(obj, idx):
             ax[i, 2].plot(obj.bin_avg_activity[idx])
             ax[i, 2].set_xticks([])
 
-#%% avg compute test
-path = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39\20200318'
-mmap_file, images = pipe.load_mmap(path)
-avg = np.zeros(images.shape[1:])
-tot_pix = images.shape[1]*images.shape[2]
-count = 1
-for row in range(images.shape[1]):
-    for col in range(images.shape[2]):
-        curr_pix = images[:, row, col]
-        avg[row, col] = np.mean(curr_pix)
-        pipe.progress(count, tot_pix, status=f'Computed {count}/{int(tot_pix)} pixels...')
-        count += 1
 
+#%%
+from spike_prediction import predict_spikes
+roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39\20200320',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39\20200321',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39\20200322',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39\20200323',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40\20200318',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40\20200319',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40\20200320',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40\20200321',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40\20200322']
+
+for root in roots:
+
+    # Set parameters
+    pcf_params = {'root': root,  # main directory of this session
+                  'trans_length': 0.5,  # minimum length in seconds of a significant transient
+                  'trans_thresh': 4,  # factor of sigma above which a transient is significant
+                  'bin_length': 5,
+                  # length in cm VR distance in which to bin dF/F trace (must be divisor of track_length)
+                  'bin_window_avg': 3,  # sliding window of bins (left and right) for trace smoothing
+                  'bin_base': 0.25,  # fraction of lowest bins that are averaged for baseline calculation
+                  'place_thresh': 0.25,  # threshold of being considered for place fields, calculated
+                  #     from difference between max and baseline dF/F
+                  'min_pf_size': 15,  # minimum size in cm for a place field (should be 15-20 cm)
+                  'fluo_infield': 7,
+                  # factor above which the mean DF/F in the place field should lie vs. outside the field
+                  'trans_time': 0.2,  # fraction of the (unbinned!) signal while the mouse is located in
+                  # the place field that should consist of significant transients
+                  'track_length': 400,  # length in cm of the virtual reality corridor
+                  'split_size': 50}  # size in frames of bootstrapping segments
+
+    # Load CNM object
+    cnm = pipe.load_cnmf(root)
+
+    # Initialize PCF object with the raw data (CNM object) and the parameter dict
+    pcf = pc.PlaceCellFinder(cnm, pcf_params)
+
+    # If necessary, perform Peters spike prediction
+    pcf.cnmf.estimates.spikes = predict_spikes(pcf.cnmf.estimates.F_dff)
+
+    # split traces into trials'
+    pcf.split_traces_into_trials()
+
+    # Import behavior and align traces to it, while removing resting frames
+    pcf.import_behavior_and_align_traces()
+    pcf.params['resting_removed'] = True
+    pcf.bin_activity_to_vr(remove_resting=pcf.params['resting_removed'])
+
+    # # create significant-transient-only traces
+    pcf.create_transient_only_traces()
+
+    pcf.save(overwrite=True)
 

@@ -383,7 +383,8 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
 
         # put the aligned data back into the main merge array
         merge[i] = curr_merge[0].copy()
-        progress(i, merge.shape[0] - 1, status='Aligning behavioral data...')
+        if verbose:
+            progress(i, merge.shape[0] - 1, status='Aligning behavioral data...')
 
     # Fix frame count by appending/prepending frames
     if imaging:
