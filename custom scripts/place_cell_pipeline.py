@@ -163,6 +163,35 @@ def load_manual_neuron_coordinates(path, fname=None):
     coords = np.loadtxt(filename, delimiter='\t', skiprows=1, dtype='int16')
     return list(zip(coords[:, 1], coords[:, 2]))
 
+
+def export_tif(root, target_folder=None):
+    """ Export a motion corrected memory mapped file to an ImageJ readable .tif stack
+    :param root: str
+        Path of the folder containing the mmap file
+    :param target_folder: str (default None)
+        Destination folder of the exported .tif. If None, use folder of the .mmap file
+    Adrian 2019-03-21
+    """
+
+    mmap_file, movie = load_mmap(root)
+    file_name = os.path.splitext(os.path.basename(mmap_file))[0] + '.tif'
+    print(f'Start saving memmap movie to TIFF...')
+
+    if target_folder is not None:
+        root = target_folder
+
+    # Transform movie to 16 bit int
+    movie_int = np.array(movie, dtype='int16' )
+    movie = None   # save memory
+
+    # Transform into C-order
+    toSave_cOrder = movie_int.copy(order='C')
+    movie_int = None   # save memory
+
+    # Save movie to the specified path
+    tif.imwrite(os.path.join(root, file_name), data=toSave_cOrder)
+    print('Done!')
+
 #%% CNMF wrapper functions
 
 
