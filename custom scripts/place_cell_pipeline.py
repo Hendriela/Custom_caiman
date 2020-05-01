@@ -20,6 +20,7 @@ from skimage import io
 import preprocess as pre
 import tifffile as tif
 from datetime import datetime
+import shutil
 
 #%% File and directory handling
 
@@ -435,7 +436,7 @@ def import_template_coordinates(curr_path, temp_path):
 #%% Motion correction wrapper functions
 
 
-def motion_correction(root, params, dview, percentile=0.1,
+def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\hheise\temp_files',
                       remove_f_order=True, remove_c_order=False, get_images=True, overwrite=False):
     """
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
@@ -443,6 +444,7 @@ def motion_correction(root, params, dview, percentile=0.1,
     :param root: str; path in which imaging sessions are searched (files should be in separate trial folders)
     :param params: cnm.params object that holds all parameters necessary for motion correction
     :param dview: link to Caimans processing server
+    :param temp_dir: str, folder on computer hard disk where temporary files are saved
     :param percentile: float, percentile that should be added to the .tif files to avoid negative pixel values
     :param remove_f_order: bool flag whether F-order files should be removed to save disk space
     :param remove_c_order: bool flag whether single-trial C-order files should be removed to save disk space
@@ -503,18 +505,12 @@ def motion_correction(root, params, dview, percentile=0.1,
                 # Make movie positive (negative values crash NON-NEGATIVE matrix factorisation)
                 stack = stack - int(np.percentile(stack, percentile))
 
-                new_path = raw_file[:-4] + '_corrected.tif'  # avoid overwriting
+                fname = os.path.splitext(os.path.basename(raw_file))[0]
+                new_path = os.path.join(temp_dir, fname+'_corrected.tif')  # avoid overwriting
                 tif.imwrite(new_path, data=stack)
                 temp_files.append(new_path)
 
             # Perform motion correction
-
-            # ### FOR M25 ###
-            # if session[-2:] == r'N3':
-            #     params.change_params({'dxy': (0.83, 0.76)})
-            # else:
-            #     params.change_params({'dxy': (1.66, 1.52)})
-            # ###
             mc = MotionCorrect(temp_files, dview=dview, **params.get_group('motion'))
             mc.motion_correct(save_movie=True)
             border_to_0 = 0 if mc.border_nan == 'copy' else mc.border_to_0
@@ -523,23 +519,6 @@ def motion_correction(root, params, dview, percentile=0.1,
             print(f'Finished motion correction. Starting to save files in C-order...')
             fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C', border_to_0=border_to_0)
             mmap_list.append(fname_new)
-
-            if remove_f_order:
-                for file in mc.fname_tot_els:
-                    #print(f'Removing file {file}...')
-                    os.remove(file)
-            if remove_c_order:
-                temp_file = os.path.join(*file_list[0].split('\\')[:-1], 'temp_filenames.txt')
-                with open(temp_file, 'r') as temp:
-                    lines = temp.readlines()
-                    for line in lines:
-                        path = line[:-1]
-                        os.remove(path)
-                os.remove(temp_file)
-
-            # remove temporary corrected.tif files
-            for file in temp_files:
-                os.remove(file)
 
             # compute local correlation and mean intensity image if they do not already exist
             if get_images:
@@ -550,6 +529,17 @@ def motion_correction(root, params, dview, percentile=0.1,
                     out = save_local_correlation(images, session)
                 if not os.path.isfile(os.path.join(session, 'mean_intensity_image.tif')):
                     out = save_average_image(images, session)
+
+            # close opened mmap file to enable moving file
+            del Yr, images
+
+            # transfer final file to target directory on the server
+            target_path = os.path.join(session, fname_new)
+            shutil.move(fname_new, target_path)
+
+            # clear up temporary files (corrected TIFFs, F and C-order mmap files)
+            for file in os.listdir(temp_dir):
+                os.remove(os.path.join(temp_dir, file))
 
             print('Finished!')
 
