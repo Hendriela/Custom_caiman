@@ -534,7 +534,7 @@ def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\
             del Yr, images
 
             # transfer final file to target directory on the server
-            target_path = os.path.join(session, fname_new)
+            target_path = os.path.join(session, os.path.basename(fname_new))
             shutil.move(fname_new, target_path)
 
             # clear up temporary files (corrected TIFFs, F and C-order mmap files)
