@@ -674,7 +674,7 @@ def normalize_dates(date_list, norm_date):
 #%% Plotting
 
 
-def plot_single_mouse(input, mouse, rotate_labels=False, session_range=None):
+def plot_single_mouse(input, mouse, rotate_labels=False, session_range=None, scale=1, ax=None):
     """
     Plots the performance in % licks in RZ per session of one mouse.
     :param input: pandas DataFrame from load_performance_data()
@@ -683,24 +683,34 @@ def plot_single_mouse(input, mouse, rotate_labels=False, session_range=None):
     :param session_range: optional tuple or list, restricted range of sessions to be displayed (from input['sess_id'])
     :return:
     """
+    sns.set()
+    sns.set_style('whitegrid')
     data = deepcopy(input)
     data['licking'] = data['licking'] * 100
-    plt.figure()
-    sessions = np.sort(data['sess_norm'].unique())
-    ax = sns.lineplot(x='sess_id', y='licking', data=data[data['mouse'] == mouse])
-    if session_range is None:
-        ax.set(ylim=(0, 100), ylabel='licks in reward zone [%]', title=mouse,
-               xticks=range(len(sessions)), xticklabels=sessions)
-    else:
-        ax.set(ylim=(0, 100), xlim=(session_range[0] - 0.2, session_range[1] + 0.2), ylabel='licks in reward zone [%]',
-               title=mouse, xticks=range(len(sessions)), xticklabels=sessions)
 
+    if ax is None:
+        plt.figure()
+    else:
+        plt.sca(ax)
+
+    sessions = np.sort(data['sess_norm'].unique())
+    ax = sns.lineplot(x='sess_id', y='licking', data=data[data['mouse'] == mouse], label=mouse)
+    if session_range is None:
+        ax.set(ylim=(0, 100), ylabel='licks in reward zone [%]', xlabel='day', xticks=range(len(sessions)),
+               xticklabels=sessions)
+    else:
+        ax.set(ylim=(0, 100), xlim=(session_range[0], session_range[1]), ylabel='licks in reward zone [%]',
+               xlabel='day', xticks=range(len(sessions)), xticklabels=sessions)
     if rotate_labels:
         labels = ax.get_xticklabels()
         ax.set_xticklabels(labels, rotation=45, ha='right')
 
+    sns.set(font_scale=scale)
 
-def plot_all_mice_avg(input, rotate_labels=False, session_range=None):
+    return ax
+
+
+def plot_all_mice_avg(input, rotate_labels=False, session_range=None, scale=1):
     """
     Plots the performance in % licks in RZ per session averaged over all mice.
     :param input: pandas DataFrame from load_performance_data()
@@ -708,6 +718,8 @@ def plot_all_mice_avg(input, rotate_labels=False, session_range=None):
     :param session_range: optional tuple or list, restricted range of sessions to be displayed (from input['sess_id'])
     :return:
     """
+    sns.set()
+    sns.set_style('whitegrid')
     data = deepcopy(input)
     data['licking'] = data['licking'] * 100
     plt.figure()
@@ -718,15 +730,16 @@ def plot_all_mice_avg(input, rotate_labels=False, session_range=None):
         ax.set(ylim=(0, 100), ylabel='licks in reward zone [%]',
                title='Average of all mice', xticks=range(len(sessions)), xticklabels=sessions)
     else:
-        ax.set(ylim=(0, 100), xlim=(session_range[0] - 0.2, session_range[1] + 0.2), ylabel='licks in reward zone [%]',
+        ax.set(ylim=(0, 100), xlim=(session_range[0], session_range[1]), ylabel='licks in reward zone [%]',
                title='Average of all mice', xticks=range(len(sessions)), xticklabels=sessions)
 
     if rotate_labels:
         labels = ax.get_xticklabels()
         ax.set_xticklabels(labels, rotation=45, ha='right')
+    sns.set(font_scale=scale)
 
 
-def plot_all_mice_separately(input, rotate_labels=False, session_range=None):
+def plot_all_mice_separately(input, rotate_labels=False, session_range=None, scale=1):
     """
     Plots the performance in % licks in RZ per session of all mice in separate graphs.
     :param input: pandas DataFrame from load_performance_data()
@@ -734,6 +747,8 @@ def plot_all_mice_separately(input, rotate_labels=False, session_range=None):
     :param session_range: optional tuple or list, restricted range of sessions to be displayed (from input['sess_id'])
     :return:
     """
+    sns.set()
+    sns.set_style('whitegrid')
     data = deepcopy(input)
     data['licking'] = data['licking'] * 100
     sessions = np.sort(data['sess_norm'].unique())
@@ -744,11 +759,11 @@ def plot_all_mice_separately(input, rotate_labels=False, session_range=None):
         out = grid.set(ylim=(0, 100), xlim=(-0.2, len(sessions) - 0.8),
                        xticks=range(len(sessions)), xticklabels=sessions)
     else:
-        out = grid.set(ylim=(0, 100), xlim=(session_range[0]-0.2, session_range[1] + 0.2),
+        out = grid.set(ylim=(0, 100), xlim=(session_range[0], session_range[1]),
                        xticks=range(len(sessions)), xticklabels=sessions)
     if rotate_labels:
         for ax in grid.axes.ravel():
             ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
-
+    sns.set(font_scale=scale)
     plt.tight_layout()
 
