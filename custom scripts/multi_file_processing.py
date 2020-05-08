@@ -14,98 +14,130 @@ from scipy import stats
 from behavior_import import progress
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from glob import glob
-
+import performance_check as performance
+from copy import deepcopy
+#%%
 #r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191121b\N2',
-roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191122a\N1',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191125\N1',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191126b\N1',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191127a\N1',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191203a\N1',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191122a\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191125\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191126b\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191127a\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191205\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191206\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191207\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191208\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2']
-    #
-    #      r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191121b\N1',
-    #      r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191204\N1\pcf_results_nobadtrials.pickle',
-    #      r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25\20191205\N1',
-    #      r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191121b\N1',
-    #      r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18\20191204\N1']
+roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200318',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200319',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200320',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200321',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200322',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200323']
 
-#%% re-compute dF/F and save data for peter to deconvolve
-aim = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\calcium_data_peter'
-for root in roots:
-    pcf_old = pipe.load_pcf(root)
-    # pcf.cnmf.estimates.detrend_df_f(quantileMin=8, frames_window=4000)
-    # pcf.params['dff_frame_window'] = 4000
-    # # recompute place cells with new dF/F
-    # pcf.split_traces_into_trials()
-    # # align the frames to the VR position using merged behavioral data
-    # pcf.import_behavior_and_align_traces(remove_resting_frames=True)
-    # pcf.params['remove_resting_frames'] = True
-    # # create significant-transient-only traces
-    # pcf.create_transient_only_traces()
-    # # look for place cells
-    # pcf.find_place_cells()
-    # # save pcf object
-    # if len(pcf.place_cells) > 0:
-    pcf.plot_all_place_cells(save=True, show_neuron_id=True, fname='place_cells_old_dff')
-    # pcf.save(file_name='pcf_results_new_dff')
-    #
-    # fname = 'dff_' + pcf.params['mouse'] + '_' + pcf.params['session']
-    # np.save(os.path.join(aim, fname), pcf.cnmf.estimates.F_dff)
+pcf_list = [None] * len(roots)
+for idx, root in enumerate(roots):
+    pcf_list[idx] = pipe.load_pcf(root)
+
+data = performance.load_performance_data(roots=r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3',
+                                         novel=False, norm_date=None)
 
 #%% combine all pcf objects into one big one and plot place cells
-pcf_list = []
-for root in roots:
-    self = pipe.load_pcf(root)
-    behavior = []
-    is_faulty = False
-    count = 0
-    # find directories, files and frame counts
-    self.params['frame_list'] = []
-    for trial in self.params['trial_list']:
-        if len(glob(trial + '//*.mmap')) == 1:
-            self.params['frame_list'].append(int(glob(trial + '//*.mmap')[0].split('_')[-2]))
-        elif len(glob(trial + '//*.tif')) == 1:
-            with ScanImageTiffReader(glob(trial + '//*.tif')[0]) as tif:
-                frame_count = tif.shape()[0]
-            self.params['frame_list'].append(frame_count)
+root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data'
+
+def load_total_place_cell_data(root):
+    file_list = []
+    for step in os.walk(root):
+        pcf_files = glob(step[0]+r'\pcf_results*')
+        if len(pcf_files) > 0:
+            pcf_file = os.path.splitext(os.path.basename(max(pcf_files, key=os.path.getmtime)))[0]
+            file_list.append((step[0], pcf_file))
+    file_list.reverse()
+    print(f'Found {len(file_list)} PCF files. Start loading...')
+
+    bin_avg_act = None
+    pc = None
+
+    for file in file_list:
+
+        curr_pcf = pipe.load_pcf(file[0], file[1])
+
+        if bin_avg_act is None:
+            bin_avg_act = deepcopy(curr_pcf.bin_avg_activity)
         else:
-            print(f'No movie files found at {trial}!')
+            idx_offset = bin_avg_act.shape[0]
+            try:
+                bin_avg_act = np.vstack((bin_avg_act, curr_pcf.bin_avg_activity))
+            except ValueError:
+                print(f'Couldnt add place cells from {file[0]} because bin number did not add up.')
+                continue  # skip the rest of the loop
 
-    if self.params['trial_list'] is not None:
-        for trial in self.params['trial_list']:
-            path = glob(trial + '//merged_behavior*.txt')
-            if len(path) >= 1:
-                # if there are more than 1 behavior file, load the latest
-                mod_times = [os.path.getmtime(file) for file in path]
-                behavior.append(np.loadtxt(path[np.argmax(mod_times)], delimiter='\t'))
-                count_list = int(self.params['frame_list'][count])
-                count_imp = int(np.nansum(behavior[-1][:, 3]))
-                if count_imp != count_list:
-                    print(f'Contradicting frame counts in trial {trial} (no. {count}):\n'
-                          f'\tExpected {count_list} frames, imported {count_imp} frames...')
-                    is_faulty = True
-                count += 1
-            else:
-                print(f'Couldnt find behavior file at {trial}')
-        if is_faulty:
-            raise Exception('Frame count mismatch detected, stopping analysis.')
+        if pc is None:
+            pc = deepcopy(curr_pcf.place_cells)
+        else:
+            # Place cell index has to be offset by the amount of cells already in the array
+            curr_pc_offset = []
+            for i in curr_pcf.place_cells:
+                i = list(i)
+                i[0] = i[0] + idx_offset
+                curr_pc_offset.append(tuple(i))
+
+            pc.extend(curr_pc_offset)
+
+    return bin_avg_act, pc
+
+def plot_total_place_cells(bin_avg_act, place_cells, sort='max', norm=True):
+
+    place_cell_idx = [x[0] for x in place_cells]
+    traces = bin_avg_act[place_cell_idx]
+    n_neurons = traces.shape[0]
+
+    # Normalize trace array if wanted (every neuron's traces range from 0 to 1)
+    if norm:
+        for i in range(traces.shape[0]):
+            traces[i] = (traces[i] - np.min(traces[i])) / np.ptp(traces[i])
+
+    # sort neurons after different criteria
+    bins = []
+    if sort == 'max':
+        for i in range(n_neurons):
+            bins.append((i, np.argmax(traces[i, :])))
+    elif sort == 'field':
+        for i in range(n_neurons):
+            bins.append((i, place_cells[i][1][0][0]))  # get the first index of the first place field
     else:
-        raise Exception('You have to provide trial_list before aligning data to VR position!')
-    self.behavior = behavior
-    pcf_list.append(self)
+        print(f'Cannot understand sorting command {sort}.')
+        for i in range(n_neurons):
+            bins.append((i, i))
+    bins_sorted = sorted(bins, key=lambda tup: tup[1])
 
-# place_cell_data
-# for pcf in pcf_list:
-#     dff_tot = 0
+    # re-sort traces array
+    new_permut = [x[0] for x in bins_sorted]
+    new_idx = np.empty_like(new_permut)
+    new_idx[new_permut] = np.arange(len(new_permut))
+    sort_traces = traces[new_permut, :]
+
+    # Plot data
+    fig = plt.figure()
+    ax = plt.gca()
+    # fig.suptitle(f'Place cells of 101 analysed sessions (from 12 mice)', fontsize=16)
+
+    img = ax.pcolormesh(sort_traces, cmap='plasma')
+
+    cbar = fig.colorbar(img, ax=ax, fraction=0.1, )  # draw color bar
+    cbar.set_label(r'normalized $\Delta$F/F', labelpad=-10)
+    cbar.set_ticks([0, 1])
+    cbar.ax.tick_params(labelsize=12)
+    cbar.ax.yaxis.label.set_size(15)
+
+    # set axis labels and tidy up graph
+    ax.set_xlabel('VR position bin', fontsize=15)
+    ax.set_ylabel('# neuron', fontsize=15)
+    ax.tick_params(axis='both', labelsize=12)
+    ax.invert_yaxis()
+
+
+
+        # set x ticks to VR position, not bin number
+    # trace_ax[-1, 0].set_xlim(0, traces.shape[1])
+    # x_locs, labels = plt.xticks()
+    # plt.xticks(x_locs, (x_locs * self.params['bin_length']).astype(int), fontsize=15)
+    # plt.sca(trace_ax[-1, 0])
+    # plt.xticks(x_locs, (x_locs * self.params['bin_length']).astype(int), fontsize=15)
+
+
+
+big_pcf = combine_all_place_cells(root)
 
 #%% spatial information functions
 
