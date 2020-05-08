@@ -1142,7 +1142,7 @@ class PlaceCellFinder:
             plt.close()
 
     def plot_all_place_cells(self, save=False, show_neuron_id=False, show_place_fields=True, sort='field',
-                             show_reward_zones=True, fname='place_cells'):
+                             show_reward_zones=True, fname='place_cells', global_lims=True):
         """
         Plots all place cells in the data set by line graph and pcolormesh.
         :param save: bool flag whether the figure should be automatically saved in the root and closed afterwards.
@@ -1182,8 +1182,9 @@ class PlaceCellFinder:
 
         if n_neurons > 0:
             # figure out y-axis limits by rounding the maximum value in traces up to the next 0.05 step
-            max_y = 0.05 * ceil(traces.max() / 0.05)
-            min_y = 0.05 * floor(traces.min() / 0.05)
+            if global_lims:
+                max_y = 0.05 * ceil(traces.max() / 0.05)
+                min_y = 0.05 * floor(traces.min() / 0.05)
 
             # sort neurons after different criteria
             bins = []
@@ -1209,6 +1210,9 @@ class PlaceCellFinder:
             for i in range(n_neurons):
                 curr_neur = bins_sorted[i][0]
                 curr_trace = traces[curr_neur, np.newaxis]
+                if not global_lims:
+                    max_y = max(traces[curr_neur])
+                    min_y = min(traces[curr_neur])
                 img = trace_ax[i, 1].pcolormesh(curr_trace, vmax=max_y, vmin=min_y, cmap='jet')
                 trace_ax[i, 0].plot(traces[curr_neur])
                 trace_ax[i, 0].set_ylim(bottom=min_y, top=max_y)
@@ -1250,16 +1254,17 @@ class PlaceCellFinder:
             trace_ax[-1, 0].set_xlabel('VR position [cm]', fontsize=15)
             trace_ax[-1, 1].set_xlabel('VR position [cm]', fontsize=15)
 
-            # plot color bar
-            fraction = 0.10  # fraction of original axes to use for colorbar
-            half_size = int(np.round(trace_ax.shape[0]/2))  # plot colorbar in half of the figure
-            cbar = trace_fig.colorbar(img, ax=trace_ax[half_size:, 1],
-                                      fraction=fraction, label=r'$\Delta$F/F')  # draw color bar
-            cbar.ax.tick_params(labelsize=12)
-            cbar.ax.yaxis.label.set_size(15)
+            if global_lims:
+                # plot color bar
+                fraction = 0.10  # fraction of original axes to use for colorbar
+                half_size = int(np.round(trace_ax.shape[0]/2))  # plot colorbar in half of the figure
+                cbar = trace_fig.colorbar(img, ax=trace_ax[half_size:, 1],
+                                          fraction=fraction, label=r'$\Delta$F/F')  # draw color bar
+                cbar.ax.tick_params(labelsize=12)
+                cbar.ax.yaxis.label.set_size(15)
 
-            # align all plots
-            trace_fig.subplots_adjust(left=0.1, right=1-(fraction+0.05), top=0.9, bottom=0.1)
+                # align all plots
+                trace_fig.subplots_adjust(left=0.1, right=1-(fraction+0.05), top=0.9, bottom=0.1)
             plt.show()
 
             if save:
