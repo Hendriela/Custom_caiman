@@ -111,7 +111,9 @@ def load_pcf(root, fname=None):
     if fname is not None:
         pcf_path = glob(os.path.join(root, fname+'.pickle'))
         if len(pcf_path) < 1:
-            raise FileNotFoundError(f'No pcf file found in {os.path.join(root, fname)}.')
+            pcf_path = glob(os.path.join(root, fname))
+            if len(pcf_path) < 1:
+                raise FileNotFoundError(f'No pcf file found in {os.path.join(root, fname)}.')
     else:
         pcf_path = glob(root + r'\\pcf_results_manual.pickle')
         if len(pcf_path) < 1:
@@ -463,7 +465,8 @@ def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\
     for step in os.walk(root):
         if len(glob(step[0] + r'\\file_00???.tif')) > 0:
             up_dir = step[0].rsplit(os.sep, 1)[0]
-            if (len(glob(up_dir + r'\\memmap__d1_*.mmap')) == 0 or overwrite) and up_dir not in dir_list:
+            if ((len(glob(up_dir + r'\\memmap__d1_*.mmap')) == 0 and len(glob(up_dir + r'\\pcf*')) == 0 and
+                len(glob(up_dir + r'\\cnm*')) == 0) or overwrite) and up_dir not in dir_list and 'bad_trials' not in up_dir:
                 dir_list.append(up_dir)   # this makes a list of all folders that contain single-trial imaging folders
 
     mmap_list = []
