@@ -20,7 +20,10 @@ from caiman.utils import visualization
 import pandas as pd
 from statannot import add_stat_annotation
 from multisession_registration import draw_single_contour
+from scipy.ndimage.filters import gaussian_filter1d
 
+#todo: create a class "data" that includes all data trace arrays (session, session_trans, bin_act, bin_avg_act) and
+# is initialized twice, once for dF/F data and once for spike probabilities
 
 class PlaceCellFinder:
     """
@@ -45,10 +48,13 @@ class PlaceCellFinder:
         """
         self.cnmf = cnmf                # CNMF object that you obtain from the CaImAn pipeline
         self.session = None             # List of neurons containing dF/F traces ordered by neurons and trials
+        self.session_spikes = None      # List of neurons containing spike probabilities ordered by neurons and trials
         self.session_trans = None       # Same as session, just with significant transients only (rest is 0)
         self.behavior = None            # Array containing behavioral data and frame time stamps (for alignment)
         self.bin_activity = None        # Same structure as session, but binned activity normalized to VR position
         self.bin_avg_activity = None    # List of neurons and their binned activity averaged across trials
+        self.bin_spike_rate = None      # Same structure as session, but binned spike rate normalized to VR position
+        self.bin_avg_spike_rate = None  # List of neurons and their binned spike rate averaged across trials
         self.place_cells = []           # List of accepted place cells. Stored as tuples with (neuron_id,
                                         # place_field_bins, p-value)
         self.place_cells_reject = []    # List of place cells that passed all criteria, but with p > 0.05.
@@ -229,30 +235,39 @@ class PlaceCellFinder:
             raise Exception('You have to provide frame_list before continuing the analysis!')
 
         data = self.cnmf.estimates.F_dff
+        spikes = self.cnmf.estimates.spikes
         n_neuron = data.shape[0]
         session = list(np.zeros(n_neuron))
+        session_spikes = list(np.zeros(n_neuron))
 
         for neuron in range(n_neuron):
             curr_neuron = list(np.zeros(n_trials))  # initialize neuron-list
+            curr_neuron_spike = list(np.zeros(n_trials))  # initialize neuron-list
             session_trace = data[neuron]            # temp-save session trace of this neuron
+            session_spike = spikes[neuron]  # temp-save session trace of this neuron
 
             for trial in range(n_trials):
                 # extract trace of the current trial from the whole session
                 if len(session_trace) > frame_list[trial]:
                     trial_trace, session_trace = session_trace[:frame_list[trial]], session_trace[frame_list[trial]:]
                     curr_neuron[trial] = trial_trace  # save trial trace in this neuron's list
+                    trial_spike, session_spike = session_spike[:frame_list[trial]], session_spike[frame_list[trial]:]
+                    curr_neuron_spike[trial] = trial_spike  # save trial trace in this neuron's list
                 elif len(session_trace) == frame_list[trial]:
                     curr_neuron[trial] = session_trace
+                    curr_neuron_spike[trial] = session_spike
                 else:
                     print('Error in PlaceCellFinder.split_traces()')
             session[neuron] = curr_neuron  # save data from this neuron to the big session list
+            session_spikes[neuron] = curr_neuron_spike  # save data from this neuron to the big session list
 
         self.session = session
+        self.session_spikes = session_spikes
         self.params['n_neuron'] = n_neuron
         self.params['n_trial'] = n_trials
 
         print('\nSuccessfully separated traces into trials and sorted them by neurons.'
-              '\nResults are stored in pcf.session.\n')
+              '\nResults are stored in pcf.session and pcf.session_spikes.\n')
 
     def create_transient_only_traces(self):
         """
@@ -513,31 +528,36 @@ class PlaceCellFinder:
 
         # bin the activity for every neuron to the VR position, construct bin_activity and bin_avg_activity
         self.bin_activity = []
+        self.bin_spike_rate = []
         self.bin_avg_activity = np.zeros((self.params['n_neuron'], self.params['n_bins']))
+        self.bin_avg_spike_rate = np.zeros((self.params['n_neuron'], self.params['n_bins']))
         for neuron in range(self.params['n_neuron']):
             if remove_resting:
                 # if resting frames should be removed, mask data before binning (trial-wise)
                 self.params['resting_removed'] = remove_resting
-                data = [None] * self.params['n_trial']
-                for idx in range(len(data)):
-                    data[idx] = self.session[neuron][idx][self.params['resting_mask'][idx]]
-                n_bin_act, n_bin_avg_act = self.bin_neuron_activity_to_vr(self.session[neuron],
-                                                                          bf_count=self.params['bin_frame_count'])
+                n_bin_act, n_bin_avg_act, n_bin_spikes, n_bin_avg_spikes = \
+                    self.bin_neuron_activity_to_vr(self.session[neuron], self.session_spikes[neuron],
+                                                   bf_count=self.params['bin_frame_count'])
             else:
                 self.params['resting_removed'] = remove_resting
-                n_bin_act, n_bin_avg_act = self.bin_neuron_activity_to_vr(self.session[neuron],
-                                                                          bf_count=self.params['bin_frame_count_all'])
+                n_bin_act, n_bin_avg_act, n_bin_spikes, n_bin_avg_spikes = \
+                    self.bin_neuron_activity_to_vr(self.session[neuron], self.session_spikes[neuron],
+                                                   bf_count=self.params['bin_frame_count_all'])
             self.bin_activity.append(n_bin_act)
+            self.bin_spike_rate.append(n_bin_spikes)
             self.bin_avg_activity[neuron, :] = n_bin_avg_act
+            self.bin_avg_spike_rate[neuron, :] = n_bin_avg_spikes
         print('\nSuccessfully aligned calcium data to the VR position bins.'
-              '\nResults are stored in pcf.bin_activity and pcf.bin_avg_activity.\n')
+              '\nResults are stored in pcf.bin_activity and pcf.bin_avg_activity,\nbinned spike rates in '
+              'pcf.bin_spike_rate and pcf.bin_avg_spike_rate.')
 
-    def bin_neuron_activity_to_vr(self, neuron_traces, n_bins=None, bf_count=None):
+    def bin_neuron_activity_to_vr(self, neuron_traces, spikes, n_bins=None, bf_count=None):
         """
         Takes bin_frame_count and bins the dF/F traces of all trials of one neuron to achieve a uniform trial length
         for place cell analysis. Procedure for every trial: Algorithm goes through every bin and extracts the
         corresponding frames according to bin_frame_count.
         :param neuron_traces: list of arrays that contain the dF/F traces of a neuron. From self.session[n_neuron]
+        :param spikes: list of arrays that contain spike probabilities of a neuron. From self.session_spike[n_neuron]
         :param n_bins: int, number of bins the trace should be split into
         :param bf_count: np.array containing the number of frames in each bin
         :return: bin_activity (list of trials), bin_avg_activity (1D array) for this neuron
@@ -548,35 +568,53 @@ class PlaceCellFinder:
         if bf_count is None:
             if self.params['resting_removed']:
                 bin_frame_count = self.params['bin_frame_count']
+            else:
+                bin_frame_count = self.params['bin_frame_count_all']
         else:
             bin_frame_count = bf_count
 
         bin_activity = np.zeros((self.params['n_trial'], n_bins))
+        bin_spike_rate = np.zeros((self.params['n_trial'], n_bins))
         for trial in range(self.params['n_trial']):
             if self.params['resting_removed']:
                 curr_trace = neuron_traces[trial][self.params['resting_mask'][trial]]
+                curr_spikes = np.nan_to_num(spikes[trial][self.params['resting_mask'][trial]])
             else:
                 curr_trace = neuron_traces[trial]
+                curr_spikes = spikes[trial]
             curr_bins = bin_frame_count[:, trial]
             curr_act_bin = np.zeros(n_bins)
+            curr_spike_bin = np.zeros(n_bins)
             for bin_no in range(n_bins):
                 # extract the trace of the current bin from the trial trace
                 if len(curr_trace) > curr_bins[bin_no]:
                     trace_to_avg, curr_trace = curr_trace[:curr_bins[bin_no]], curr_trace[curr_bins[bin_no]:]
+                    spike_to_avg, curr_spikes = curr_spikes[:curr_bins[bin_no]], curr_spikes[curr_bins[bin_no]:]
                 elif len(curr_trace) == curr_bins[bin_no]:
                     trace_to_avg = curr_trace
+                    spike_to_avg = curr_spikes
                 else:
                     raise Exception('Something went wrong during binning...')
                 if trace_to_avg.size > 0:
                     curr_act_bin[bin_no] = np.mean(trace_to_avg)
+                    # sum instead of mean (Peters spike probability is cumulative)
+                    curr_spike_bin[bin_no] = np.nansum(spike_to_avg)
                 else:
                     curr_act_bin[bin_no] = 0
+                    curr_spike_bin[bin_no] = 0
             bin_activity[trial] = curr_act_bin
+            # Smooth average spike rate and transform values into mean firing rates by dividing by the time in s
+            # occupied by the bin (from number of samples * sampling rate)
+            smooth_spike_bin = gaussian_filter1d(curr_spike_bin, 1)
+            for i in range(n_bins):
+                smooth_spike_bin[i] = smooth_spike_bin[i]/(bin_frame_count[i, trial]*(1/self.cnmf.params.data['fr']))
+            bin_spike_rate[trial] = smooth_spike_bin
 
         # Get average activity across trials of this neuron for every bin
         bin_avg_activity = np.mean(bin_activity, axis=0)
+        bin_avg_spike_rate = np.nanmean(bin_spike_rate, axis=0)
 
-        return bin_activity, bin_avg_activity
+        return bin_activity, bin_avg_activity, bin_spike_rate, bin_avg_spike_rate
 
     def find_place_cells(self, show_prog_bar=False):
         """
@@ -792,7 +830,8 @@ class PlaceCellFinder:
                 bf_count = self.params['bin_frame_count']
             else:
                 bf_count = self.params['bin_frame_count_all']
-            bin_act, bin_avg_act = self.bin_neuron_activity_to_vr(shuffle, bf_count=bf_count)
+            # parse shuffle twice as a spike rate and catch unwanted output in two dummy variables
+            bin_act, bin_avg_act, dummy1, dummy2 = self.bin_neuron_activity_to_vr(shuffle, shuffle, bf_count=bf_count)
 
             # perform place cell analysis on binned and trial-averaged activity of shuffled neuron trace
             smooth_trace = self.smooth_trace(bin_avg_act)
