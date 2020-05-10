@@ -348,11 +348,14 @@ def quick_screen_session(path):
     if len(data_list) == 0:
         return print(f'No trials found at {path}.')
     else:
+
+        perf = np.loadtxt(os.path.join(path, 'performance.txt'))
         # plotting
         bad_trials = []
         nrows = ceil(len(data_list)/3)
         ncols = 3
         fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8))
+        fig.suptitle('Performance: {:2.2f}%'.format(100*np.mean(perf[:, 0])), fontsize=14)
         count = 0
         for row in range(nrows):
             for col in range(ncols):
