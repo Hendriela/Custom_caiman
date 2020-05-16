@@ -2,12 +2,11 @@ import pickle
 import numpy as np
 import math
 import matplotlib.pyplot as plt
+import yaml
 import gc
 
 # params to set
-file_ids = ["M32_20200322", "M32_20200323" , "M41_20200322", "M41_20200323"]
-file_folder = '../../CNM_Basic/'
-
+MD = yaml.load(open("metadata.yaml"), Loader=yaml.FullLoader) #metadata
 
 def plot_pvc_curve(y_vals, bin_size=5, show=False):
     """Plots the pvc curve
@@ -39,7 +38,7 @@ def pvc_curve(activity_matrix, plot=True, max_delta_bins=30):
 
         Parameters
         ----------
-        activity_matrix : 2D array containing (float, dim1 = trials, dim2 = neurons)
+        activity_matrix : 2D array containing (float, dim1 = bins, dim2 = neurons)
         plot: bool, optional
         max_delta_bins: int, optional
             max difference in bin distance
@@ -73,29 +72,45 @@ def pvc_curve(activity_matrix, plot=True, max_delta_bins=30):
     return curve_yvals
 
 
+def across_mice(block, max_delta_bins=30 ):
+    """Save mean-pvc curve (of a block) averaged across mice
+
+        Parameters
+        ----------
+        block : string name of block e.g. "block_2" (see metadata.yaml for names)
+
+       Returns
+       -------
+       curve_yvals:
+           saves plot of mean pvc curve to file
+    """
+
+    data_path = MD["config"]["data_path_batch3"]
+    md_block = MD["data"][block]
+    num_mice = len(md_block["mice"])
+    final_yvals = np.zeros(max_delta_bins + 1)
+    for mouse in md_block["mice"]:
+        mouse_yvals = []
+        print(mouse)
+        for session in md_block["sessions"]:
+            if mouse in md_block["sessions"][session]["mice"]:  # skip session if it wasn't recorded for this mouse
+                activity_matrix = np.load(data_path + "\\" + mouse + "\\" + str(session) + "\\" + "bin_avg_activity.npy")
+                session_yvals = pvc_curve(np.transpose(activity_matrix,(1,0)), plot=False)
+                mouse_yvals.append(list(session_yvals))
+                fig_session = plot_pvc_curve(session_yvals, show=True)
+                fig_session.savefig(data_path + "\\" + mouse + "\\" + str(session) + "\\" + "pvc_curve" + ".png")
+                plt.close(fig_session)
+        final_yvals += np.array(mouse_yvals).mean(axis=0) / num_mice
+        #fig_trial = plot_pvc_curve(final_yvals, show=True)
+    fig_block = plot_pvc_curve(final_yvals)
+    print(data_path + "\\" + "pvc_curve" + block + ".png")
+    fig_block.savefig(data_path + "\\" + "pvc_curve_" + block + ".png")
+    plt.close(fig_block)
+
 
 def main():
-    """ Save plots of the mean pvc curves of the
-        (1) average activity and (2) for the activity of each trial of the session
+    across_mice("block_2")
 
-        [Sessions set above in 'file_ids']
-    """
-    for file_id in file_ids:
-        infile = open(file_folder + '/' + file_id + '/' + file_id + '.pickle', 'rb')
-        data_complete = pickle.load(infile)
-        infile.close(); gc.collect()
-        bin_avg_activity = data_complete.bin_avg_activity
-        bin_activity = np.transpose(data_complete.bin_activity, (1,2,0))
-        # plot pvc curve for average activity for session
-        bin_avg_activity = np.transpose(bin_avg_activity, (1,0))
-        fig_avg = plot_pvc_curve(pvc_curve(bin_avg_activity, plot=False))
-        fig_avg.savefig(file_folder + '/' + file_id + '/' + file_id + '_sessionave_pvc_curve.png')
-        plt.close(fig_avg)
-        # plot pvc curve for each trial separately
-        for trial_num, bin_activity_trial in enumerate(bin_activity, start=1):
-            fig_trial = plot_pvc_curve(pvc_curve(bin_activity_trial, plot=False))
-            fig_trial.savefig(file_folder + '/' + file_id + '/' + file_id + '_trial' + str(trial_num) + '_pvc_curve.png')
-            plt.close(fig_trial)
 
 if __name__ == "__main__":
     main()
