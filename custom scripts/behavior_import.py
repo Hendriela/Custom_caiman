@@ -140,7 +140,7 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
     counter = 1
 
     for file in enc_files:
-        timestamp = int(file.split('_')[1][:-4])        # here the 0 in front of early times is removed
+        timestamp = int(os.path.basename(file).split('_')[1][:-4])   # here the 0 in front of early times is removed
         pos_file = find_file(timestamp, pos_files)
         trig_file = find_file(timestamp, trig_files)
         if pos_file is None or trig_file is None:
@@ -149,9 +149,13 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
             print(f'\nNow processing trial {counter} of {len(enc_files)}, time stamp {timestamp}...')
         frame_count = None
         if imaging:
-            movie_path = glob(str(Path(file).parents[0]) + r'\\*.tif')[0]
-            with ScanImageTiffReader(movie_path) as tif:
-                frame_count = tif.shape()[0]
+            movie_path = glob(str(Path(file).parents[0]) + r'\\*.tif')
+            if len(movie_path) == 1:
+                with ScanImageTiffReader(movie_path[0]) as tif:
+                    frame_count = tif.shape()[0]
+            elif len(movie_path) > 1:
+                print(f'More than one TIFF file at {root}! Skipping trial, please check!')
+                continue
         merge, proc_time = align_behavior_files(file, pos_file, trig_file, imaging=imaging, frame_count=frame_count,
                                                 verbose=verbose, enc_unit=enc_unit)
 
@@ -470,4 +474,3 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
         return None, None
 
     return merge, (end-start)
-
