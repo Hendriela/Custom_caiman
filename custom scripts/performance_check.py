@@ -9,6 +9,7 @@ import pandas as pd
 from glob import glob
 from math import ceil
 from copy import deepcopy
+import re
 
 
 def multi_mouse_performance(mouse_dir_list, novel, precise_duration=False, separate_zones=False, date_0='0'):
@@ -199,7 +200,7 @@ def set_xlabels(axis, x_labels, date_0):
         out = axis.set_xlabel('days after stroke')
 
 
-def load_performance_data(roots, novel, norm_date):
+def load_performance_data(roots, novel, norm_date, stroke=None):
     """
     Collects licking and stopping data from merged_behavior.txt files for a list of mice.
     :param roots: str, path to the batch folder (which contains folders for each mouse)
@@ -230,7 +231,6 @@ def load_performance_data(roots, novel, norm_date):
 
                 sess = step[0].split(os.path.sep)[-1]
                 mouse = step[0].split(os.path.sep)[-2]
-
                 # store data of this session and this mouse in a temporary DataFrame which is added to the global list
                 data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'mouse': mouse, 'session_date': sess}))
 
@@ -258,6 +258,12 @@ def load_performance_data(roots, novel, norm_date):
         session_norm = df['session_date']
 
     df['sess_norm'] = session_norm
+
+    # Set group of mice
+    df['group'] = 'unknown'
+    if stroke is not None:
+        df.loc[df.mouse.isin(stroke), 'group'] = 'stroke'
+        df.loc[~df.mouse.isin(stroke), 'group'] = 'control'
 
     return df
 
@@ -329,6 +335,13 @@ def quick_screen_session(path):
     :param path:
     :return:
     """
+
+    def atoi(text):
+        return int(text) if text.isdigit() else text
+
+    def natural_keys(text):
+        return [atoi(c) for c in re.split('(\d+)', text)]
+
     if is_session_novel(path):
         zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
     else:
@@ -341,6 +354,7 @@ def quick_screen_session(path):
             for file in step[2]:
                 if 'merged_behavior' in file and os.path.join(step[0], file) not in file_list:
                     file_list.append(os.path.join(step[0], file))
+    file_list.sort(key=natural_keys)       # order files according to trial number (otherwise 11 is before 2)
 
     data_list = []
     for file in file_list:
@@ -349,7 +363,7 @@ def quick_screen_session(path):
         return print(f'No trials found at {path}.')
     else:
 
-        perf = np.loadtxt(os.path.join(path, 'performance.txt'))
+        perf = np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))
         # plotting
         bad_trials = []
         nrows = ceil(len(data_list)/3)
