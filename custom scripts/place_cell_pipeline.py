@@ -21,6 +21,7 @@ import preprocess as pre
 import tifffile as tif
 from datetime import datetime
 import shutil
+from spike_prediction import predict_spikes
 
 #%% File and directory handling
 
@@ -197,90 +198,6 @@ def export_tif(root, target_folder=None):
 
 #%% CNMF wrapper functions
 
-
-def whole_caiman_pipeline_mouse(root, cnm_params, pcf_params, dview, make_lcm=True, network='all', overwrite=False):
-
-    for step in os.walk(root):
-        if len([s for s in step[2] if 'memmap__d1_' in s]) == 1:    # is there a session memory map?
-            if len([s for s in step[2] if 'place_cells' in s]) == 0 or overwrite:    # has it already been processed?
-                if network == 'all' or network == step[0][-2:]:     # is it the correct network?
-                    whole_caiman_pipeline_session(step[0], cnm_params, pcf_params, dview, make_lcm)
-
-
-def whole_caiman_pipeline_session(root, cnm_params, pcf_params, dview, make_lcm=False, save_pre_sel_img=True,
-                                  overwrite=False, only_extraction=False):
-    """
-    Wrapper for the complete caiman and place cell pipeline. Performs source extraction, evaluation and place cell
-    search for one session/network (one mmap file).
-    :param root: directory of the session, has to include the complete mmap file of that session
-    :param cnm_params: CNMFParams object holding all parameters for CaImAn
-    :param pcf_params: dict holding all parameters for the place cell finder
-    :param dview: pointer for the CaImAn cluster. Cluster has to be started before calling this function.
-    :param make_lcm: bool flag whether a local correlation map should be created and saved together with the cnm object.
-    LCM is necessary for plotting, but can take long to compute and runs the system out of memory for files > ~45 GB.
-    """
-    print(f'\nStarting processing of {root}...')
-    mmap_file, images = load_mmap(root)
-    cnm_params = cnm_params.change_params({'fnames': mmap_file[0]})
-    pcf_params['root'] = root
-    cnm = run_source_extraction(images, cnm_params, dview=dview)
-    save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), verbose=False, overwrite=overwrite)
-    if make_lcm:
-        print('\tFinished source extraction, now calculating local correlation map...')
-        if images.shape[0] > 40000:
-            # skip every 4th index by making a mask
-            mask = np.ones(images.shape[0], dtype=bool)
-            mask[::4] = 0
-            half_images = images[mask, :, :]
-            lcm = get_local_correlation(half_images)
-        else:
-            lcm = get_local_correlation(images)
-        cnm.estimates.Cn = lcm
-    if save_pre_sel_img:
-        cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
-        plt.tight_layout()
-        fig = plt.gcf()
-        fig.set_size_inches((10, 10))
-        plt.savefig(os.path.join(root, 'pre_sel_components.png'))
-        plt.close()
-    print('\tFinished, now evaluating components...')
-    cnm = run_evaluation(images, cnm, dview=dview)
-    save_cnmf(cnm, path=os.path.join(root, 'cnm_pre_selection.hdf5'), overwrite=True, verbose=False)
-    if not only_extraction:
-        cnm.estimates.select_components(use_object=True)
-    print('\tFinished, now creating dF/F trace...')
-    cnm.estimates.detrend_df_f(quantileMin=8, frames_window=5000)
-    cnm.params.data['dff_window'] = 5000
-    if not only_extraction:
-        save_cnmf(cnm, path=os.path.join(root, 'cnm_results.hdf5'), overwrite=True, verbose=False)
-        if make_lcm:
-            cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
-            plt.tight_layout()
-            fig = plt.gcf()
-            fig.set_size_inches((10, 10))
-            plt.savefig(os.path.join(root, 'components.png'))
-            plt.close()
-        print('\tFinished, now searching for place cells...')
-        pcf = pc.PlaceCellFinder(cnm, pcf_params)
-        # split traces into trials
-        pcf.split_traces_into_trials()
-        # align the frames to the VR position using merged behavioral data
-        pcf.save()
-        pcf.import_behavior_and_align_traces(remove_resting_frames=True)
-        pcf.params['remove_resting_frames'] = True
-        # create significant-transient-only traces
-        pcf.create_transient_only_traces()
-        pcf.save(overwrite=True)
-        # look for place cells
-        pcf.find_place_cells()
-        # save pcf object
-        if len(pcf.place_cells) > 0:
-            pcf.plot_all_place_cells(save=False, show_neuron_id=True)
-        pcf.save(overwrite=True)
-        # delete cnmf object if pcf object could be saved successfully (cnmf is included in pcf)
-        print('Finished!')
-
-
 def get_local_correlation(movie):
     """
     Calculates local correlation map of a movie.
@@ -438,8 +355,9 @@ def import_template_coordinates(curr_path, temp_path):
 #%% Motion correction wrapper functions
 
 
+
 def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\hheise\temp_files',
-                      remove_f_order=True, remove_c_order=False, get_images=True, overwrite=False):
+                      remove_f_order=True, remove_c_order=True, get_images=True, overwrite=False):
     """
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
     to save disk space. Function automatically finds sessions and performs correction on whole sessions separately.
@@ -454,6 +372,7 @@ def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\
     :param overwrite: bool flag whether correction should be performed even if a memmap file already exists
     :return mmap_list: list that includes paths of mmap files for all processed sessions
     """
+
     def atoi(text):
         return int(text) if text.isdigit() else text
 
@@ -786,3 +705,458 @@ def accept_cells(cnm, idx):
     cnm.estimates.idx_components = np.concatenate((cnm.estimates.idx_components, good_cells))
     cnm.estimates.idx_components_bad = cnm.estimates.idx_components_bad[mask]
     return cnm
+
+def remove_mmap_after_analysis(root):
+    for step in os.walk(root):
+        mmap_file = glob(step[0]+'\\memmap__*')
+        ana_file = glob(step[0] + '\\cnm_result*.hdf5') + glob(step[0] + '\\pcf_result*')
+        if len(mmap_file) > 0 and len(ana_file) > 0:
+            for file in mmap_file:
+                print(f'Deleted file {file}...')
+                del file
+
+def perform_whole_pipeline(root):
+
+    from caiman.source_extraction import cnmf
+
+    def set_params(mouse):
+        if mouse == 'M32':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66,
+                   1.52)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 2  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
+            K = 15  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 9  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 3.2
+            rval_thr = 0.82  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.99  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.02  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M33':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66,
+                   1.52)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 2  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
+            K = 12  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            min_SNR = 6  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 2.5
+            rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.95  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.03  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M37':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66,
+                   1.52)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 2  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
+            K = 12  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 5  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 2
+            rval_thr = 0.8  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = 0.4
+            cnn_thr = 0.92  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.1  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M38':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66, 1.52)  # spatial resolution (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 2  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
+            K = 10  # number of components per patch (10)
+            gSig = [6, 6]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 6  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 2
+            rval_thr = 0.8  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.95  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.1  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M39':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66, 1.52)  # spatial resolution (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 2  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
+            K = 23  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 7  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 3
+            rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.95  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.15  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M40':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66, 1.52)  # spatial resolution (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 2  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
+            K = 23  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 8  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 5
+            rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.95  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.18  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M41':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66, 1.52)  # spatial resolution (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 2  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
+            K = 20  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 8  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 3.7
+            rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.83  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.18  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        else:
+            return None
+
+        if curr_mouse == 'M40':
+            # Set parameters
+            pcf_params = {'root': curr_root,  # main directory of this session
+                          'trans_length': 0.5,  # minimum length in seconds of a significant transient
+                          'trans_thresh': 4,  # factor of sigma above which a transient is significant
+                          'bin_length': 2.125,
+                          # length in cm VR distance in which to bin dF/F trace (must be divisor of track_length)
+                          'bin_window_avg': 3,  # sliding window of bins (left and right) for trace smoothing
+                          'bin_base': 0.25,  # fraction of lowest bins that are averaged for baseline calculation
+                          'place_thresh': 0.25,  # threshold of being considered for place fields, calculated
+                          #     from difference between max and baseline dF/F
+                          'min_pf_size': 15,  # minimum size in cm for a place field (should be 15-20 cm)
+                          'fluo_infield': 7,
+                          # factor above which the mean DF/F in the place field should lie vs. outside the field
+                          'trans_time': 0.2,  # fraction of the (unbinned!) signal while the mouse is located in
+                          # the place field that should consist of significant transients
+                          'track_length': 170,  # length in cm of the virtual reality corridor
+                          'split_size': 50}  # size in frames of bootstrapping segments
+        else:
+            pcf_params = {'root': curr_root,  # main directory of this session
+                          'trans_length': 0.5,  # minimum length in seconds of a significant transient
+                          'trans_thresh': 4,  # factor of sigma above which a transient is significant
+                          'bin_length': 5,
+                          # length in cm VR distance in which to bin dF/F trace (must be divisor of track_length)
+                          'bin_window_avg': 3,  # sliding window of bins (left and right) for trace smoothing
+                          'bin_base': 0.25,  # fraction of lowest bins that are averaged for baseline calculation
+                          'place_thresh': 0.25,  # threshold of being considered for place fields, calculated
+                          #     from difference between max and baseline dF/F
+                          'min_pf_size': 15,  # minimum size in cm for a place field (should be 15-20 cm)
+                          'fluo_infield': 7,
+                          # factor above which the mean DF/F in the place field should lie vs. outside the field
+                          'trans_time': 0.2,  # fraction of the (unbinned!) signal while the mouse is located in
+                          # the place field that should consist of significant transients
+                          'track_length': 400,  # length in cm of the virtual reality corridor
+                          'split_size': 50}  # size in frames of bootstrapping segments
+
+        return cnm_params, pcf_params
+
+    def source_extraction():
+        # # Run source extraction
+        cnm = run_source_extraction(images, cnm_params, dview=dview)
+
+        # Load local correlation image (should have been created during motion correction)
+        try:
+            cnm.estimates.Cn = io.imread(curr_root + r'\local_correlation_image.tif')
+        except FileNotFoundError:
+            save_local_correlation(images, curr_root)
+            cnm.estimates.Cn = io.imread(curr_root + r'\local_correlation_image.tif')
+
+        # Plot and save contours of all components
+        cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
+        plt.tight_layout()
+        fig = plt.gcf()
+        fig.set_size_inches((10, 10))
+        plt.savefig(os.path.join(curr_root, 'pre_sel_components.png'))
+        plt.close()
+        save_cnmf(cnm, path=os.path.join(curr_root, 'cnm_pre_selection.hdf5'), verbose=False, overwrite=True)
+        return cnm
+
+    def evaluation(cnm):
+        # Perform evaluation
+        cnm = run_evaluation(images, cnm, dview=dview)
+
+        # Select components, which keeps the data of accepted components and deletes the data of rejected ones
+        cnm.estimates.select_components(use_object=True)
+
+        # Detrend calcium data (compute dF/F)
+        cnm.params.data['dff_window'] = 2000
+        cnm.estimates.detrend_df_f(quantileMin=8, frames_window=cnm.params.data['dff_window'])
+
+        # Save complete CNMF results
+        save_cnmf(cnm, path=os.path.join(curr_root, 'cnm_results.hdf5'), overwrite=False, verbose=False)
+
+        # Plot contours of all accepted components
+        cnm.estimates.plot_contours(img=cnm.estimates.Cn, display_numbers=False)
+        plt.tight_layout()
+        fig = plt.gcf()
+        fig.set_size_inches((10, 10))
+        plt.savefig(os.path.join(curr_root, 'components.png'))
+        plt.close()
+
+        return cnm
+
+    def pcf_pipeline(cnm):
+        # Initialize PCF object with the raw data (CNM object) and the parameter dict
+        pcf = pc.PlaceCellFinder(cnm, pcf_params)
+
+        # If necessary, perform Peters spike prediction
+        pcf.cnmf.estimates.spikes = predict_spikes(pcf.cnmf.estimates.F_dff)
+
+        # split traces into trials'
+        pcf.split_traces_into_trials()
+
+        pcf.import_behavior_and_align_traces()
+        pcf.params['resting_removed'] = True
+        pcf.bin_activity_to_vr(remove_resting=pcf.params['resting_removed'])
+
+        # # create significant-transient-only traces
+        pcf.create_transient_only_traces()
+
+        pcf.params['trans_time'] = 0.15
+        pcf.find_place_cells()
+
+        # Plot place cells
+        pcf.plot_all_place_cells(save=True, show_neuron_id=True)
+
+        pcf.save()
+
+    green_start = '\033[1;32;49m'
+    green_end = '\033[0;39;49m'
+
+    full_pipe_files = []
+    eval_pcf_file = []
+    pcf_files = []
+
+    # SEARCH THROUGH FILES AND PERFORM NECESSARY PROCESSING STEPS
+    for step in os.walk(root):
+        mmap_file = glob(step[0]+'\\memmap__*.mmap')
+        pre_sel_file = glob(step[0] + '\\cnm_pre_selection.hdf5')
+        results_file = glob(step[0] + '\\cnm_results.hdf5')
+        pcf_file = glob(step[0] + '\\pcf_result*')
+
+        if len(mmap_file) == 1 and len(pre_sel_file) + len(results_file) + len(pcf_file) == 0:
+            full_pipe_files.append(mmap_file[0])
+
+        elif len(pre_sel_file) == 1 and len(results_file) + len(pcf_file) == 0:
+            eval_pcf_file.append(pre_sel_file[0])
+
+        elif len(results_file) == 1 and len(pcf_file) == 0:
+            pcf_files.append(results_file[0])
+
+        elif len(pcf_file):
+            pass
+
+    print(f'Found {len(full_pipe_files)} sessions for extraction, evaluation and PCF analysis:')
+    print(*full_pipe_files, sep='\n')
+    print(f'\nFound {len(eval_pcf_file)} sessions for evaluation and PCF analysis:')
+    print(*eval_pcf_file, sep='\n')
+    print(f'\nFound {len(pcf_files)} sessions for PCF analysis:')
+    print(*pcf_files, sep='\n')
+    print('\n\n')
+
+    for file in full_pipe_files:
+        # Run source extraction, evaluation and pcf analysis
+        curr_mouse = file[57:60]
+        curr_root = os.path.dirname(file)
+        cnm_params, pcf_params = set_params(curr_mouse)
+
+        c, dview, n_processes = cm.cluster.setup_cluster(backend='local', n_processes=None, single_thread=False)
+
+        mmap_filepath, images = load_mmap(curr_root)  # Load memmap file
+        cnm_source = source_extraction()  # Perform source extraction
+        cnm_eval = evaluation(cnm_source)  # Perform evaluation
+        pcf_pipeline(cnm_eval)  # Perform PCF pipeline
+
+        cm.stop_server(dview=dview)
+
+    for file in eval_pcf_file:
+        # Run evaluation and pcf analysis
+        curr_mouse = file[57:60]
+        curr_root = os.path.dirname(file)
+        cnm_params, pcf_params = set_params(curr_mouse)
+
+        print(green_start + f'\n\nPerforming evaluation and PCF analysis for \n\t {curr_root}.\n' + green_end)
+
+        c, dview, n_processes = cm.cluster.setup_cluster(backend='local', n_processes=None, single_thread=False)
+
+        mmap_filepath, images = load_mmap(curr_root)  # Load memmap file
+        cnm_source = load_cnmf(curr_root, cnm_filename=os.path.basename(file))
+        cnm_eval = evaluation(cnm_source)  # Perform evaluation
+        pcf_pipeline(cnm_eval)  # Perform PCF pipeline
+
+        cm.stop_server(dview=dview)
+
+    for file in pcf_files:
+        # Run pcf analysis
+        curr_mouse = file[57:60]
+        curr_root = os.path.dirname(file)
+        cnm_params, pcf_params = set_params(curr_mouse)
+
+        print(green_start + f'\n\nPerforming PCF analysis for \n\t {curr_root}.\n' + green_end)
+
+        cnm_eval = load_cnmf(curr_root, cnm_filename=os.path.basename(file))
+        pcf_pipeline(cnm_eval)  # Perform PCF pipeline
