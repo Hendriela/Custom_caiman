@@ -14,14 +14,14 @@ import re
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
+from standard_pipeline import preprocess as pre
 import place_cell_class as pc
-from behavior_import import progress
+from standard_pipeline.behavior_import import progress
 from skimage import io
-import preprocess as pre
 import tifffile as tif
 from datetime import datetime
 import shutil
-from spike_prediction import predict_spikes
+from spike_prediction.spike_prediction import predict_spikes
 
 #%% File and directory handling
 
@@ -198,6 +198,7 @@ def export_tif(root, target_folder=None):
 
 #%% CNMF wrapper functions
 
+# todo: make work for very large movies (> 45,000 frames), maybe by loading movie in F-order!
 def get_local_correlation(movie):
     """
     Calculates local correlation map of a movie.
@@ -208,21 +209,57 @@ def get_local_correlation(movie):
     lcm[np.isnan(lcm)] = 0
     return lcm
 
+def get_local_correlation_sequential(mc):
+    """
+    Calculates local correlation map of a movie with more than 40000 frames. For normal lcm construction, the whole
+    movie has to be loaded into memory. To avoid this for large files, single-trial files are loaded sequentially and
+    the lcm is the mean of all trials.
+    :param mc:  motioncorrect object that holds paths to single-trial mmap files
+    :return lcm: local correlation map
+    """
+    lcm_array = np.zeros((len(mc.mmap_file), mc.total_template_els.shape[0], mc.total_template_els.shape[1]))
+    for trial, file in enumerate(mc.mmap_file):
+        Yr, dims, T = cm.load_memmap(file)
+        images = np.reshape(Yr.T, [T] + list(dims), order='F')
+        lcm_array[trial] = get_local_correlation(images)
+    return np.mean(lcm_array, axis=0)
 
-def save_local_correlation(movie, path):
-    cor = get_local_correlation(movie)
+def save_local_correlation(movie, path, sequential=False):
+    """
+    Calls get_local_correlation() for small files or get_local_correlation_sequential() for files > 40'000 frames and
+    saves it as a TIFF in the provided directory.
+    :param movie: mmap file of the session-movie (if sequential=False) or MC object (if sequential=True)
+    :param path: session directory where the LCM should be saved
+    :param sequential: bool flag whether to get LCM from whole-session file or from single-trial files
+    :return:
+    """
+    if sequential:
+        cor = get_local_correlation_sequential(movie)
+    else:
+        cor = get_local_correlation(movie)
     fname = path + r'\local_correlation_image.tif'
     io.imsave(fname, cor.astype('float32'))
     print(f'Saved local correlation image at {fname}.')
     return fname
 
 
-def save_average_image(movie, path):
-    avg = np.zeros(movie.shape[1:])
-    for row in range(movie.shape[1]):
-        for col in range(movie.shape[2]):
-            curr_pix = movie[:, row, col]
-            avg[row, col] = np.mean(curr_pix)
+def save_average_image(movie, path, sequential=False):
+    if sequential:
+        avg_array = np.zeros((len(movie.mmap_file), movie.total_template_els.shape[0], movie.total_template_els.shape[1]))
+        for trial, file in enumerate(movie.mmap_file):
+            Yr, dims, T = cm.load_memmap(file)
+            images = np.reshape(Yr.T, [T] + list(dims), order='F')
+            for row in range(images.shape[1]):
+                for col in range(images.shape[2]):
+                    curr_pix = images[:, row, col]
+                    avg_array[trial, row, col] = np.mean(curr_pix)
+        avg = np.mean(avg_array, axis=0)
+    else:
+        avg = np.zeros(movie.shape[1:])
+        for row in range(movie.shape[1]):
+            for col in range(movie.shape[2]):
+                curr_pix = movie[:, row, col]
+                avg[row, col] = np.mean(curr_pix)
     fname = path + r'\mean_intensity_image.tif'
     io.imsave(fname, avg.astype('float32'))
     print(f'Saved mean intensity image at {fname}.')
@@ -410,8 +447,9 @@ def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\
             c, dview, n_processes = cm.cluster.setup_cluster(backend='local', n_processes=None, single_thread=False)
 
             # list of all .tif files of that session which should be corrected together, sorted by their trial number
-            file_list = glob(session + r'\\*\\file_00???.tif')
+            file_list = glob(session + r'\\*\\*_00???.tif')
             file_list.sort(key=natural_keys)
+            file_list = [x for x in file_list if 'wave' not in x]   # ignore files with waves (disrupt ROI detection)
             print(f'\nNow starting to process session {session} ({len(file_list)} trials).')
 
             # Preprocessing
@@ -445,15 +483,21 @@ def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\
             # compute local correlation and mean intensity image if they do not already exist
             if get_images:
                 print(f'Finished. Now computing local correlation and mean intensity images...')
-                Yr, dims, T = cm.load_memmap(fname_new)
-                images = np.reshape(Yr.T, [T] + list(dims), order='F')
-                if not os.path.isfile(os.path.join(session, 'local_correlation_image.tif')):
-                    out = save_local_correlation(images, session)
-                if not os.path.isfile(os.path.join(session, 'mean_intensity_image.tif')):
-                    out = save_average_image(images, session)
+                if eval(os.path.basename(fname_new).split(sep='_')[-2]) > 40000:
+                    if not os.path.isfile(os.path.join(session, 'local_correlation_image.tif')):
+                        out = save_local_correlation(mc, session, sequential=True)
+                    if not os.path.isfile(os.path.join(session, 'mean_intensity_image.tif')):
+                        out = save_average_image(mc, session, sequential=True)
+                else:
+                    Yr, dims, T = cm.load_memmap(fname_new)
+                    images = np.reshape(Yr.T, [T] + list(dims), order='F')
+                    if not os.path.isfile(os.path.join(session, 'local_correlation_image.tif')):
+                        out = save_local_correlation(images, session)
+                    if not os.path.isfile(os.path.join(session, 'mean_intensity_image.tif')):
+                        out = save_average_image(images, session)
 
-            # close opened mmap file to enable moving file
-            del Yr, images
+                    # close opened mmap file to enable moving file
+                    del Yr, images
 
             # transfer final file to target directory on the server
             target_path = os.path.join(session, os.path.basename(fname_new))
@@ -709,11 +753,12 @@ def accept_cells(cnm, idx):
 def remove_mmap_after_analysis(root):
     for step in os.walk(root):
         mmap_file = glob(step[0]+'\\memmap__*')
-        ana_file = glob(step[0] + '\\cnm_result*.hdf5') + glob(step[0] + '\\pcf_result*')
+        # ana_file = glob(step[0] + '\\cnm_result*.hdf5') + glob(step[0] + '\\pcf_result*')
+        ana_file = glob(step[0] + '\\pcf_result*')
         if len(mmap_file) > 0 and len(ana_file) > 0:
             for file in mmap_file:
                 print(f'Deleted file {file}...')
-                del file
+                os.remove(file)
 
 def perform_whole_pipeline(root):
 
@@ -1122,14 +1167,18 @@ def perform_whole_pipeline(root):
         # Run source extraction, evaluation and pcf analysis
         curr_mouse = file[57:60]
         curr_root = os.path.dirname(file)
-        cnm_params, pcf_params = set_params(curr_mouse)
+        try:
+            cnm_params, pcf_params = set_params(curr_mouse)
+        except TypeError:
+            continue
 
         c, dview, n_processes = cm.cluster.setup_cluster(backend='local', n_processes=None, single_thread=False)
 
         mmap_filepath, images = load_mmap(curr_root)  # Load memmap file
         cnm_source = source_extraction()  # Perform source extraction
         cnm_eval = evaluation(cnm_source)  # Perform evaluation
-        pcf_pipeline(cnm_eval)  # Perform PCF pipeline
+        if curr_mouse != 'M37':
+            pcf_pipeline(cnm_eval)  # Perform PCF pipeline
 
         cm.stop_server(dview=dview)
 
@@ -1137,7 +1186,10 @@ def perform_whole_pipeline(root):
         # Run evaluation and pcf analysis
         curr_mouse = file[57:60]
         curr_root = os.path.dirname(file)
-        cnm_params, pcf_params = set_params(curr_mouse)
+        try:
+            cnm_params, pcf_params = set_params(curr_mouse)
+        except TypeError:
+            continue
 
         print(green_start + f'\n\nPerforming evaluation and PCF analysis for \n\t {curr_root}.\n' + green_end)
 
@@ -1146,7 +1198,8 @@ def perform_whole_pipeline(root):
         mmap_filepath, images = load_mmap(curr_root)  # Load memmap file
         cnm_source = load_cnmf(curr_root, cnm_filename=os.path.basename(file))
         cnm_eval = evaluation(cnm_source)  # Perform evaluation
-        pcf_pipeline(cnm_eval)  # Perform PCF pipeline
+        if curr_mouse != 'M37':
+            pcf_pipeline(cnm_eval)  # Perform PCF pipeline
 
         cm.stop_server(dview=dview)
 
@@ -1154,9 +1207,13 @@ def perform_whole_pipeline(root):
         # Run pcf analysis
         curr_mouse = file[57:60]
         curr_root = os.path.dirname(file)
-        cnm_params, pcf_params = set_params(curr_mouse)
+        if curr_mouse != 'M37':
+            try:
+                cnm_params, pcf_params = set_params(curr_mouse)
+            except TypeError:
+                continue
 
-        print(green_start + f'\n\nPerforming PCF analysis for \n\t {curr_root}.\n' + green_end)
+            print(green_start + f'\n\nPerforming PCF analysis for \n\t {curr_root}.\n' + green_end)
 
-        cnm_eval = load_cnmf(curr_root, cnm_filename=os.path.basename(file))
-        pcf_pipeline(cnm_eval)  # Perform PCF pipeline
+            cnm_eval = load_cnmf(curr_root, cnm_filename=os.path.basename(file))
+            pcf_pipeline(cnm_eval)  # Perform PCF pipeline
