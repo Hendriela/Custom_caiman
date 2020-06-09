@@ -1,28 +1,18 @@
 #Import standard packages
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import io
-from scipy import stats
-import pickle
-import sys
-import place_cell_pipeline as pipe
+from standard_pipeline import place_cell_pipeline as pipe
 
 #Import function to get the covariate matrix that includes spike history from previous bins
 from Neural_Decoding.preprocessing_funcs import get_spikes_with_history
 
 #Import metrics
 from Neural_Decoding.metrics import get_R2
-from Neural_Decoding.metrics import get_rho
 
 #Import decoder functions
-from Neural_Decoding.decoders import WienerCascadeDecoder
 from Neural_Decoding.decoders import WienerFilterDecoder
 from Neural_Decoding.decoders import DenseNNDecoder
-from Neural_Decoding.decoders import SimpleRNNDecoder
-from Neural_Decoding.decoders import GRUDecoder
 from Neural_Decoding.decoders import LSTMDecoder
-from Neural_Decoding.decoders import XGBoostDecoder
-from Neural_Decoding.decoders import SVRDecoder
 
 #%% Load data
 root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2'

@@ -1,14 +1,8 @@
-import place_cell_pipeline as pipe
+from standard_pipeline import place_cell_pipeline as pipe
 import numpy as np
-import os
 from sklearn.svm import LinearSVC
-from sklearn.svm import LinearSVR
-from sklearn import preprocessing
-from sklearn import metrics
-from sklearn.linear_model import Perceptron
 from copy import deepcopy
 import matplotlib.pyplot as plt
-import statsmodels.api as sm
 
 #%% load data from pcf object
 root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2'

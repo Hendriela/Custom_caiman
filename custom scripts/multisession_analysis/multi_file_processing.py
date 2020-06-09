@@ -1,4 +1,4 @@
-import place_cell_pipeline as pipe
+from standard_pipeline import place_cell_pipeline as pipe, performance_check as performance
 import seaborn as sns
 import pandas as pd
 import numpy as np
@@ -9,13 +9,132 @@ from sklearn import preprocessing
 from math import ceil, floor
 import pickle
 from statannot import add_stat_annotation
-from ScanImageTiffReader import ScanImageTiffReader
-from scipy import stats
-from behavior_import import progress
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from glob import glob
-import performance_check as performance
 from copy import deepcopy
+from datetime import datetime as dt
+from pathlib import Path
+
+#%% Performance analysis
+path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3']
+
+stroke = ['M32', 'M40', 'M41', 'M37']
+control = ['M33', 'M38', 'M39']
+
+data = performance.load_performance_data(roots=path, novel=False, norm_date='20200513',
+                                         stroke=stroke)
+
+performance.plot_all_mice_avg(data, rotate_labels=False, session_range=(26, 38), scale=2)
+performance.plot_all_mice_avg(data, rotate_labels=False, scale=2)
+
+performance.plot_all_mice_separately(data, rotate_labels=False, session_range=(26, 41), scale=1.75)
+sns.set_context('talk')
+axis = performance.plot_single_mouse(data, 'M41', session_range=(26, 38))
+axis = performance.plot_single_mouse(data, 'M32', session_range=(10, 15), scale=2, ax=axis)
+
+filter_data = data[data['sess_norm'] >= -7]
+filter_data = get_cum_performance(filter_data)
+sns.set()
+sns.lineplot(x='sess_norm', y='cum_perf', hue='group', data=filter_data)
+[plt.axvline(x, color='r') for x in [-1, 7, 13]]
+
+
+
+def get_cum_performance(dataset):
+
+    df = dataset.assign(cum_perf=[0]*len(dataset))
+
+    for mouse in df['mouse'].unique():
+        # Set first session (copy of normal performance)
+        df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'cum_perf'] = \
+            df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'licking']
+        prev_cum = df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'cum_perf'].mean()
+
+        for sess in range(1, int(df['sess_norm'].max())+1):
+            if np.any(sess == df.loc[df['mouse'] == mouse, 'sess_norm']):
+                df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'cum_perf'] = \
+                    df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'licking'] + prev_cum
+                prev_cum = df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'cum_perf'].mean()
+
+    return df
+
+
+#%% Calculate and save place cell/total active cells ratio
+
+def compute_place_cell_ratio(root, filepath=r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\place_cell_ratio.csv',
+                             overwrite=False):
+
+    file_list = []
+    for step in os.walk(root):
+        pcf_file = glob(step[0] + '\\pcf_result*')
+        if len(pcf_file) > 0:
+            file_list.append(max(pcf_file, key=os.path.getmtime))
+    print(f'Found {len(file_list)} PCF files. Starting to load data...')
+
+    if os.path.isfile(filepath) and overwrite is False:
+        df = pd.read_csv(filepath, sep='\t', index_col=0, parse_dates=['session'])
+        extend_df = True
+        print('Extending existing CSV file...')
+        row_list = []
+    else:
+        df = pd.DataFrame(index=np.arange(0, len(file_list)),
+                          columns=('mouse', 'session', 'n_cells', 'n_place_cells', 'ratio'))
+        extend_df = False
+        print('Creating new CSV file...')
+
+    date_format = '%Y%m%d'
+    for idx, file in enumerate(file_list):
+        pipe.progress(idx, len(file_list), status=f'Processing file {idx+1} of {len(file_list)}...')
+        # check if the current session is already in the DataFrame
+        if extend_df:
+            curr_mouse = file.split(sep=os.sep)[-3]
+            curr_session = pd.Timestamp(dt.strptime(file.split(sep=os.sep)[-2], date_format).date())
+            if len(df.loc[(df['mouse'] == curr_mouse) & (df['session'] == curr_session)]) > 0:
+                continue
+
+        pcf = pipe.load_pcf(os.path.dirname(file), os.path.basename(file))
+
+        if extend_df:
+            row_list.append(pd.DataFrame({'mouse': pcf.params['mouse'],
+                                          'session': dt.strptime(pcf.params['session'], date_format).date(),
+                                          'n_cells': pcf.cnmf.estimates.F_dff.shape[0],
+                                          'n_place_cells': len(pcf.place_cells),
+                                          'ratio': (len(pcf.place_cells)/pcf.cnmf.estimates.F_dff.shape[0])*100}))
+        else:
+            # Parse data of this session into the dataframe
+            df.loc[idx]['mouse'] = pcf.params['mouse']
+            df.loc[idx]['session'] = dt.strptime(pcf.params['session'], date_format).date()
+            df.loc[idx]['n_cells'] = pcf.cnmf.estimates.F_dff.shape[0]
+            df.loc[idx]['n_place_cells'] = len(pcf.place_cells)
+            df.loc[idx]['ratio'] = (len(pcf.place_cells)/pcf.cnmf.estimates.F_dff.shape[0])*100
+
+    # give sessions a continuous id for plotting
+    df['session_id'] = -1
+    for id, session in enumerate(sorted(df['session'].unique())):
+        df.loc[df['session'] == session, 'session_id'] = id
+    sess_norm = df['session'] - min(df['session'])
+    df['sess_norm'] = [x.days for x in sess_norm]
+
+    df.sort_values(by=['mouse', 'session'], inplace=True)   # order rows for mice and session dates
+    df.to_csv(filepath, sep='\t')                           # save dataframe as CSV
+
+
+
+data = pd.read_csv(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\place_cell_ratio.csv',
+                   sep='\t', index_col=0, parse_dates=['session'])
+
+def plot_mice_separately(data, column, scale=1):
+    strokes = [18.5, 23.5]
+    sns.set()
+    sns.set_style('whitegrid')
+    grid = sns.FacetGrid(data, col='mouse', col_wrap=3, height=3, aspect=2)
+    grid = grid.map(sns.lineplot, 'session_id', column)
+    for stroke in strokes:
+        grid = grid.map(plt.axvline, x=stroke, color='r')
+    grid.set_axis_labels('session', column)
+    sns.set(font_scale=scale)
+    plt.tight_layout()
+
+
 #%%
 #r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191121b\N2',
 roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200318',
@@ -29,8 +148,6 @@ pcf_list = [None] * len(roots)
 for idx, root in enumerate(roots):
     pcf_list[idx] = pipe.load_pcf(root)
 
-data = performance.load_performance_data(roots=r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3',
-                                         novel=False, norm_date=None)
 
 #%% combine all pcf objects into one big one and plot place cells
 root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data'
@@ -140,8 +257,6 @@ def plot_total_place_cells(bin_avg_act, place_cells, sort='max', norm=True):
 big_pcf = combine_all_place_cells(root)
 
 #%% spatial information functions
-
-#%%
 
 all_sess_si = []
 # for root in roots:

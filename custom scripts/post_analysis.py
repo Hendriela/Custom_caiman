@@ -545,6 +545,7 @@ def plot_neuron_trials(traces):
         ax[i].plot(traces[i])
     plt.tight_layout()
 
+
 def plot_activity_track(traces):
     """
     Plots traces of a neuron normalized against track position

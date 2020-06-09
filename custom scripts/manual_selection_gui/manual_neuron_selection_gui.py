@@ -5,16 +5,13 @@ Created on Mon Sep 30 09:33:09 2019
 @author: adhoff
 """
 # Imports
-import argparse
 import os
 import matplotlib.pyplot as plt
 import numpy as np
 from skimage import io
 import matplotlib.gridspec as gridspec
 from datetime import datetime
-import preprocess as pre
-
-
+from standard_pipeline import preprocess as pre
 
 # ### Read input of command line arguments or use default values
 # default_mouse = 8

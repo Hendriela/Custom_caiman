@@ -6,7 +6,7 @@ import os
 from timeit import default_timer as timer
 from ScanImageTiffReader import ScanImageTiffReader
 from datetime import datetime
-import performance_check as performance
+from standard_pipeline import performance_check as performance
 from pathlib import Path
 
 
@@ -45,7 +45,7 @@ def progress(count, total, status='', percent=True):
     sys.stdout.flush()
 
 
-def align_behavior(root, performance_check=False, overwrite=False, verbose=False, enc_unit='speed'):
+def align_behavior(root, performance_check=True, overwrite=False, verbose=False, enc_unit='speed'):
     """
     This function is the main function called by pipelines!
     Wrapper for aligning multiple behavioral files. Looks through all subfolders of root for behavioral files.

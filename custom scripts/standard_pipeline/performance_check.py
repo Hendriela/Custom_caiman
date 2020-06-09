@@ -690,6 +690,7 @@ def normalize_dates(date_list, norm_date):
 
 #%% Plotting
 
+# todo make vertical line or something to signify stroke sessions
 
 def plot_single_mouse(input, mouse, rotate_labels=False, session_range=None, scale=1, ax=None):
     """

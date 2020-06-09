@@ -1,20 +1,12 @@
 #Import standard packages
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy import io
-from scipy import stats
-import sys
-import pickle
-import place_cell_pipeline as pipe
+from standard_pipeline import place_cell_pipeline as pipe
 
 #Import metrics
-from Neural_Decoding.metrics import get_R2
-from Neural_Decoding.metrics import get_rho
 
 #Import decoder functions
 from Neural_Decoding.decoders import NaiveBayesDecoder
-from Neural_Decoding.preprocessing_funcs import bin_spikes
-from Neural_Decoding.preprocessing_funcs import bin_output
+
 #%% Load data
 root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2'
 data_raw = np.load(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2\deconvolved_PR.npy').T

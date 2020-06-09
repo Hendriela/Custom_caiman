@@ -1,4 +1,4 @@
-import place_cell_pipeline as pipe
+from standard_pipeline import place_cell_pipeline as pipe
 import numpy as np
 import os
 from glob import glob

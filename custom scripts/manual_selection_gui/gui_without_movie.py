@@ -7,9 +7,7 @@ from pyqtgraph.Qt import QtGui
 from pyqtgraph.parametertree import Parameter, ParameterTree
 import os
 import caiman as cm
-from caiman.source_extraction.cnmf.cnmf import load_CNMF
-from caiman.source_extraction.cnmf.params import CNMFParams
-import place_cell_pipeline as pipe
+from standard_pipeline import place_cell_pipeline as pipe
 
 
 def run_gui(path=None, data=None):

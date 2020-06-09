@@ -1,4 +1,4 @@
-import place_cell_pipeline as pipe
+from standard_pipeline import place_cell_pipeline as pipe
 from glob import glob
 from caiman import load_memmap
 from caiman.base.rois import register_multisession
@@ -11,7 +11,7 @@ from math import ceil
 from point2d import Point2D
 from scipy.ndimage import zoom
 import os
-from copy import deepcopy
+
 
 #%% LOADING AND AUTOMATICALLY ALIGNING MULTISESSION DATA
 
@@ -909,7 +909,6 @@ if __name__ == '__main__':
     cbar.ax.yaxis.label.set_size(15)
 
     #%% save data for Björn
-    import json
     root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\alignment_data_björn'
 
     for file in range(len(pcf_objects)):
