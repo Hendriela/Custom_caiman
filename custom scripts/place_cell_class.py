@@ -8,22 +8,24 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import random
 import copy
-import glob
+from glob import glob
 from math import ceil, floor
 import os
 import re
-from behavior_import import progress
-from performance_check import is_session_novel
+from standard_pipeline.behavior_import import progress
+from standard_pipeline.performance_check import is_session_novel
 from ScanImageTiffReader import ScanImageTiffReader
-import gui_without_movie as gui
+from manual_selection_gui import gui_without_movie as gui
 from caiman.utils import visualization
 import pandas as pd
 from statannot import add_stat_annotation
-from multisession_registration import draw_single_contour
+from multisession_analysis.multisession_registration import draw_single_contour
 from scipy.ndimage.filters import gaussian_filter1d
+
 
 #todo: create a class "data" that includes all data trace arrays (session, session_trans, bin_act, bin_avg_act) and
 # is initialized twice, once for dF/F data and once for spike probabilities
+
 
 class PlaceCellFinder:
     """
@@ -61,8 +63,9 @@ class PlaceCellFinder:
 
         # noinspection PyDictCreation
         self.params = {'root': None,            # main directory of that session
-                       'trial_list': None,  # list of trial folders in this session
                     # The following parameters can be provided, but reset to default values if not
+                       'excl_bad_trials': True, # if only good trials ("file_000XX.tif") should be used for analysis or
+                                                # other trials (e.g. "nolick") should be included
                        'trans_length': 0.5,     # minimum length in seconds of a significant transient
                        'trans_thresh': 4,       # factor of sigma above which a transient is significant; int or
                                                 # tuple of int (for different start and end of transients)
@@ -78,6 +81,8 @@ class PlaceCellFinder:
                        'split_size': 50,        # size in frames of bootstrapping segments
                        'track_length': 400,     # length in cm of the VR corridor track
                     # The following parameters are calculated during analysis and do not have to be set by the user
+                       'trial_excluded': False, # flag whether a trial was excluded from analysis (if 'excl_bad_trials' = True)
+                       'trial_list': None,      # list of trial folders in this session
                        'frame_list': None,      # list of number of frames in every trial in this session
                        'n_neuron': None,        # number of neurons that were detected in this session
                        'n_trial': None,         # number of trials in this session
@@ -106,11 +111,15 @@ class PlaceCellFinder:
         if self.params['root'] is None:
             raise Exception(f'Essential parameter root has not been provided upon initialization.')
         if self.params['trial_list'] is None:
-            for step in os.walk(self.params['root']):
-                folder_list = step[1]
-                break
-            self.params['trial_list'] = [os.path.join(self.params['root'], folder) for folder in folder_list]
-        self.params['trial_list'].sort(key=natural_keys)
+            self.params['trial_list'] = []
+            self.params['frame_list'] = []
+            file_list = glob(self.params['root'] + r'\\*\\*_00???.tif')
+            file_list.sort(key=natural_keys)
+            file_list = [x for x in file_list if 'wave' not in x]           # ignore files with waves
+            for file in file_list:
+                self.params['trial_list'].append(os.path.dirname(file))     # append trial folder to list
+                with ScanImageTiffReader(file) as tif:
+                    self.params['frame_list'].append(tif.shape()[0])        # append frame count of TIFF file)
 
         # calculate track_length dependent binning parameters
         if self.params['track_length'] % self.params['bin_length'] == 0:
@@ -119,29 +128,28 @@ class PlaceCellFinder:
             raise Exception('Bin_length has to be a divisor of track_length!')
         self.params['min_bin_size'] = int(ceil(self.params['min_pf_size'] / self.params['bin_length']))
 
-        # find directories, files and frame counts
-        self.params['frame_list'] = []
-        for trial in self.params['trial_list']:
-            if len(glob.glob(trial+'//*.mmap')) == 1:
-                self.params['frame_list'].append(int(glob.glob(trial+'//*.mmap')[0].split('_')[-2]))
-            elif len(glob.glob(trial+'//*.tif')) == 1:
-                with ScanImageTiffReader(glob.glob(trial+'//*.tif')[0]) as tif:
-                    frame_count = tif.shape()[0]
-                self.params['frame_list'].append(frame_count)
-            else:
-                print(f'No movie files found at {trial}!')
-
         # find mouse number, session and network
-        try:
-            self.params['mouse'] = self.params['root'].split(os.sep)[-3]
-            if len(self.params['mouse']) > 3:
-                self.params['mouse'] = self.params['mouse'][-3:]
-            self.params['session'] = self.params['root'].split(os.sep)[-2]
-            self.params['network'] = self.params['root'].split(os.sep)[-1]
-        except IndexError:
-            self.params['mouse'] = self.params['root'].split('/')[-3]
-            self.params['session'] = self.params['root'].split('/')[-2]
-            self.params['network'] = self.params['root'].split('/')[-1]
+        if 'Batch2' in self.params['root']:
+            try:
+                self.params['mouse'] = self.params['root'].split(os.sep)[-3]
+                if len(self.params['mouse']) > 3:
+                    self.params['mouse'] = self.params['mouse'][-3:]
+                self.params['session'] = self.params['root'].split(os.sep)[-2]
+                self.params['network'] = self.params['root'].split(os.sep)[-1]
+            except IndexError:
+                self.params['mouse'] = self.params['root'].split('/')[-3]
+                self.params['session'] = self.params['root'].split('/')[-2]
+                self.params['network'] = self.params['root'].split('/')[-1]
+        else:
+            try:
+                self.params['mouse'] = self.params['root'].split(os.sep)[-2]
+                if len(self.params['mouse']) > 3:
+                    self.params['mouse'] = self.params['mouse'][-3:]
+                self.params['session'] = self.params['root'].split(os.sep)[-1]
+            except IndexError:
+                self.params['mouse'] = self.params['root'].split('/')[-2]
+                self.params['session'] = self.params['root'].split('/')[-1]
+            self.params['network'] = None
 
         # get regions of reward zones
         if is_session_novel(self.params['root']):
@@ -191,8 +199,12 @@ class PlaceCellFinder:
         """
 
         if '.' not in file_name:
+            if self.params['trial_excluded']:
+                file_name = file_name + '_no_bad_trials'
             save_path = os.path.join(self.params['root'], file_name + '.pickle')
         else:
+            if self.params['trial_excluded']:
+                file_name = os.path.splitext(file_name)[0] + '_no_bad_trials' + os.path.splitext(file_name)[1]
             save_path = os.path.join(self.params['root'], file_name)
 
         if os.path.isfile(save_path) and not overwrite:
@@ -222,23 +234,48 @@ class PlaceCellFinder:
         """
         First function to call in the "normal" pipeline.
         Takes raw, across-trial DF/F traces from the CNMF object and splits it into separate trials using the frame
-        counts provided in frame_list.
+        counts provided in frame_list. In case bad trials occured in the session, they are filtered out and removed from
+        trial_list and frame_list if self.params['excl_bad_trials'] == True.
         It returns a "session" list of all neurons. Each neuron itself is a list of 1D arrays that hold the DF/F trace
         for each trial in that session. "Session" can thus be indexed as session[number_neurons][number_trials].
 
         :return: Updated PCF object with the session list
         """
-        if self.params['frame_list'] is not None:
-            frame_list = self.params['frame_list']
-            n_trials = len(frame_list)
-        else:
-            raise Exception('You have to provide frame_list before continuing the analysis!')
 
-        data = self.cnmf.estimates.F_dff
-        spikes = self.cnmf.estimates.spikes
+        n_trials = 0
+
+        if self.params['excl_bad_trials']:
+            sample_mask = np.zeros(sum(self.params['frame_list']), dtype=bool)
+            trial_mask = np.zeros(len(self.params['frame_list']), dtype=bool)
+            cum_frame_list = np.cumsum(self.params['frame_list'])
+            for idx, file in enumerate(self.params['trial_list']):
+                tif_name = glob(file+'\*.tif')
+                if len(tif_name) == 1:
+                    tif_name = tif_name[0]
+                else:
+                    raise Exception(f'Wrong number of TIFF files in {file}.')
+                if 'file' in tif_name:
+                    if idx == 0:
+                        sample_mask[np.arange(start=0, stop=cum_frame_list[idx])] = True
+                    else:
+                        sample_mask[np.arange(start=cum_frame_list[idx-1], stop=cum_frame_list[idx])] = True
+                    trial_mask[idx] = True
+                else:
+                    self.params['trial_excluded'] = True
+            # Filter data samples and trial/frame lists via the calculated masks
+            data = self.cnmf.estimates.F_dff[:, sample_mask]
+            spikes = self.cnmf.estimates.spikes[:, sample_mask]
+            self.params['frame_list'] = list(np.array(self.params['frame_list'])[trial_mask])
+            self.params['trial_list'] = list(np.array(self.params['trial_list'])[trial_mask])
+        else:
+            data = self.cnmf.estimates.F_dff
+            spikes = self.cnmf.estimates.spikes
+        n_trials = len(self.params['frame_list'])
+
         n_neuron = data.shape[0]
         session = list(np.zeros(n_neuron))
         session_spikes = list(np.zeros(n_neuron))
+        frame_list = self.params['frame_list']
 
         for neuron in range(n_neuron):
             curr_neuron = list(np.zeros(n_trials))  # initialize neuron-list
@@ -380,7 +417,7 @@ class PlaceCellFinder:
         count = 0
         if self.params['trial_list'] is not None:
             for trial in self.params['trial_list']:
-                path = glob.glob(trial+'//merged_behavior*.txt')
+                path = glob(trial+'//merged_behavior*.txt')
                 if len(path) >= 1:
                     # if there are more than 1 behavior file, load the latest
                     mod_times = [os.path.getmtime(file) for file in path]
@@ -1245,7 +1282,10 @@ class PlaceCellFinder:
             mouse = self.params['mouse']
             session = self.params['session']
             network = self.params['network']
-            trace_fig.suptitle(f'All place cells of mouse {mouse}, session {session}, network {network}', fontsize=16)
+            if network is not None:
+                trace_fig.suptitle(f'All place cells of mouse {mouse}, session {session}, network {network}', fontsize=16)
+            else:
+                trace_fig.suptitle(f'All place cells of mouse {mouse}, session {session}', fontsize=16)
             for i in range(n_neurons):
                 curr_neur = bins_sorted[i][0]
                 curr_trace = traces[curr_neur, np.newaxis]
