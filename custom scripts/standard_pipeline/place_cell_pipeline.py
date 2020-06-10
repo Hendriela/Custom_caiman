@@ -750,15 +750,6 @@ def accept_cells(cnm, idx):
     cnm.estimates.idx_components_bad = cnm.estimates.idx_components_bad[mask]
     return cnm
 
-def remove_mmap_after_analysis(root):
-    for step in os.walk(root):
-        mmap_file = glob(step[0]+'\\memmap__*')
-        # ana_file = glob(step[0] + '\\cnm_result*.hdf5') + glob(step[0] + '\\pcf_result*')
-        ana_file = glob(step[0] + '\\pcf_result*')
-        if len(mmap_file) > 0 and len(ana_file) > 0:
-            for file in mmap_file:
-                print(f'Deleted file {file}...')
-                os.remove(file)
 
 def perform_whole_pipeline(root):
 
