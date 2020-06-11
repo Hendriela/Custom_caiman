@@ -3,7 +3,7 @@ import numpy as np
 import seaborn as sns
 from datetime import datetime as dt
 from datetime import timedelta as delta
-from itertools import compress, chain
+from itertools import compress
 import matplotlib.pyplot as plt
 import pandas as pd
 from glob import glob
@@ -222,17 +222,24 @@ def load_performance_data(roots, novel, norm_date, stroke=None):
                 sess_data = np.nan_to_num(sess_data)
                 if len(sess_data.shape) == 1:
                     lick = [sess_data[0]]
-                    stop = [sess_data[1]]
+                    lick_bin = [sess_data[1]]
+                    stop = [sess_data[2]]
+                    # stop = [sess_data[1]]
                 elif len(sess_data.shape) > 1:
                     lick = sess_data[:, 0]
-                    stop = sess_data[:, 1]
+                    lick_bin = sess_data[:, 1]
+                    stop = sess_data[:, 2]
+                    # stop = sess_data[:, 1]
+
                 else:
                     raise ValueError(f'No data found in {file_path}.')
 
                 sess = step[0].split(os.path.sep)[-1]
                 mouse = step[0].split(os.path.sep)[-2]
                 # store data of this session and this mouse in a temporary DataFrame which is added to the global list
-                data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'mouse': mouse, 'session_date': sess}))
+                data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'licking_binned': lick_bin, 'mouse': mouse,
+                                          'session_date': sess}))
+                # data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'mouse': mouse, 'session_date': sess}))
 
     df = pd.concat(data, ignore_index=True)
 
@@ -290,18 +297,32 @@ def save_performance_data(session):
     :param session: str, path to the session folder that holds behavioral txt files
     :return:
     """
+
+    def atoi(text):
+        return int(text) if text.isdigit() else text
+
+    def natural_keys(text):
+        return [atoi(c) for c in re.split('(\d+)', text)]
+
     # Get the list of all behavior files in the session folder
     file_list = list()
     for (dirpath, dirnames, filenames) in os.walk(session):
-        file_list += glob(dirpath + '\\merged_behavior*.txt')
+        if len(glob(dirpath + '\\*.tif')) > 0:
+            # Trial files named "file" or "wave" have valid behavior, other names not (e.g. "nolick")
+            if len(glob(dirpath + '\\file_*.tif')) + len(glob(dirpath + '\\wave_*.tif')) > 0:
+                file_list += glob(dirpath + '\\merged_behavior*.txt')
+        else:
+            file_list += glob(dirpath + '\\merged_behavior*.txt')
+    file_list.sort(key=natural_keys)
+    if len(file_list) > 0:
+        session_performance = np.zeros((len(file_list), 3))
+        for i, file in enumerate(file_list):
+            session_performance[i, 0], session_performance[i, 1],  session_performance[i, 2] = \
+                extract_performance_from_merged(np.loadtxt(file), novel=is_session_novel(session), buffer=2)
 
-    session_performance = np.zeros((len(file_list), 2))
-    for i in range(len(file_list)):
-        session_performance[i, 0], session_performance[i, 1] = \
-            extract_performance_from_merged(np.loadtxt(file_list[i]), novel=is_session_novel(session), buffer=2)
-
-    file_path = os.path.join(session, f'performance.txt')
-    np.savetxt(file_path, session_performance, delimiter='\t',  fmt=['%.4f', '%.4f'], header='Licking\tStopping')
+        file_path = os.path.join(session, f'performance.txt')
+        np.savetxt(file_path, session_performance, delimiter='\t',  fmt=['%.4f', '%.4f', '%.4f'],
+                   header='Licking\tBinned Licking\tStopping')
 
 
 def is_session_novel(path):
@@ -422,7 +443,7 @@ def quick_screen_session(path):
     plt.show()
 
 
-def extract_performance_from_merged(data, novel, buffer):
+def extract_performance_from_merged(data, novel, buffer, bin_size=2):
     """
     Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
     :param data: np.array of the merged_behavior*.txt file
@@ -446,7 +467,8 @@ def extract_performance_from_merged(data, novel, buffer):
     lick_only = data[np.where(data[:, 2] == 1)]
 
     if lick_only.shape[0] == 0:
-        lick_ratio = np.nan # set nan, if there was no licking during the trial
+        lick_ratio = np.nan  # set nan, if there was no licking during the trial
+        passed_rz = 0
     else:
         # remove continuous licks that were longer than 5 seconds
         diff = np.round(np.diff(lick_only[:, 0]) * 10000).astype(int)  # get an array of time differences
@@ -475,6 +497,7 @@ def extract_performance_from_merged(data, novel, buffer):
 
         else:
             lick_ratio = np.nan
+            passed_rz = 0
 
     ### GET STOPPING DATA ###
     # select only time points where the mouse was not running (encoder between -2 and 2)
@@ -492,7 +515,26 @@ def extract_performance_from_merged(data, novel, buffer):
     zone_stops = np.sum([len(i) for i in zone_stop_only])
     stop_ratio = zone_stops/len(stops)
 
-    return lick_ratio, stop_ratio
+    # Licks per bin
+    licked_rz_bins = 0
+    licked_nonrz_bins = 0
+    bins = np.arange(start=-10, stop=111, step=bin_size)   # create bin borders for position bins (2 steps/6cm per bin)
+    zone_bins = []
+    for zone in zone_borders:
+        zone_bins.extend(np.arange(start=zone[0], stop=zone[1]+1, step=bin_size))
+    bin_idx = np.digitize(data[:, 1], bins)
+    for curr_bin in np.unique(bin_idx):
+        if sum(data[np.where(bin_idx == curr_bin)[0], 2]) >= 1:
+            if bins[curr_bin-1] in zone_bins:
+                licked_rz_bins += 1
+            else:
+                licked_nonrz_bins += 1
+    try:
+        binned_lick_ratio = (licked_rz_bins/(licked_rz_bins+licked_nonrz_bins)) * (passed_rz / len(zone_borders))
+    except ZeroDivisionError:
+        binned_lick_ratio = 0
+
+    return lick_ratio, binned_lick_ratio, stop_ratio
 
 
 def collect_log_performance_data(root, novel, norm_date='0'):
@@ -692,7 +734,7 @@ def normalize_dates(date_list, norm_date):
 
 # todo make vertical line or something to signify stroke sessions
 
-def plot_single_mouse(input, mouse, rotate_labels=False, session_range=None, scale=1, ax=None):
+def plot_single_mouse(input, mouse, field='licking', rotate_labels=False, session_range=None, scale=1, ax=None):
     """
     Plots the performance in % licks in RZ per session of one mouse.
     :param input: pandas DataFrame from load_performance_data()
@@ -704,7 +746,7 @@ def plot_single_mouse(input, mouse, rotate_labels=False, session_range=None, sca
     sns.set()
     sns.set_style('whitegrid')
     data = deepcopy(input)
-    data['licking'] = data['licking'] * 100
+    data[field] = data[field] * 100
 
     if ax is None:
         plt.figure()
@@ -712,7 +754,7 @@ def plot_single_mouse(input, mouse, rotate_labels=False, session_range=None, sca
         plt.sca(ax)
 
     sessions = np.sort(data['sess_norm'].unique())
-    ax = sns.lineplot(x='sess_id', y='licking', data=data[data['mouse'] == mouse], label=mouse)
+    ax = sns.lineplot(x='sess_id', y=field, data=data[data['mouse'] == mouse], label=mouse)
     if session_range is None:
         ax.set(ylim=(0, 100), ylabel='licks in reward zone [%]', xlabel='day', xticks=range(len(sessions)),
                xticklabels=sessions)
@@ -728,7 +770,7 @@ def plot_single_mouse(input, mouse, rotate_labels=False, session_range=None, sca
     return ax
 
 
-def plot_all_mice_avg(input, rotate_labels=False, session_range=None, scale=1):
+def plot_all_mice_avg(input, field='licking', rotate_labels=False, session_range=None, scale=1):
     """
     Plots the performance in % licks in RZ per session averaged over all mice.
     :param input: pandas DataFrame from load_performance_data()
@@ -739,10 +781,10 @@ def plot_all_mice_avg(input, rotate_labels=False, session_range=None, scale=1):
     sns.set()
     sns.set_style('whitegrid')
     data = deepcopy(input)
-    data['licking'] = data['licking'] * 100
+    data[field] = data[field] * 100
     plt.figure()
     sessions = np.sort(data['sess_norm'].unique())
-    ax = sns.lineplot(x='sess_id', y='licking', data=data)
+    ax = sns.lineplot(x='sess_id', y=field, data=data)
 
     if session_range is None:
         ax.set(ylim=(0, 100), ylabel='licks in reward zone [%]',
@@ -757,7 +799,7 @@ def plot_all_mice_avg(input, rotate_labels=False, session_range=None, scale=1):
     sns.set(font_scale=scale)
 
 
-def plot_all_mice_separately(input, rotate_labels=False, session_range=None, scale=1):
+def plot_all_mice_separately(input, field='licking', rotate_labels=False, session_range=None, scale=1):
     """
     Plots the performance in % licks in RZ per session of all mice in separate graphs.
     :param input: pandas DataFrame from load_performance_data()
@@ -768,10 +810,10 @@ def plot_all_mice_separately(input, rotate_labels=False, session_range=None, sca
     sns.set()
     sns.set_style('whitegrid')
     data = deepcopy(input)
-    data['licking'] = data['licking'] * 100
+    data[field] = data[field] * 100
     sessions = np.sort(data['sess_norm'].unique())
     grid = sns.FacetGrid(data, col='mouse', col_wrap=3, height=3, aspect=2)
-    grid.map(sns.lineplot, 'sess_id', 'licking')
+    grid.map(sns.lineplot, 'sess_id', field)
     grid.set_axis_labels('session', 'licks in reward zone [%]')
     if session_range is None:
         out = grid.set(ylim=(0, 100), xlim=(-0.2, len(sessions) - 0.8),
@@ -779,9 +821,13 @@ def plot_all_mice_separately(input, rotate_labels=False, session_range=None, sca
     else:
         out = grid.set(ylim=(0, 100), xlim=(session_range[0], session_range[1]),
                        xticks=range(len(sessions)), xticklabels=sessions)
-    if rotate_labels:
-        for ax in grid.axes.ravel():
+    for ax in grid.axes.ravel():
+        if rotate_labels:
             ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+        ax.axvline(30.5, color='r')
+        ax.axvline(37.5, color='r')
+        ax.axvline(42.5, color='r')
+        ax.axvline(45.5, color='r')
     sns.set(font_scale=scale)
     plt.tight_layout()
 
