@@ -324,10 +324,11 @@ def save_multi_performance(path, overwrite=False):
     print('Everything processed!')
 
 
-def save_performance_data(session):
+def save_performance_data(session, validation=False):
     """
     Calculates and saves licking and stopping ratios of a session.
     :param session: str, path to the session folder that holds behavioral txt files
+    :param validation: bool flag whether to use RZ positions of validation trials (shifted RZs in training corridor)
     :return:
     """
 
@@ -347,11 +348,17 @@ def save_performance_data(session):
         else:
             file_list += glob(dirpath + '\\merged_behavior*.txt')
     file_list.sort(key=natural_keys)
+
     if len(file_list) > 0:
         session_performance = np.zeros((len(file_list), 3))
         for i, file in enumerate(file_list):
-            session_performance[i, 0], session_performance[i, 1],  session_performance[i, 2] = \
-                extract_performance_from_merged(np.loadtxt(file), novel=is_session_novel(session), buffer=2)
+            if validation and i > 4:
+                session_performance[i, 0], session_performance[i, 1],  session_performance[i, 2] = \
+                    extract_performance_from_merged(np.loadtxt(file), novel=is_session_novel(session),
+                                                    valid=validation, buffer=0)
+            else:
+                session_performance[i, 0], session_performance[i, 1],  session_performance[i, 2] = \
+                    extract_performance_from_merged(np.loadtxt(file), novel=is_session_novel(session), buffer=2)
 
         file_path = os.path.join(session, f'performance.txt')
         np.savetxt(file_path, session_performance, delimiter='\t',  fmt=['%.4f', '%.4f', '%.4f'],
@@ -383,113 +390,32 @@ def is_session_novel(path):
         print(f'Could not determine context in session {path}!\n')
 
 
-def quick_screen_session(path):
+def get_binned_licking(data, bin_size=2):
     """
-    Plots the binned running speed and licking of each trial in a session for a quick screening.
-    :param path:
-    :return:
+    Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
+    :param data: np.array of the merged_behavior*.txt file
+    :param bin_size: int, bin size in VR units for binned licking performance analysis
+    :returns lick_ratio: float, ratio between individual licking bouts that occurred in reward zones div. by all licks
+    :returns stop_ratio: float, ratio between stops in reward zones divided by total number of stops
     """
 
-    def atoi(text):
-        return int(text) if text.isdigit() else text
 
-    def natural_keys(text):
-        return [atoi(c) for c in re.split('(\d+)', text)]
-
-    if is_session_novel(path):
-        zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
-    else:
-        zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
-
-    # go through all folders and subfolders and find merged_behavior files
-    file_list = []
-    for step in os.walk(path):
-        if len(step[2]) > 0:
-            for file in step[2]:
-                if 'merged_behavior' in file and os.path.join(step[0], file) not in file_list:
-                    file_list.append(os.path.join(step[0], file))
-    file_list.sort(key=natural_keys)       # order files according to trial number (otherwise 11 is before 2)
-
-    data_list = []
-    for file in file_list:
-        data_list.append(np.loadtxt(file))
-    if len(data_list) == 0:
-        return print(f'No trials found at {path}.')
-    else:
-        try:
-            perf = int(10000 * np.mean(np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))[:, 0]))/100
-        except OSError:
-            perf = 'NaN'
-        # plotting
-        bad_trials = []
-        nrows = ceil(len(data_list)/3)
-        ncols = 3
-        fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8))
-        count = 0
-        for row in range(nrows):
-            for col in range(ncols):
-                if count < len(data_list):
-                    curr_trial = data_list[count]
-
-                    # plot behavior
-                    color = 'tab:red'
-                    if nrows == 1:
-                        ax[col].plot(-curr_trial[:, 4], color=color)       # plot running
-                        ax[col].spines['top'].set_visible(False)
-                        ax[col].spines['right'].set_visible(False)
-                        ax[col].set_xticks([])
-                        ax2 = ax[col].twinx()       # instantiate a second axes that shares the same x-axis
-                    else:
-                        ax[row, col].plot(-curr_trial[:, 4], color=color)  # plot running
-                        ax[row, col].spines['top'].set_visible(False)
-                        ax[row, col].spines['right'].set_visible(False)
-                        ax[row, col].set_xticks([])
-                        ax2 = ax[row, col].twinx()  # instantiate a second axes that shares the same x-axis
-                    ax2.set_picker(True)
-                    color = 'tab:blue'
-                    ax2.plot(curr_trial[:, 2], color=color)       # plot licking
-                    ax2.set_ylim(-0.1, 1.1)
-                    ax2.set_ylabel(file_list[count])
-                    ax2.axis('off')
-                    count += 1
-
-                    # find samples inside reward zones
-                    zones_idx = []
-                    for zone in zone_borders:
-                        zones_idx.append(np.where((curr_trial[:, 1] > zone[0]) & (curr_trial[:, 1] < zone[1]))[0])
-                    # show reward zone location
-                    for zone in zones_idx:
-                        ax2.axvspan(min(zone), max(zone), color='grey', alpha=0.2)
-
-    def onpick(event):
-        this_plot = event.artist  # save artist (axis) where the pick was triggered
-        trial = this_plot.get_ylabel()
-        if trial not in bad_trials:
-            bad_trials.append(trial)
-
-    def closed(event):
-        sort = sorted(bad_trials)
-        print(*sort, sep='\n')
-
-    fig.canvas.mpl_connect('close_event', closed)
-    fig.canvas.mpl_connect('pick_event', onpick)
-    plt.tight_layout()
-    fig.suptitle(f'Performance: {perf}', fontsize=14)
-    plt.show()
-
-
-def extract_performance_from_merged(data, novel, buffer, bin_size=2):
+def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size=2):
     """
     Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
     :param data: np.array of the merged_behavior*.txt file
     :param novel: bool, flag whether file was performed in novel corridor (changes reward zone location)
     :param buffer: int, position bins around the RZ that are still counted as RZ for licking
+    :param valid: bool, flag whether trial was a RZ position validation trial (training corridor with shifted RZs)
+    :param bin_size: int, bin size in VR units for binned licking performance analysis
     :returns lick_ratio: float, ratio between individual licking bouts that occurred in reward zones div. by all licks
     :returns stop_ratio: float, ratio between stops in reward zones divided by total number of stops
     """
     # set borders of reward zones
     if novel:
         zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
+    elif valid:
+        zone_borders = np.array([[-6, 4], [34, 44], [66, 76], [90, 100]])
     else:
         zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
 
@@ -768,6 +694,105 @@ def normalize_dates(date_list, norm_date):
 #%% Plotting
 
 # todo make vertical line or something to signify stroke sessions
+
+
+def quick_screen_session(path, valid=False):
+    """
+    Plots the binned running speed and licking of each trial in a session for a quick screening.
+    :param path:
+    :return:
+    """
+
+    def atoi(text):
+        return int(text) if text.isdigit() else text
+
+    def natural_keys(text):
+        return [atoi(c) for c in re.split('(\d+)', text)]
+
+    if is_session_novel(path):
+        zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
+    else:
+        zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])
+
+    # go through all folders and subfolders and find merged_behavior files
+    file_list = []
+    for step in os.walk(path):
+        if len(step[2]) > 0:
+            for file in step[2]:
+                if 'merged_behavior' in file and os.path.join(step[0], file) not in file_list:
+                    file_list.append(os.path.join(step[0], file))
+    file_list.sort(key=natural_keys)       # order files according to trial number (otherwise 11 is before 2)
+
+    data_list = []
+    for file in file_list:
+        data_list.append(np.loadtxt(file))
+    if len(data_list) == 0:
+        return print(f'No trials found at {path}.')
+    else:
+        try:
+            perf = int(10000 * np.mean(np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))[:, 0]))/100
+        except OSError:
+            perf = 'NaN'
+        # plotting
+        bad_trials = []
+        nrows = ceil(len(data_list)/3)
+        ncols = 3
+        fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8))
+        count = 0
+        for row in range(nrows):
+            for col in range(ncols):
+                if count < len(data_list):
+                    curr_trial = data_list[count]
+
+                    # plot behavior
+                    color = 'tab:red'
+                    if nrows == 1:
+                        ax[col].plot(-curr_trial[:, 4], color=color)       # plot running
+                        ax[col].spines['top'].set_visible(False)
+                        ax[col].spines['right'].set_visible(False)
+                        ax[col].set_xticks([])
+                        ax2 = ax[col].twinx()       # instantiate a second axes that shares the same x-axis
+                    else:
+                        ax[row, col].plot(-curr_trial[:, 4], color=color)  # plot running
+                        ax[row, col].spines['top'].set_visible(False)
+                        ax[row, col].spines['right'].set_visible(False)
+                        ax[row, col].set_xticks([])
+                        ax2 = ax[row, col].twinx()  # instantiate a second axes that shares the same x-axis
+                    ax2.set_picker(True)
+                    color = 'tab:blue'
+                    ax2.plot(curr_trial[:, 2], color=color)       # plot licking
+                    ax2.set_ylim(-0.1, 1.1)
+                    ax2.set_ylabel(file_list[count])
+                    ax2.axis('off')
+
+                    # find samples inside reward zones
+                    zones_idx = []
+                    if valid and count > 4:
+                        zone_borders = np.array([[-6, 4], [34, 44], [66, 76], [90, 100]])
+                    for zone in zone_borders:
+                        zones_idx.append(np.where((curr_trial[:, 1] > zone[0]) & (curr_trial[:, 1] < zone[1]))[0])
+                    # show reward zone location
+                    for zone in zones_idx:
+                        ax2.axvspan(min(zone), max(zone), color='grey', alpha=0.2)
+
+                    count += 1
+
+    def onpick(event):
+        this_plot = event.artist  # save artist (axis) where the pick was triggered
+        trial = this_plot.get_ylabel()
+        if trial not in bad_trials:
+            bad_trials.append(trial)
+
+    def closed(event):
+        sort = sorted(bad_trials)
+        print(*sort, sep='\n')
+
+    fig.canvas.mpl_connect('close_event', closed)
+    fig.canvas.mpl_connect('pick_event', onpick)
+    plt.tight_layout()
+    fig.suptitle(f'Performance: {perf}%', fontsize=14)
+    plt.show()
+
 
 def plot_single_mouse(input, mouse, field='licking', rotate_labels=False, session_range=None, scale=1, ax=None):
     """
