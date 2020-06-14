@@ -1,0 +1,31 @@
+{config: {data_path_batch3: 'V:\Wahl\Hendrik\PhD\Data\Batch3', decoder_data_path: 'V:\Wahl\Hendrik\PhD\Data\Decoder_anna'},
+  data: {block_1: null, block_2: {decoder_testset: {M40: null, M41: {20200318: [4],
+          20200319: [1], 20200320: [3], 20200321: [11], 20200322: [7], 20200323: [
+            2]}}, decoder_trainset: {M40: null, M41: {20200318: [1, 3, 5, 6, 7, 8],
+          20200319: [2, 3, 4, 5, 7], 20200320: [1, 2, 5, 6], 20200321: [1, 2, 3, 4,
+            5, 6, 8, 9, 10, 12, 13, 14], 20200322: [2, 3, 4, 5, 6, 8, 9, 10], 20200323: [
+            1, 3, 4, 5, 6, 8, 9, 10]}}, decoder_valset: {M40: null, M41: {20200318: [
+            2], 20200319: [6], 20200320: [4], 20200321: [7], 20200322: [1], 20200323: [
+            7]}}, mice: [M32, M33, M35, M37, M38, M39, M40, M41], sessions: {20200318: {
+          mice: {M32: [{num_trials: 11}], M35: [{num_trials: 3}], M37: [{num_trials: 7}],
+            M38: [{num_trials: 6}], M39: [{num_trials: 11}], M40: [{num_trials: 8}],
+            M41: [{num_trials: 8}]}}, 20200319: {mice: {M32: [{num_trials: 17}], M33: [
+              {num_trials: 9}], M35: [{num_trials: 7}], M37: [{num_trials: 5}], M38: [
+              {num_trials: 7}], M39: [{num_trials: 14}], M40: [{num_trials: 5}], M41: [
+              {num_trials: 7}]}}, 20200320: {mice: {M32: [{num_trials: 16}], M33: [
+              {num_trials: 9}], M35: [{num_trials: 11}], M37: [{num_trials: 6}], M38: [
+              {num_trials: 6}], M39: [{num_trials: 11}], M40: [{num_trials: 7}], M41: [
+              {num_trials: 6}]}}, 20200321: {mice: {M32: [{num_trials: 21}], M33: [
+              {num_trials: 10}], M35: [{num_trials: 15}], M37: [{num_trials: 5}],
+            M38: [{num_trials: 8}], M39: [{num_trials: 20}], M40: [{num_trials: 7}],
+            M41: [{num_trials: 14}]}}, 20200322: {mice: {M32: [{num_trials: 22}],
+            M33: [{num_trials: 12}], M35: [{num_trials: 11}], M37: [{num_trials: 14}],
+            M38: [{num_trials: 11}], M39: [{num_trials: 21}], M40: [{num_trials: 9}],
+            M41: [{num_trials: 10}]}}, 20200323: {mice: {M32: [{num_trials: 19}],
+            M33: [{num_trials: 10}], M35: [{num_trials: 14}], M37: [{num_trials: 14}],
+            M38: [{num_trials: 11}], M39: [{num_trials: 20}], M40: [{num_trials: 8}],
+            M41: [{num_trials: 10}]}}}}, block_3: {mice: [M32, M33, M37, M38, M39,
+        M40, M41], sessions: ['20200507', '20200508', '20200509', '20200510', '20200511',
+        '20200513', '20200514', '20200515', '20200516', '20200517', '20200518', '20200519',
+        '20200521', '20200522', '20200523', '20200524', '20200525', '20200527', '20200530',
+        '20200602', '20200604', '20200607', '20200611']}, mice: null}}

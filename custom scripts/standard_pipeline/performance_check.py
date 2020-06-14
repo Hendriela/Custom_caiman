@@ -272,7 +272,40 @@ def load_performance_data(roots, novel, norm_date, stroke=None):
         df.loc[df.mouse.isin(stroke), 'group'] = 'stroke'
         df.loc[~df.mouse.isin(stroke), 'group'] = 'control'
 
+    # Calculate cumulative performance
+    for mouse in df['mouse'].unique():
+        # Set first session (copy of normal performance)
+        df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'cum_perf'] = \
+            df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'licking']
+        prev_cum = df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'cum_perf'].mean()
+
+        for sess in range(1, int(df['sess_norm'].max())+1):
+            if np.any(sess == df.loc[df['mouse'] == mouse, 'sess_norm']):
+                df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'cum_perf'] = \
+                    df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'licking'] + prev_cum
+                prev_cum = df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'cum_perf'].mean()
+
     return df
+
+
+def get_cum_performance(dataset):
+
+    df = dataset.assign(cum_perf=[0]*len(dataset))
+
+    for mouse in df['mouse'].unique():
+        # Set first session (copy of normal performance)
+        df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'cum_perf'] = \
+            df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'licking']
+        prev_cum = df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'cum_perf'].mean()
+
+        for sess in range(1, int(df['sess_norm'].max())+1):
+            if np.any(sess == df.loc[df['mouse'] == mouse, 'sess_norm']):
+                df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'cum_perf'] = \
+                    df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'licking'] + prev_cum
+                prev_cum = df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'cum_perf'].mean()
+
+    return df
+
 
 
 def save_multi_performance(path, overwrite=False):
@@ -383,14 +416,15 @@ def quick_screen_session(path):
     if len(data_list) == 0:
         return print(f'No trials found at {path}.')
     else:
-
-        perf = np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))
+        try:
+            perf = int(10000 * np.mean(np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))[:, 0]))/100
+        except OSError:
+            perf = 'NaN'
         # plotting
         bad_trials = []
         nrows = ceil(len(data_list)/3)
         ncols = 3
         fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8))
-        fig.suptitle('Performance: {:2.2f}%'.format(100*np.mean(perf[:, 0])), fontsize=14)
         count = 0
         for row in range(nrows):
             for col in range(ncols):
@@ -440,6 +474,7 @@ def quick_screen_session(path):
     fig.canvas.mpl_connect('close_event', closed)
     fig.canvas.mpl_connect('pick_event', onpick)
     plt.tight_layout()
+    fig.suptitle(f'Performance: {perf}', fontsize=14)
     plt.show()
 
 
@@ -811,7 +846,7 @@ def plot_all_mice_separately(input, field='licking', rotate_labels=False, sessio
     sns.set_style('whitegrid')
     data = deepcopy(input)
     data[field] = data[field] * 100
-    sessions = np.sort(data['sess_norm'].unique())
+    sessions = np.array(np.sort(data['sess_norm'].unique()), dtype=int)
     grid = sns.FacetGrid(data, col='mouse', col_wrap=3, height=3, aspect=2)
     grid.map(sns.lineplot, 'sess_id', field)
     grid.set_axis_labels('session', 'licks in reward zone [%]')
