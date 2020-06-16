@@ -1,13 +1,14 @@
 #list ordered, dict unordered
 
 config:
-  decoder_data_path: 'V:\Wahl\Hendrik\PhD\Data\Decoder_anna'
+  decoder_data_path: 'C:\Users\annahs\Documents\Decoder_anna'
   data_path_batch3: 'V:\Wahl\Hendrik\PhD\Data\Batch3'
 
 data:
   block_1:
   block_2:
-    mice: ["M32", "M33", "M35", "M37", "M38", "M39", "M40", "M41" ]
+    mice: ["M32", "M41" ]
+    #mice: ["M32", "M33", "M35", "M37", "M38", "M39", "M40", "M41" ]
     sessions:
       20200318:
         mice:
@@ -78,8 +79,218 @@ data:
       M40:
       M41: {20200318: [2], 20200319: [6], 20200320: [4], 20200321: [7], 20200322: [1], 20200323: [7]}
   block_3:
+    #mice: [ "M32", "M33", "M37", "M38", "M39", "M40", "M41"]
+    mice: ["M33"] #"M32",M41
+    sessions:
+      20200507:
+        mice:
+          M32: [num_trials: 12] # no 33
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200508:
+        mice:
+          M32: [num_trials: 17]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200509:
+        mice:
+          M32: [num_trials: 13]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200510:
+        mice:
+          M32: [num_trials: 15]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200511:
+        mice:
+          M32: [num_trials: 17]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200513:
+        mice:
+          M32: [num_trials: 16]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200514:
+        mice:
+          M32: [num_trials: 6]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200515:
+        mice:
+          M32: [num_trials: 16]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200516:
+        mice:
+          M32: [num_trials: 17]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200517:
+        mice:
+          M32: [num_trials: 13]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200518:
+        mice:
+          M32: [num_trials: 22]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200519:
+        mice:
+          M32: [num_trials: 18]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200521:
+        mice:
+          M32: [num_trials: 16]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200522:
+        mice:
+          M32: [num_trials: 13]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200523:
+        mice:
+          M32: [num_trials: 12]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200524:
+        mice:
+          M32: [num_trials: 13]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200525:
+        mice:
+          M32: [num_trials: 20]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200527:
+        mice:
+          M32: [num_trials: 13]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200530:
+        mice:
+          M32: [num_trials: 12]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200602:
+        mice:
+          M32: [num_trials: 10]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200604:
+        mice:
+          M32: [num_trials: 10]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+      20200611:
+        mice:
+          M32: [num_trials: 10]
+          M33:
+          M37:
+          M38:
+          M39:
+          M40:
+          M41:
+    decoder_trainset:
+      M40:
+      M41: {20200511: [1, 2, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22]}
+    decoder_testset:
+      M40:
+      M41: {20200511: [3, 8, 17]}
+    decoder_valset:
+      M40:
+      M41: {20200511: []}
 
-  mice:
+
 
 
 
