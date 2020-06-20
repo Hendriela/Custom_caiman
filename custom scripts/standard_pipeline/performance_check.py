@@ -307,7 +307,6 @@ def get_cum_performance(dataset):
     return df
 
 
-
 def save_multi_performance(path, overwrite=False):
     """
     Wrapper function for save_performance_data that goes through folders and looks for sessions that have no
@@ -390,14 +389,30 @@ def is_session_novel(path):
         print(f'Could not determine context in session {path}!\n')
 
 
-def get_binned_licking(data, bin_size=2):
+def get_binned_licking(data, bin_size=2, normalized=True):
     """
     Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
     :param data: np.array of the merged_behavior*.txt file
     :param bin_size: int, bin size in VR units for binned licking performance analysis
-    :returns lick_ratio: float, ratio between individual licking bouts that occurred in reward zones div. by all licks
-    :returns stop_ratio: float, ratio between stops in reward zones divided by total number of stops
+    :param normalized: bool flag whether lick counts should be returned normalized (sum of bins = 1)
+    :return hist: 1D np.array with length 120/bin_size holding (normalized) binned lick counts per position bin
     """
+    # select only time point where the mouse licked
+    lick_only = data[np.where(data[:, 2] == 1)]
+
+    if lick_only.shape[0] == 0:
+        hist = np.zeros(int(120/bin_size))
+    else:
+        # split licking track into individual licks and get VR position
+        diff = np.round(np.diff(lick_only[:, 0]) * 10000).astype(int)  # get an array of time differences
+        licks = np.split(lick_only, np.where(diff > 5)[0] + 1)  # split at points where difference > 0.5 ms (sample gap)
+        licks = [i for i in licks if i.shape[0] <= 10000]      # only keep licks shorter than 5 seconds (10,000 samples)
+        lick_pos = [x[0, 1] for x in licks]                    # get VR position when each lick begins
+
+        # bin lick positions
+        hist, bin_edges = np.histogram(np.digitize(lick_pos, np.arange(start=-10, stop=111, step=bin_size)),
+                                       bins=np.arange(start=1, stop=int(120/bin_size+2)), density=normalized)
+    return hist
 
 
 def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size=2):
@@ -890,4 +905,91 @@ def plot_all_mice_separately(input, field='licking', rotate_labels=False, sessio
         ax.axvline(45.5, color='r')
     sns.set(font_scale=scale)
     plt.tight_layout()
+
+
+def plot_binned_session_licks(path, bin_size=1, normalized=True, cmap='jet', validation_zones=False, performance=False,
+                              target=None):
+
+    def atoi(text):
+        return int(text) if text.isdigit() else text
+
+    def natural_keys(text):
+        return [atoi(c) for c in re.split('(\d+)', text)]
+
+    zone_borders_new = np.array([[-6, 4], [34, 44], [66, 76], [90, 100]])+10
+    zone_borders_old = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])+10
+
+    file_list = glob(path+'\\*\\merged_behavior*.txt')
+    if len(file_list) == 0:
+        file_list = glob(path + '\\merged_behavior*.txt')
+    file_list.sort(key=natural_keys)
+
+    data = np.zeros((len(file_list), int(120/bin_size)))
+    for idx, file in enumerate(file_list):
+        data[idx] = get_binned_licking(np.loadtxt(file), bin_size=bin_size, normalized=normalized)
+
+    #### Plot individually counted binned licks
+    fig = plt.figure(figsize=(12, 7))
+    out = plt.pcolormesh(data, cmap=cmap)
+
+    # shade areas of old and new reward zone locations
+    for old, new in zip(zone_borders_old, zone_borders_new):
+        out.axes.axvspan(min(old), max(old), color='magenta', alpha=0.2)
+        if validation_zones:
+            out.axes.axvspan(min(new), max(new), color='yellow', alpha=0.2)
+
+    # design fixes
+    out.axes.axhline(5, color='r')
+    out.axes.invert_yaxis()
+    out.axes.tick_params(labelsize=12)
+    # out.axes.set_title(path[57:60]+', '+path[61:], fontsize=18)
+    out.axes.set_ylabel('Trial', rotation=90, fontsize=15)
+    out.axes.set_xlabel('VR position [a.u.]', fontsize=15)
+    fig.tight_layout()
+
+    if target is not None:
+        plt.savefig(os.path.join(target, f'{path[57:60]}_binned_licking.png'))
+        plt.close()
+
+    #### Plot binary binned licks
+    data[data > 0] = 1
+    fig = plt.figure(figsize=(12, 7))
+    out = plt.pcolormesh(data, cmap='Blues')
+
+    # shade areas of old and new reward zone locations
+    for old, new in zip(zone_borders_old, zone_borders_new):
+        out.axes.axvspan(min(old), max(old), color='blue', alpha=0.2)
+        if validation_zones:
+            out.axes.axvspan(min(new), max(new), color='red', alpha=0.2)
+
+    # design fixes
+    out.axes.axhline(5, color='r')
+    out.axes.invert_yaxis()
+    out.axes.tick_params(labelsize=12)
+    # out.axes.set_title(path[57:60]+', '+path[61:], fontsize=18)
+    out.axes.set_ylabel('Trial', rotation=90, fontsize=15)
+    out.axes.set_xlabel('VR position [a.u.]', fontsize=15)
+    fig.tight_layout()
+
+    if target is not None:
+        plt.savefig(os.path.join(target, f'{path[57:60]}_binned_binary_licking.png'))
+        plt.close()
+
+    #### Plot performance
+    perf_data = np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))
+    fig = plt.figure(figsize=(12, 4))
+    out = plt.plot(perf_data[:, 0])
+    out[0].set_label('old')
+    out2 = plt.plot(perf_data[:, 1])
+    out2[0].set_label('new')
+    plt.ylim(0, 1.1)
+    out[0].axes.tick_params(labelsize=10)
+    out[0].axes.set_ylabel('Licking performance', rotation=90, fontsize=12)
+    out[0].axes.set_xlabel('Trial', fontsize=12)
+    out[0].axes.axvline(4.5, color='r')
+    out[0].axes.legend()
+    fig.tight_layout()
+    if target is not None:
+        plt.savefig(os.path.join(target, f'{path[57:60]}_performance.png'))
+        plt.close()
 

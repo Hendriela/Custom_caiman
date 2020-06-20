@@ -6,7 +6,7 @@ import yaml
 import gc
 
 # params to set
-MD = yaml.load(open("../metadata.yaml"), Loader=yaml.FullLoader) #metadata
+MD = yaml.load(open("custom scripts/metadata.yaml"), Loader=yaml.FullLoader) #metadata
 
 def plot_pvc_curve(y_vals, bin_size=5, show=False):
     """Plots the pvc curve

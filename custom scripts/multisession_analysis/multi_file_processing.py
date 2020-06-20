@@ -15,125 +15,24 @@ from datetime import datetime as dt
 from pathlib import Path
 
 #%% Performance analysis
-path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3']
+def out():
+    path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3']
 
-stroke = ['M32', 'M40', 'M41', 'M37']
-control = ['M33', 'M38', 'M39']
+    stroke = ['M32', 'M40', 'M41', 'M37']
+    control = ['M33', 'M38', 'M39']
 
-data = performance.load_performance_data(roots=path, novel=False, norm_date='20200513',
-                                         stroke=stroke)
+    data = performance.load_performance_data(roots=path, novel=False, norm_date='20200513',
+                                             stroke=stroke)
 
-performance.plot_all_mice_avg(data, rotate_labels=False, session_range=(26, 38), scale=2)
-performance.plot_all_mice_avg(data, rotate_labels=False, scale=2)
+    performance.plot_all_mice_avg(data, rotate_labels=False, session_range=(26, 38), scale=2)
+    performance.plot_all_mice_avg(data, rotate_labels=False, scale=2)
 
-performance.plot_all_mice_separately(data, rotate_labels=False, session_range=(26, 41), scale=1.75)
-sns.set_context('talk')
-axis = performance.plot_single_mouse(data, 'M41', session_range=(26, 38))
-axis = performance.plot_single_mouse(data, 'M32', session_range=(10, 15), scale=2, ax=axis)
+    performance.plot_all_mice_separately(data, rotate_labels=False, session_range=(26, 41), scale=1.75)
+    sns.set_context('talk')
+    axis = performance.plot_single_mouse(data, 'M41', session_range=(26, 38))
+    axis = performance.plot_single_mouse(data, 'M32', session_range=(10, 15), scale=2, ax=axis)
 
-filter_data = data[data['sess_norm'] >= -7]
-filter_data = get_cum_performance(filter_data)
-sns.set()
-sns.lineplot(x='sess_norm', y='cum_perf', hue='group', data=filter_data)
-[plt.axvline(x, color='r') for x in [-1, 7, 13]]
-
-
-
-def get_cum_performance(dataset):
-
-    df = dataset.assign(cum_perf=[0]*len(dataset))
-
-    for mouse in df['mouse'].unique():
-        # Set first session (copy of normal performance)
-        df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'cum_perf'] = \
-            df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'licking']
-        prev_cum = df.loc[(df['sess_norm'] <= 0) & (df['mouse'] == mouse), 'cum_perf'].mean()
-
-        for sess in range(1, int(df['sess_norm'].max())+1):
-            if np.any(sess == df.loc[df['mouse'] == mouse, 'sess_norm']):
-                df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'cum_perf'] = \
-                    df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'licking'] + prev_cum
-                prev_cum = df.loc[(df['sess_norm'] == sess) & (df['mouse'] == mouse), 'cum_perf'].mean()
-
-    return df
-
-
-#%% Calculate and save place cell/total active cells ratio
-
-def compute_place_cell_ratio(root, filepath=r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\place_cell_ratio.csv',
-                             overwrite=False):
-
-    file_list = []
-    for step in os.walk(root):
-        pcf_file = glob(step[0] + '\\pcf_result*')
-        if len(pcf_file) > 0:
-            file_list.append(max(pcf_file, key=os.path.getmtime))
-    print(f'Found {len(file_list)} PCF files. Starting to load data...')
-
-    if os.path.isfile(filepath) and overwrite is False:
-        df = pd.read_csv(filepath, sep='\t', index_col=0, parse_dates=['session'])
-        extend_df = True
-        print('Extending existing CSV file...')
-        row_list = []
-    else:
-        df = pd.DataFrame(index=np.arange(0, len(file_list)),
-                          columns=('mouse', 'session', 'n_cells', 'n_place_cells', 'ratio'))
-        extend_df = False
-        print('Creating new CSV file...')
-
-    date_format = '%Y%m%d'
-    for idx, file in enumerate(file_list):
-        pipe.progress(idx, len(file_list), status=f'Processing file {idx+1} of {len(file_list)}...')
-        # check if the current session is already in the DataFrame
-        if extend_df:
-            curr_mouse = file.split(sep=os.sep)[-3]
-            curr_session = pd.Timestamp(dt.strptime(file.split(sep=os.sep)[-2], date_format).date())
-            if len(df.loc[(df['mouse'] == curr_mouse) & (df['session'] == curr_session)]) > 0:
-                continue
-
-        pcf = pipe.load_pcf(os.path.dirname(file), os.path.basename(file))
-
-        if extend_df:
-            row_list.append(pd.DataFrame({'mouse': pcf.params['mouse'],
-                                          'session': dt.strptime(pcf.params['session'], date_format).date(),
-                                          'n_cells': pcf.cnmf.estimates.F_dff.shape[0],
-                                          'n_place_cells': len(pcf.place_cells),
-                                          'ratio': (len(pcf.place_cells)/pcf.cnmf.estimates.F_dff.shape[0])*100}))
-        else:
-            # Parse data of this session into the dataframe
-            df.loc[idx]['mouse'] = pcf.params['mouse']
-            df.loc[idx]['session'] = dt.strptime(pcf.params['session'], date_format).date()
-            df.loc[idx]['n_cells'] = pcf.cnmf.estimates.F_dff.shape[0]
-            df.loc[idx]['n_place_cells'] = len(pcf.place_cells)
-            df.loc[idx]['ratio'] = (len(pcf.place_cells)/pcf.cnmf.estimates.F_dff.shape[0])*100
-
-    # give sessions a continuous id for plotting
-    df['session_id'] = -1
-    for id, session in enumerate(sorted(df['session'].unique())):
-        df.loc[df['session'] == session, 'session_id'] = id
-    sess_norm = df['session'] - min(df['session'])
-    df['sess_norm'] = [x.days for x in sess_norm]
-
-    df.sort_values(by=['mouse', 'session'], inplace=True)   # order rows for mice and session dates
-    df.to_csv(filepath, sep='\t')                           # save dataframe as CSV
-
-
-
-data = pd.read_csv(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\place_cell_ratio.csv',
-                   sep='\t', index_col=0, parse_dates=['session'])
-
-def plot_mice_separately(data, column, scale=1):
-    strokes = [18.5, 23.5]
-    sns.set()
-    sns.set_style('whitegrid')
-    grid = sns.FacetGrid(data, col='mouse', col_wrap=3, height=3, aspect=2)
-    grid = grid.map(sns.lineplot, 'session_id', column)
-    for stroke in strokes:
-        grid = grid.map(plt.axvline, x=stroke, color='r')
-    grid.set_axis_labels('session', column)
-    sns.set(font_scale=scale)
-    plt.tight_layout()
-
+    filter_data = data[data['sess_norm'] >= -7]
 
 #%%
 #r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191121b\N2',
@@ -152,109 +51,8 @@ for idx, root in enumerate(roots):
 #%% combine all pcf objects into one big one and plot place cells
 root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data'
 
-def load_total_place_cell_data(root):
-    file_list = []
-    for step in os.walk(root):
-        pcf_files = glob(step[0]+r'\pcf_results*')
-        if len(pcf_files) > 0:
-            pcf_file = os.path.splitext(os.path.basename(max(pcf_files, key=os.path.getmtime)))[0]
-            file_list.append((step[0], pcf_file))
-    file_list.reverse()
-    print(f'Found {len(file_list)} PCF files. Start loading...')
-
-    bin_avg_act = None
-    pc = None
-
-    for file in file_list:
-
-        curr_pcf = pipe.load_pcf(file[0], file[1])
-
-        if bin_avg_act is None:
-            bin_avg_act = deepcopy(curr_pcf.bin_avg_activity)
-        else:
-            idx_offset = bin_avg_act.shape[0]
-            try:
-                bin_avg_act = np.vstack((bin_avg_act, curr_pcf.bin_avg_activity))
-            except ValueError:
-                print(f'Couldnt add place cells from {file[0]} because bin number did not add up.')
-                continue  # skip the rest of the loop
-
-        if pc is None:
-            pc = deepcopy(curr_pcf.place_cells)
-        else:
-            # Place cell index has to be offset by the amount of cells already in the array
-            curr_pc_offset = []
-            for i in curr_pcf.place_cells:
-                i = list(i)
-                i[0] = i[0] + idx_offset
-                curr_pc_offset.append(tuple(i))
-
-            pc.extend(curr_pc_offset)
-
-    return bin_avg_act, pc
-
-def plot_total_place_cells(bin_avg_act, place_cells, sort='max', norm=True):
-
-    place_cell_idx = [x[0] for x in place_cells]
-    traces = bin_avg_act[place_cell_idx]
-    n_neurons = traces.shape[0]
-
-    # Normalize trace array if wanted (every neuron's traces range from 0 to 1)
-    if norm:
-        for i in range(traces.shape[0]):
-            traces[i] = (traces[i] - np.min(traces[i])) / np.ptp(traces[i])
-
-    # sort neurons after different criteria
-    bins = []
-    if sort == 'max':
-        for i in range(n_neurons):
-            bins.append((i, np.argmax(traces[i, :])))
-    elif sort == 'field':
-        for i in range(n_neurons):
-            bins.append((i, place_cells[i][1][0][0]))  # get the first index of the first place field
-    else:
-        print(f'Cannot understand sorting command {sort}.')
-        for i in range(n_neurons):
-            bins.append((i, i))
-    bins_sorted = sorted(bins, key=lambda tup: tup[1])
-
-    # re-sort traces array
-    new_permut = [x[0] for x in bins_sorted]
-    new_idx = np.empty_like(new_permut)
-    new_idx[new_permut] = np.arange(len(new_permut))
-    sort_traces = traces[new_permut, :]
-
-    # Plot data
-    fig = plt.figure()
-    ax = plt.gca()
-    # fig.suptitle(f'Place cells of 101 analysed sessions (from 12 mice)', fontsize=16)
-
-    img = ax.pcolormesh(sort_traces, cmap='plasma')
-
-    cbar = fig.colorbar(img, ax=ax, fraction=0.1, )  # draw color bar
-    cbar.set_label(r'normalized $\Delta$F/F', labelpad=-10)
-    cbar.set_ticks([0, 1])
-    cbar.ax.tick_params(labelsize=12)
-    cbar.ax.yaxis.label.set_size(15)
-
-    # set axis labels and tidy up graph
-    ax.set_xlabel('VR position bin', fontsize=15)
-    ax.set_ylabel('# neuron', fontsize=15)
-    ax.tick_params(axis='both', labelsize=12)
-    ax.invert_yaxis()
 
 
-
-        # set x ticks to VR position, not bin number
-    # trace_ax[-1, 0].set_xlim(0, traces.shape[1])
-    # x_locs, labels = plt.xticks()
-    # plt.xticks(x_locs, (x_locs * self.params['bin_length']).astype(int), fontsize=15)
-    # plt.sca(trace_ax[-1, 0])
-    # plt.xticks(x_locs, (x_locs * self.params['bin_length']).astype(int), fontsize=15)
-
-
-
-big_pcf = combine_all_place_cells(root)
 
 #%% spatial information functions
 
