@@ -1,4 +1,5 @@
 from standard_pipeline import place_cell_pipeline as pipe, performance_check as performance
+from multisession_analysis import batch_analysis as batch
 import seaborn as sns
 import pandas as pd
 import numpy as np
@@ -9,30 +10,67 @@ from sklearn import preprocessing
 from math import ceil, floor
 import pickle
 from statannot import add_stat_annotation
-from glob import glob
-from copy import deepcopy
-from datetime import datetime as dt
-from pathlib import Path
 
 #%% Performance analysis
 def out():
     path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3']
 
-    stroke = ['M32', 'M40', 'M41', 'M37']
+    stroke = ['M32', 'M40', 'M41']
     control = ['M33', 'M38', 'M39']
 
-    data = performance.load_performance_data(roots=path, novel=False, norm_date='20200513',
-                                             stroke=stroke)
+    data = performance.load_performance_data(roots=path, norm_date='20200513', stroke=stroke)
 
-    performance.plot_all_mice_avg(data, rotate_labels=False, session_range=(26, 38), scale=2)
+    performance.plot_all_mice_avg(data, field='licking_binned', rotate_labels=False, session_range=(16, 30), scale=2)
     performance.plot_all_mice_avg(data, rotate_labels=False, scale=2)
 
-    performance.plot_all_mice_separately(data, rotate_labels=False, session_range=(26, 41), scale=1.75)
+    performance.plot_all_mice_separately(data, field='licking_binned', rotate_labels=False, session_range=(54, 57), scale=1.75)
     sns.set_context('talk')
     axis = performance.plot_single_mouse(data, 'M41', session_range=(26, 38))
-    axis = performance.plot_single_mouse(data, 'M32', session_range=(10, 15), scale=2, ax=axis)
+    axis = performance.plot_single_mouse(data, 'M32', session_range=(16, 30), scale=2, ax=axis)
 
-    filter_data = data[data['sess_norm'] >= -7]
+    # filter_data = data[data['sess_id'] <= 15]
+    filter_data = data[(data['sess_id'] >= 16)]
+    filter_data = filter_data[(filter_data['sess_id'] <= 30)]
+    filter_data = filter_data[filter_data.mouse != 'M35']
+    filter_data = filter_data[filter_data.mouse != 'M37']
+    performance.plot_all_mice_separately(filter_data, field='licking_binned', rotate_labels=False, scale=1.75)
+    performance.plot_all_mice_avg(filter_data, field='licking_binned')
+    sns.set()
+    sns.lineplot(y='spikerate', x='sess_id', hue='group', data=df)
+
+    batch.exp_to_prism_mouse_avg(filter_data, field='licking_binned', grouping=False, fname='learning_curve_block3_avg.txt')
+    batch.exp_to_prism_single_trials(filter_data, field='licking_binned', fname='learning_curve_block3.txt')
+
+#%% normalize performance
+filter_data['lick_norm'] = np.nan
+filter_data['lick_bin_norm'] = np.nan
+for mouse in filter_data.mouse.unique():
+    pre_avg = np.mean(filter_data.loc[(filter_data.mouse == mouse) & ((filter_data.sess_norm < 0) & (filter_data.sess_norm > -7)), 'licking'])
+    filter_data.loc[filter_data.mouse == mouse, 'lick_norm'] = filter_data.loc[filter_data.mouse == mouse, 'licking'] / pre_avg
+
+    pre_avg = np.mean(filter_data.loc[(filter_data.mouse == mouse) & ((filter_data.sess_norm < 0) & (filter_data.sess_norm > -7)), 'licking_binned'])
+    filter_data.loc[filter_data.mouse == mouse, 'lick_bin_norm'] = filter_data.loc[filter_data.mouse == mouse, 'licking_binned'] / pre_avg
+
+test['lick_norm'] = test['licking'] / pre_avg
+test = filter_data[filter_data.mouse == 'M33']
+
+plt.figure()
+sns.lineplot(y='licking', x='sess_norm', data=test)
+sns.lineplot(y='lick_norm', x='sess_norm', data=test)
+plt.ylim(0, 1.5)
+
+plt.figure()
+sns.lineplot(y='licking_binned', x='sess_norm', data=test)
+sns.lineplot(y='lick_bin_norm', x='sess_norm', data=test)
+plt.ylim(0, 1.5)
+
+#%% simple data
+
+data = batch.get_simple_data(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3',
+                             filepath=r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\simple_data_novel.pickle',
+                             overwrite=True, session_range=[20200623, 20200625])
+
+data = pd.read_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\simple_data.pickle')
 
 #%%
 #r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191121b\N2',

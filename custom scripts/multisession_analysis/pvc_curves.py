@@ -72,7 +72,7 @@ def pvc_curve(activity_matrix, plot=True, max_delta_bins=30):
         curve_stdev[delta_bin] = stdev_delta_bin
 
     if plot:
-        plot_pvc_curve(curve_yvals, show=True)
+        plot_pvc_curve(curve_yvals, curve_stdev, show=True)
 
     return curve_yvals, curve_stdev
 
