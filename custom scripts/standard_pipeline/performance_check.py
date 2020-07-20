@@ -200,11 +200,10 @@ def set_xlabels(axis, x_labels, date_0):
         out = axis.set_xlabel('days after stroke')
 
 
-def load_performance_data(roots, novel, norm_date, stroke=None):
+def load_performance_data(roots, norm_date, stroke=None):
     """
     Collects licking and stopping data from merged_behavior.txt files for a list of mice.
     :param roots: str, path to the batch folder (which contains folders for each mouse)
-    :param novel: bool, whether novel or training sessions should be analysed
     :param norm_date: date where session dates should be normalized (one entry per mouse or single entry for all mice).
                         'None' = no normalization (dates labelled with session folder name),
                         '0' = normalization to the first session,
@@ -214,8 +213,7 @@ def load_performance_data(roots, novel, norm_date, stroke=None):
     for root in roots:
         for step in os.walk(root):
             # Find performance
-            if 'performance.txt' in step[2] and novel == is_session_novel(step[0]):
-
+            if 'performance.txt' in step[2]:
                 # load data of the current session and add it to the global list as a pd.Series
                 file_path = os.path.join(step[0], 'performance.txt')
                 sess_data = np.loadtxt(file_path)
@@ -238,7 +236,7 @@ def load_performance_data(roots, novel, norm_date, stroke=None):
                 mouse = step[0].split(os.path.sep)[-2]
                 # store data of this session and this mouse in a temporary DataFrame which is added to the global list
                 data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'licking_binned': lick_bin, 'mouse': mouse,
-                                          'session_date': sess}))
+                                          'session_date': sess, 'novel_corr': is_session_novel(step[0])}))
                 # data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'mouse': mouse, 'session_date': sess}))
 
     df = pd.concat(data, ignore_index=True)
@@ -331,6 +329,10 @@ def save_performance_data(session, validation=False):
     :return:
     """
 
+    # Hardcoded validation sessions for Batch 3
+    if session[-8:] == '20200614' or session[-8:] == '20200616':
+        validation = True
+
     def atoi(text):
         return int(text) if text.isdigit() else text
 
@@ -367,7 +369,7 @@ def save_performance_data(session, validation=False):
 def is_session_novel(path):
     # check whether the current session is in the novel corridor
     context = None
-    if len(glob(path + '\\TDT LOG*')) == 1:
+    if len(glob(path + '\\TDT LOG*')) > 0:
         log_path = os.path.join(path, glob(path + '\\TDT LOG*')[0])
         with open(log_path, 'r') as log:
             lines = log.readlines()
@@ -415,14 +417,14 @@ def get_binned_licking(data, bin_size=2, normalized=True):
     return hist
 
 
-def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size=2):
+def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size=1):
     """
     Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
     :param data: np.array of the merged_behavior*.txt file
     :param novel: bool, flag whether file was performed in novel corridor (changes reward zone location)
     :param buffer: int, position bins around the RZ that are still counted as RZ for licking
     :param valid: bool, flag whether trial was a RZ position validation trial (training corridor with shifted RZs)
-    :param bin_size: int, bin size in VR units for binned licking performance analysis
+    :param bin_size: int, bin size in VR units for binned licking performance analysis (divisible by zone borders)
     :returns lick_ratio: float, ratio between individual licking bouts that occurred in reward zones div. by all licks
     :returns stop_ratio: float, ratio between stops in reward zones divided by total number of stops
     """
@@ -745,9 +747,11 @@ def quick_screen_session(path, valid=False):
         return print(f'No trials found at {path}.')
     else:
         try:
-            perf = int(10000 * np.mean(np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))[:, 0]))/100
+            perf_old = int(10000 * np.mean(np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))[:, 0]))/100
+            perf_new = int(10000 * np.mean(np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))[:, 1]))/100
         except OSError:
-            perf = 'NaN'
+            perf_old = 'NaN'
+            perf_new = 'NaN'
         # plotting
         bad_trials = []
         nrows = ceil(len(data_list)/3)
@@ -782,7 +786,7 @@ def quick_screen_session(path, valid=False):
 
                     # find samples inside reward zones
                     zones_idx = []
-                    if valid and count > 4:
+                    if valid and count > 4:     # New zone borders for validation trials (RZ shifted)
                         zone_borders = np.array([[-6, 4], [34, 44], [66, 76], [90, 100]])
                     for zone in zone_borders:
                         zones_idx.append(np.where((curr_trial[:, 1] > zone[0]) & (curr_trial[:, 1] < zone[1]))[0])
@@ -805,7 +809,7 @@ def quick_screen_session(path, valid=False):
     fig.canvas.mpl_connect('close_event', closed)
     fig.canvas.mpl_connect('pick_event', onpick)
     plt.tight_layout()
-    fig.suptitle(f'Performance: {perf}%', fontsize=14)
+    fig.suptitle(f'Performance: {perf_old}% (old), {perf_new}% (new)', fontsize=14)
     plt.show()
 
 
@@ -890,19 +894,22 @@ def plot_all_mice_separately(input, field='licking', rotate_labels=False, sessio
     grid = sns.FacetGrid(data, col='mouse', col_wrap=3, height=3, aspect=2)
     grid.map(sns.lineplot, 'sess_id', field)
     grid.set_axis_labels('session', 'licks in reward zone [%]')
+
+    # for ax in grid.axes.ravel():
+    #     ax.axvline(30.5, color='r')
+    #     ax.axvline(37.5, color='r')
+    #     ax.axvline(42.5, color='r')
+    #     ax.axvline(45.5, color='r')
+
     if session_range is None:
-        out = grid.set(ylim=(0, 100), xlim=(-0.2, len(sessions) - 0.8),
-                       xticks=range(len(sessions)), xticklabels=sessions)
+        out = grid.set(ylim=(0, 150), xticks=range(len(sessions)), xticklabels=sessions)
     else:
         out = grid.set(ylim=(0, 100), xlim=(session_range[0], session_range[1]),
                        xticks=range(len(sessions)), xticklabels=sessions)
     for ax in grid.axes.ravel():
         if rotate_labels:
             ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
-        ax.axvline(30.5, color='r')
-        ax.axvline(37.5, color='r')
-        ax.axvline(42.5, color='r')
-        ax.axvline(45.5, color='r')
+
     sns.set(font_scale=scale)
     plt.tight_layout()
 
