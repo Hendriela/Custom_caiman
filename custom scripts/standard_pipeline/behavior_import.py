@@ -12,7 +12,7 @@ from pathlib import Path
 
 def load_file(path):
     """
-    Loads files from a directory, with error messages in case there is none or more than 1 file with that name.
+    Loads Files from a directory, with error messages in case there is none or more than 1 file with that name.
     :param path: directory
     :return: loaded file as np.array
     """

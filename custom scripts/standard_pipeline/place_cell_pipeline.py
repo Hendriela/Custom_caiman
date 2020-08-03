@@ -392,8 +392,7 @@ def import_template_coordinates(curr_path, temp_path):
 #%% Motion correction wrapper functions
 
 
-
-def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\hheise\temp_files',
+def motion_correction(root, params, dview, basename='file', percentile=0.01, temp_dir=r'C:\Users\hheise\temp_files',
                       remove_f_order=True, remove_c_order=True, get_images=True, overwrite=False):
     """
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
@@ -401,6 +400,7 @@ def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\
     :param root: str; path in which imaging sessions are searched (files should be in separate trial folders)
     :param params: cnm.params object that holds all parameters necessary for motion correction
     :param dview: link to Caimans processing server
+    :param basename: str, basename of imaging files ('file' by default)
     :param temp_dir: str, folder on computer hard disk where temporary files are saved
     :param percentile: float, percentile that should be added to the .tif files to avoid negative pixel values
     :param remove_f_order: bool flag whether F-order files should be removed to save disk space
@@ -419,11 +419,10 @@ def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\
     # First, get a list of all folders that include contiguous imaging sessions (have to be motion corrected together)
     dir_list = []
     for step in os.walk(root):
-        if len(glob(step[0] + r'\\file_00???.tif')) > 0:
-            up_dir = step[0].rsplit(os.sep, 1)[0]
-            if ((len(glob(up_dir + r'\\memmap__d1_*.mmap')) == 0 and len(glob(up_dir + r'\\pcf*')) == 0 and
-                len(glob(up_dir + r'\\cnm*')) == 0) or overwrite) and up_dir not in dir_list and 'bad_trials' not in up_dir:
-                dir_list.append(up_dir)   # this makes a list of all folders that contain single-trial imaging folders
+        if len(glob(step[0] + f'\\{basename}_00???.tif')) > 0:
+            if ((len(glob(step[0] + r'\\memmap__d1_*.mmap')) == 0 and len(glob(step[0] + r'\\pcf*')) == 0 and
+                len(glob(step[0] + r'\\cnm*')) == 0) or overwrite) and step[0] not in dir_list and 'bad_trials' not in step[0]:
+                dir_list.append(step[0])   # this makes a list of all folders that contain single-trial imaging folders
 
     mmap_list = []
     if len(dir_list) > 0:
@@ -447,7 +446,7 @@ def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\
             c, dview, n_processes = cm.cluster.setup_cluster(backend='local', n_processes=None, single_thread=False)
 
             # list of all .tif files of that session which should be corrected together, sorted by their trial number
-            file_list = glob(session + r'\\*\\*_00???.tif')
+            file_list = glob(session + r'\\*_00???.tif')
             file_list.sort(key=natural_keys)
             file_list = [x for x in file_list if 'wave' not in x]   # ignore files with waves (disrupt ROI detection)
             print(f'\nNow starting to process session {session} ({len(file_list)} trials).')
