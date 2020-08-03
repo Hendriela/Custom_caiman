@@ -168,14 +168,6 @@ def load_manual_neuron_coordinates(path, fname=None):
     return list(zip(coords[:, 1], coords[:, 2]))
 
 
-def test():
-    """
-    Test if this shows up in branches
-    :return:
-    """
-    return None
-
-
 def export_tif(root, target_folder=None):
     """ Export a motion corrected memory mapped file to an ImageJ readable .tif stack
     :param root: str
