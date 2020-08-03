@@ -398,9 +398,9 @@ def motion_correction(root, params, dview, basename='file', percentile=0.01, tem
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
     to save disk space. Function automatically finds sessions and performs correction on whole sessions separately.
     :param root: str; path in which imaging sessions are searched (files should be in separate trial folders)
-    :param basename: str, basename of imaging files ('file' by default)
     :param params: cnm.params object that holds all parameters necessary for motion correction
     :param dview: link to Caimans processing server
+    :param basename: str, basename of imaging files ('file' by default)
     :param temp_dir: str, folder on computer hard disk where temporary files are saved
     :param percentile: float, percentile that should be added to the .tif files to avoid negative pixel values
     :param remove_f_order: bool flag whether F-order files should be removed to save disk space
