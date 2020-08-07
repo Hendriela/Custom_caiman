@@ -116,7 +116,7 @@ def perform_pca(pcf):
     pca_model = PCA(n_components=n_features)  # Initializes PCA
     out = pca_model.fit(data)  # Performs PCA
 
-    return data, pca_model
+    return data, np.array(labels, dtype=bool), pca_model
 
 
 #%% Visualization
@@ -155,17 +155,24 @@ def plot_variance_explained(variance_explained, cutoff=0.95, cum=True):
 
     """
 
+    x = np.arange(1, len(variance_explained) + 1)
     if cum:
-        variance_explained = np.cumsum(variance_explained) / np.sum(variance_explained)
+        y = np.cumsum(variance_explained) / np.sum(variance_explained)
+    else:
+        y = variance_explained
+
     plt.figure()
-    plt.plot(np.arange(1, len(variance_explained) + 1), variance_explained,'--k')
+    plt.plot(x, y, '--k', label=f'Cutoff at component {np.where(y>cutoff)[0][0]+1}')
     plt.axhline(cutoff, color='r')
+
     plt.xlabel('Number of components')
     plt.ylabel('Variance explained')
+    plt.legend()
     plt.show()
+    return
 
 
-def plot_weights(weights, n_comps, var_exp, params):
+def plot_weights(weights, n_comps, params, var_exp=None):
 
     weights_long = weights[:n_comps].flatten()
     labels = np.array([[x+1]*weights.shape[1] for x in range(n_comps)]).flatten()
@@ -178,7 +185,8 @@ def plot_weights(weights, n_comps, var_exp, params):
         for zone in params['zone_borders']:
             ax.axvspan(zone[0]*params['bin_length'], zone[1]*params['bin_length'], color='red', alpha=0.1)
             ax.axhline(0, color='grey', linestyle='--', alpha=0.7)
-        ax.set_title(f'Component {idx+1} ({int(var_exp[idx]*1000)/10}%)')
+        if var_exp is not None:
+            ax.set_title(f'Component {idx+1} ({int(var_exp[idx]*1000)/10}%)')
 
 
 def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1), fname=None):
@@ -202,8 +210,8 @@ def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1), fname=
     x = scores[:, components[0]]
     y = scores[:, components[1]]
 
-    weight_1 = weights[:, components[0]]
-    weight_2 = weights[:, components[1]]
+    weight_1 = weights[components[0]]
+    weight_2 = weights[components[1]]
 
     # definitions for the axes
     left, width = 0.1, 0.65
@@ -217,7 +225,7 @@ def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1), fname=
     rect_weights = [left + width + spacing, bottom + height + spacing, right, top]
 
     # start with a rectangular Figure
-    plt.figure(figsize=(8, 8))
+    fig = plt.figure(figsize=(8, 8))
 
     ax_scatter = plt.axes(rect_scatter)
     ax_scatter.tick_params(direction='in', top=True, right=True)
@@ -258,6 +266,7 @@ def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1), fname=
     ax_weight.axhline(0, color='grey', linestyle='--')
 
     plt.show()
+    return fig
 
 
 #%% PCA
