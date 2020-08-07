@@ -116,17 +116,17 @@ def load_pcf(root, fname=None):
             if len(pcf_path) < 1:
                 raise FileNotFoundError(f'No pcf file found in {os.path.join(root, fname)}.')
     else:
-        pcf_path = glob(root + r'\\pcf_results_manual.pickle')
+        pcf_path = glob(root + r'\\pcf_results*')
         if len(pcf_path) < 1:
-            pcf_path = glob(root + r'\\pcf_results.pickle')
-            if len(pcf_path) < 1:
-                pcf_path = glob(root + r'\\pcf_results')
-                if len(pcf_path) < 1:
-                    raise FileNotFoundError(f'No pcf file found in {root}.')
-            elif len(pcf_path) > 1:
-                raise FileNotFoundError(f'More than one pcf file found in {root}.')
+            raise FileNotFoundError(f'No pcf file found in {root}.')
         elif len(pcf_path) > 1:
-            raise FileNotFoundError(f'More than one pcf file found in {root}.')
+            pcf_path = glob(root + r'\\pcf_results_manual.pickle')
+            if len(pcf_path) < 1:
+                pcf_path = glob(root + r'\\pcf_results.pickle')
+                if len(pcf_path) < 1:
+                    pcf_path = glob(root + r'\\pcf_results')
+                elif len(pcf_path) > 1:
+                    raise FileNotFoundError(f'More than one pcf file found in {root}.')
     print(f'Loading file {pcf_path[0]}...')
     with open(pcf_path[0], 'rb') as file:
         obj = pickle.load(file)
