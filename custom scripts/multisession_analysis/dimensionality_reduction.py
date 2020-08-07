@@ -100,6 +100,25 @@ def pca(X):
     return score, evectors, evals
 
 
+def perform_pca(pcf):
+
+    # Neurons as samples, position bins as features
+    raw_data = pcf.bin_avg_activity
+    pc_idx = [x[0] for x in pcf.place_cells]
+    labels = np.zeros(len(raw_data))
+    labels[pc_idx] = 1
+    n_features = pcf.params['n_bins']
+
+    # Standardize (z-score) data
+    data = raw_data - np.mean(raw_data, axis=0) / np.std(raw_data, axis=0)
+
+    # Perform PCA
+    pca_model = PCA(n_components=n_features)  # Initializes PCA
+    out = pca_model.fit(data)  # Performs PCA
+
+    return data, pca_model
+
+
 #%% Visualization
 
 def plot_eigenvalues(evals, limit=True):
@@ -123,41 +142,46 @@ def plot_eigenvalues(evals, limit=True):
     plt.show()
 
 
-def plot_variance_explained(variance_explained, cutoff=0.95):
-  """
-  Plots eigenvalues.
+def plot_variance_explained(variance_explained, cutoff=0.95, cum=True):
+    """
+    Plots eigenvalues.
 
-  Args:
+    Args:
     variance_explained (numpy array of floats) : Vector of variance explained
                                                  for each PC
 
-  Returns:
+    Returns:
     Nothing.
 
-  """
+    """
 
-  plt.figure()
-  plt.plot(np.arange(1, len(variance_explained) + 1), variance_explained,'--k')
-  plt.axhline(cutoff, color='r')
-  plt.xlabel('Number of components')
-  plt.ylabel('Variance explained')
-  plt.show()
+    if cum:
+        variance_explained = np.cumsum(variance_explained) / np.sum(variance_explained)
+    plt.figure()
+    plt.plot(np.arange(1, len(variance_explained) + 1), variance_explained,'--k')
+    plt.axhline(cutoff, color='r')
+    plt.xlabel('Number of components')
+    plt.ylabel('Variance explained')
+    plt.show()
 
 
-def plot_weights(weights, n_comps, params):
+def plot_weights(weights, n_comps, var_exp, params):
+
     weights_long = weights[:n_comps].flatten()
     labels = np.array([[x+1]*weights.shape[1] for x in range(n_comps)]).flatten()
     bins = np.tile(np.arange(weights.shape[1])*params['bin_length'], n_comps)
-    df = pd.DataFrame({'weight':weights_long, 'VR position [cm]':bins, 'Component':labels})
+    df = pd.DataFrame({'weight':weights_long, 'VR position [cm]': bins, 'Component': labels})
     g = sns.FacetGrid(df, col='Component', col_wrap=4)
     g.map(sns.lineplot, 'VR position [cm]', 'weight')
 
-    for ax in g.axes.ravel():
+    for idx, ax in enumerate(g.axes.ravel()):
         for zone in params['zone_borders']:
             ax.axvspan(zone[0]*params['bin_length'], zone[1]*params['bin_length'], color='red', alpha=0.1)
+            ax.axhline(0, color='grey', linestyle='--', alpha=0.7)
+        ax.set_title(f'Component {idx+1} ({int(var_exp[idx]*1000)/10}%)')
 
 
-def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1)):
+def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1), fname=None):
     """
     Plots overview of PCA results: Data points across two components (default first two), with histogram distributions
     of place cells and non-place cells, as well as the weight profile of the first two components (upper right).
@@ -168,6 +192,7 @@ def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1)):
         labels (np.array): Shape (n_samples,), bool value whether a sample is a place cell
         params (dict): Parameter dict from pcf object (to plot reward zone positions)
         components (tuple): Indices of principal components the dataset should be plotted against (default (0, 1)
+        fname (str): optional, if not None, figure is saved at the path defined by fname
 
     Returns:
         nothing
