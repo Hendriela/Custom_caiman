@@ -21,7 +21,7 @@ from skimage import io
 import tifffile as tif
 from datetime import datetime
 import shutil
-from spike_prediction.spike_prediction import predict_spikes
+# from spike_prediction.spike_prediction import predict_spikes
 
 #%% File and directory handling
 
@@ -392,7 +392,7 @@ def import_template_coordinates(curr_path, temp_path):
 #%% Motion correction wrapper functions
 
 
-def motion_correction(root, params, dview, basename='file', percentile=0.01, temp_dir=r'C:\Users\hheise\temp_files',
+def motion_correction(root, params, dview, basename='file', percentile=0.01, temp_dir=r'C:\Users\Jnambi\temp_jithin',
                       remove_f_order=True, remove_c_order=True, get_images=True, overwrite=False):
     """
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
