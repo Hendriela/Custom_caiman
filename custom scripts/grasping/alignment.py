@@ -15,7 +15,8 @@ def align_traces(data, camera_frames, window_size=2):
         data (numpy array of floats)           :    Shape (n_neurons, n_frames), holds traces of all neurons for the
                                                     whole session. Should be from cnm.estimates.F_dff.
 
-        camera_frames (list or 1D array of int) :   List of camera frames at which grasps happened in this session.
+        camera_frames (list of lists)          :    List of videos per session, each holding one list of camera frames
+                                                    at which grasps happened.
 
         window_size (int)                      :    Half-size of time window in seconds. Traces "window_size" seconds
                                                     before and after the grasp will be returned.
