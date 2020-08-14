@@ -914,9 +914,19 @@ def plot_all_mice_separately(input, field='licking', rotate_labels=False, sessio
     plt.tight_layout()
 
 
-def plot_binned_session_licks(path, bin_size=1, normalized=True, cmap='jet', validation_zones=False, performance=False,
-                              target=None):
-
+def plot_validation_performance(path, change_trial=5, bin_size=1, normalized=True, cmap='jet', validation_zones=False,
+                                target=None):
+    """
+    Plots the performance, individual licks per bin and binary licks per bin of one validation session.
+    :param path: str, directory of one session
+    :param change_trial: int, number of trial when the condition changed (default 5)
+    :param bin_size: int, size of VR position bins (default 1 for standard VR position from 0 to 120)
+    :param normalized: bool flag whether performance should be normalized to the mean pre-change performance
+    :param cmap: str, colormap for the individual-licks-plot
+    :param validation_zones: bool flag whether to plot new validation zones (for sessions when zone positions shifted)
+    :param target: str, if provided plots are saved to this directory and closed afterwards
+    :return:
+    """
     def atoi(text):
         return int(text) if text.isdigit() else text
 
@@ -925,6 +935,8 @@ def plot_binned_session_licks(path, bin_size=1, normalized=True, cmap='jet', val
 
     zone_borders_new = np.array([[-6, 4], [34, 44], [66, 76], [90, 100]])+10
     zone_borders_old = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])+10
+
+    mouse = path.split(sep=os.path.sep)[-2]
 
     file_list = glob(path+'\\*\\merged_behavior*.txt')
     if len(file_list) == 0:
@@ -946,7 +958,7 @@ def plot_binned_session_licks(path, bin_size=1, normalized=True, cmap='jet', val
             out.axes.axvspan(min(new), max(new), color='yellow', alpha=0.2)
 
     # design fixes
-    out.axes.axhline(5, color='r')
+    out.axes.axhline(change_trial, color='r')
     out.axes.invert_yaxis()
     out.axes.tick_params(labelsize=12)
     # out.axes.set_title(path[57:60]+', '+path[61:], fontsize=18)
@@ -955,7 +967,7 @@ def plot_binned_session_licks(path, bin_size=1, normalized=True, cmap='jet', val
     fig.tight_layout()
 
     if target is not None:
-        plt.savefig(os.path.join(target, f'{path[57:60]}_binned_licking.png'))
+        plt.savefig(os.path.join(target, f'{mouse}_binned_licking.png'))
         plt.close()
 
     #### Plot binary binned licks
@@ -970,7 +982,7 @@ def plot_binned_session_licks(path, bin_size=1, normalized=True, cmap='jet', val
             out.axes.axvspan(min(new), max(new), color='red', alpha=0.2)
 
     # design fixes
-    out.axes.axhline(5, color='r')
+    out.axes.axhline(change_trial, color='r')
     out.axes.invert_yaxis()
     out.axes.tick_params(labelsize=12)
     # out.axes.set_title(path[57:60]+', '+path[61:], fontsize=18)
@@ -979,7 +991,7 @@ def plot_binned_session_licks(path, bin_size=1, normalized=True, cmap='jet', val
     fig.tight_layout()
 
     if target is not None:
-        plt.savefig(os.path.join(target, f'{path[57:60]}_binned_binary_licking.png'))
+        plt.savefig(os.path.join(target, f'{mouse}_binned_binary_licking.png'))
         plt.close()
 
     #### Plot performance
@@ -993,10 +1005,10 @@ def plot_binned_session_licks(path, bin_size=1, normalized=True, cmap='jet', val
     out[0].axes.tick_params(labelsize=10)
     out[0].axes.set_ylabel('Licking performance', rotation=90, fontsize=12)
     out[0].axes.set_xlabel('Trial', fontsize=12)
-    out[0].axes.axvline(4.5, color='r')
+    out[0].axes.axvline(change_trial-0.5, color='r')
     out[0].axes.legend()
     fig.tight_layout()
     if target is not None:
-        plt.savefig(os.path.join(target, f'{path[57:60]}_performance.png'))
+        plt.savefig(os.path.join(target, f'{mouse}_performance.png'))
         plt.close()
 
