@@ -1,6 +1,7 @@
 from caiman.source_extraction import cnmf
 from standard_pipeline import place_cell_pipeline as pipe, behavior_import as behavior, \
     performance_check as performance
+import div.file_manager as fm
 import place_cell_class as pc
 import caiman as cm
 import matplotlib.pyplot as plt
@@ -8,6 +9,10 @@ import os
 import numpy as np
 import seaborn as sns
 #import manual_neuron_selection_gui as selection_gui
+import multisession_analysis.dimensionality_reduction as dr
+from scipy.stats import ttest_ind
+import pandas as pd
+import pickle
 
 """
 Complete pipeline for place cell analysis, from motion correction to place cell finding
@@ -423,8 +428,7 @@ path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3']
 stroke = ['M32', 'M40', 'M41']
 control = ['M33', 'M38', 'M39']
 
-data = performance.load_performance_data(roots=path, novel=False, norm_date='20200513',
-                                         stroke=stroke)
+data = performance.load_performance_data(roots=path, norm_date='20200513', stroke=stroke)
 
 performance.plot_all_mice_avg(data, rotate_labels=False, session_range=(26, 38), scale=2)
 performance.plot_all_mice_avg(data, rotate_labels=False, scale=2)
@@ -613,9 +617,223 @@ for root in roots:
 
     cm.stop_server(dview=dview)
 
-from glob import glob
-for step in os.walk(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41'):
-    files = glob(step[0] + '\\performance_*.txt')
-    if len(files) > 0:
-        for f in files:
-            os.remove(f)
+#%% cross-session alignment groundtruth export Anna
+
+from caiman.utils import visualization
+
+paths = [r'20191122a',r'20191125',r'20191126b', '20191127a',r'20191204',r'20191205',r'20191206',
+         r'20191207',r'20191208',r'20191219']
+target = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis\alignment_session_data'
+files = os.listdir(target)
+
+for i, sess in enumerate(paths):
+    pcf = pipe.load_pcf(r'E:\Batch2\M19\{}\N2'.format(sess))
+    data = np.load(os.path.join(target, files[i+1]), allow_pickle=True)
+    del data['contours']
+    out = visualization.plot_contours(pcf.cnmf.estimates.A, pcf.cnmf.estimates.Cn, display_numbers=False, colors='r', verbose=False)
+    plt.close()
+    data['template'] = pcf.cnmf.estimates.Cn
+    data['CoM'] = np.vstack([x['CoM'] for x in out])
+    np.save(os.path.join(target, os.path.splitext(files[i+1])[0]), data, allow_pickle=True)
+
+
+#%% Dimensionality reduction
+
+target = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\PCA'
+
+mice = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40',
+        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41']
+
+sessions = ['20200507', '20200508', '20200509', '20200510', '20200511', '20200513', '20200514',
+            '20200515', '20200516', '20200517', '20200518', '20200519']
+
+
+# pc_dist_diff = np.zeros((3, len(paths)))
+df_list = []
+data_list = []
+session_list = []
+
+for mouse_dir in mice:
+    mouse = mouse_dir.split(os.path.sep)[-1]
+    curr_target = os.path.join(target, mouse)
+    for sess in sessions:
+        pcf = pipe.load_pcf(os.path.join(mouse_dir, sess))
+        data, labels, model = dr.perform_pca(pcf)
+        scores = model.transform(data)
+        weights = model.components_
+        variance_explained = model.explained_variance_ratio_
+
+        session = pcf.params['session']
+
+        # Plot (cumulative) variance explained
+        cutoff = dr.plot_variance_explained(variance_explained, return_cutoff=True)
+        plt.title(f'Explained variance {mouse}_{session}')
+        fname = f'{mouse}_{session}_explained_variance.png'
+        plt.savefig(os.path.join(curr_target, fname))
+        plt.close()
+
+        # Plot weight profiles of first X components
+        dr.plot_weights(weights, n_comps=12, params=pcf.params, var_exp=variance_explained)
+        fig = plt.gcf()
+        fig.suptitle(f'Weight profiles {mouse}_{session}')
+        plt.subplots_adjust(top=0.92)
+        fname = f'{mouse}_{session}_weights.png'
+        plt.savefig(os.path.join(curr_target, fname))
+        plt.close()
+
+        # Plot first two principal components with histograms
+        fig = dr.plot_pc_with_hist(scores, weights, labels, pcf.params)
+        fig.suptitle(f'First two principal components of {mouse}_{session}')
+        fname = f'{mouse}_{session}_principal_components.png'
+        fig.savefig(os.path.join(curr_target, fname))
+        plt.close()
+
+        # Calculate difference in mean and median of place cells vs non-pcs across PC1
+        pc1 = scores[:, 0]
+        mean_diff = abs(np.mean(pc1[labels]) - np.mean(pc1[~labels]))
+        # pc_dist_diff[1, idx] = np.median(pc1[labels]) - np.mean(pc1[~labels])
+        # t, p = ttest_ind(pc1[labels], pc1[~labels], equal_var=False)
+        # pc_dist_diff[2, idx] = p
+
+        # Put data together in one dataframe
+        df_list.append(pd.DataFrame({'mouse': mouse, 'session': session, 'pca_model': model,
+                                     '95%_variance': [cutoff], 'place_cell_diff': [mean_diff]}))
+        data_list.append(data)
+        session_list.append(os.path.join(mouse_dir, sess))
+
+df = pd.concat(df_list)
+
+# Normalize data
+df['session'] = df['session'].astype(int)
+mouse_list = ['M32', 'M33', 'M38', 'M39', 'M40', 'M41']
+stroke = ['M32', 'M40', 'M41']
+df['norm_var'] = 0.
+df['norm_pc_diff'] = 0.
+for mouse in mouse_list:
+    curr_df = df.loc[df['mouse'] == mouse]
+    baseline_var = np.nanmean(curr_df.loc[curr_df['session'] < 20200513, '95%_variance'])
+    df.loc[df['mouse'] == mouse, 'norm_var'] = curr_df['95%_variance'] / baseline_var
+    baseline_diff = np.nanmean(curr_df.loc[curr_df['session'] < 20200513, 'place_cell_diff'])
+    df.loc[df['mouse'] == mouse, 'norm_pc_diff'] = curr_df['place_cell_diff'] / baseline_diff
+
+all_sess = sorted(df['session'].unique())
+count = 0
+df['sess_id'] = -1
+for session in all_sess:
+    df.loc[df['session'] == session, 'sess_id'] = count
+    count += 1
+df['group'] = 'unknown'
+if stroke is not None:
+    df.loc[df.mouse.isin(stroke), 'group'] = 'stroke'
+    df.loc[~df.mouse.isin(stroke), 'group'] = 'control'
+
+data_key = [data_list, session_list]
+with open(r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\PCA\pca_data.pickle", "wb") as fp:   #Pickling
+    pickle.dump(data_key, fp)
+df.to_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\PCA\pca_results.pickle')
+
+# Plot groups together
+sns.lineplot(x='sess_id', y='place_cell_diff', hue='group', data=df)
+plt.axvline(4.5, color='r')
+plt.ylabel('Difference PC vs non-PC distributions')
+# plot mice average
+grid = sns.FacetGrid(df, col='mouse', col_wrap=3, height=3, aspect=2)
+grid.map(sns.lineplot, 'sess_id', '')
+grid.set_axis_labels('session', 'Difference PC vs non-PC distributions')
+for ax in grid.axes.ravel():
+    ax.axvline(4.5, color='r')
+
+
+######## t-SNE
+
+target = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\t-SNE'
+
+df_list = []
+data_list = []
+session_list = []
+
+for mouse_dir in mice:
+    mouse = mouse_dir.split(os.path.sep)[-1]
+    curr_results = []
+    curr_labels = []
+    for sess in sessions:
+        pcf = pipe.load_pcf(os.path.join(mouse_dir, sess))
+        data, labels, tsne_mod, embed = dr.perform_tsne(pcf, 50)
+        df_list.append(pd.DataFrame({'mouse': mouse, 'session': sess, 'comp_1': embed[:, 0], 'comp_2': embed[:, 1],
+                                     'labels': labels}))
+        curr_results.append(embed)
+        curr_labels.append(labels)
+
+    fig, ax = plt.subplots(3, 4, figsize=(12,10))
+    count = 0
+    for row in range(3):
+        for col in range(4):
+            ax[row, col].scatter(x=curr_results[count][:, 0], y=curr_results[count][:, 1], c=curr_labels[count], s=15)
+            ax[row, col].set_title(f'Session {sessions[count]}')
+            ax[row, col].tick_params(direction='in', labelbottom=False, labelleft=False)
+
+            count += 1
+
+    plt.tight_layout()
+    fig.suptitle(f't-SNE Mouse {mouse} (perplexity 50)')
+    plt.subplots_adjust(top=0.92)
+    fname = target+'\\'+f'{mouse}_perplexity_50.png'
+    plt.savefig(fname)
+
+df = pd.concat(df_list)
+df.to_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\t-SNE\tsne_results.pickle')
+
+# run collective t-SNE on all sessions of one mouse combined
+mouse_dir = mice[-1]
+mouse = 'M41'
+df_list = []
+for sess in sessions:
+    pcf = pipe.load_pcf(os.path.join(mouse_dir, sess))
+    # data, labels, tsne_mod, embed = dr.perform_tsne(pcf, 50)
+    df = pd.DataFrame(pcf.bin_avg_activity)
+    pc_idx = [x[0] for x in pcf.place_cells]
+    labels = np.zeros(len(pcf.bin_avg_activity))
+    labels[pc_idx] = 1
+    df['place_cells'] = labels
+    df['mouse'] = mouse
+    df['session'] = sess
+    df_list.append(df)
+df = pd.concat(df_list)
+
+# Standardize data
+for i in range(80):
+    df[i] = (df[i] - np.mean(df[i])) / np.std(df[i])
+
+# Perform t-SNE
+tsne_mod = TSNE(n_components=2, perplexity=50, n_iter=1000)
+embed = tsne_mod.fit_transform(df.iloc[:, range(80)])
+df['comp1'] = embed[:, 0]
+df['comp2'] = embed[:, 1]
+df['prestroke'] = df['sess_id'] < 5
+
+sns.scatterplot(x="comp1", y="comp2", hue="place_cells", data=df, legend="full")
+
+# Perform t-SNE with different perplexities
+fig, ax = plt.subplots(2, 3)
+perplexities = [5, 30, 50, 75, 100, 500]
+count = 0
+for row in range(2):
+    for col in range(3):
+        pca_mod = PCA(n_components=50)
+        pca_results = pca_mod.fit_transform(df.iloc[:, range(80)])
+        tsne_mod = TSNE(n_components=2, perplexity=perplexities[count], n_iter=1000)
+        embed = tsne_mod.fit_transform(pca_results)
+        ax[row, col].scatter(x=embed[:, 0], y=embed[:, 1], c=df['place_cells'], s=10)
+        ax[row, col].set_xlabel('Component 1')
+        ax[row, col].set_ylabel('Component 2')
+        ax[row, col].set_title(f'Perplexity {perplexities[count]}')
+        count += 1
+
+# load t-SNE results
+tsne = pd.read_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\t-SNE\tsne_results.pickle')
+
+
