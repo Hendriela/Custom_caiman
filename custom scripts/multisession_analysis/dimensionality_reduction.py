@@ -7,6 +7,9 @@ import plotly.express as px
 import plotly.io as pio
 import pandas as pd
 import seaborn as sns
+from sklearn.manifold import TSNE
+from scipy import signal
+from mne.time_frequency import psd_array_multitaper
 
 #%% NMA PCA functions
 
@@ -100,23 +103,75 @@ def pca(X):
     return score, evectors, evals
 
 
-def perform_pca(pcf):
-
+def prepare_data(pcf):
     # Neurons as samples, position bins as features
     raw_data = pcf.bin_avg_activity
     pc_idx = [x[0] for x in pcf.place_cells]
     labels = np.zeros(len(raw_data))
     labels[pc_idx] = 1
-    n_features = pcf.params['n_bins']
 
     # Standardize (z-score) data
-    data = raw_data - np.mean(raw_data, axis=0) / np.std(raw_data, axis=0)
+    data = (raw_data - np.mean(raw_data, axis=0)) / np.std(raw_data, axis=0)
+    return data, labels
 
+
+def perform_pca(pcf):
+
+    data, labels = prepare_data(pcf)
+    n_features = pcf.params['n_bins']
     # Perform PCA
     pca_model = PCA(n_components=n_features)  # Initializes PCA
     out = pca_model.fit(data)  # Performs PCA
 
     return data, np.array(labels, dtype=bool), pca_model
+
+
+def perform_tsne(pcf, perplexity=50):
+
+    data, labels = prepare_data(pcf)
+
+    tsne_mod = TSNE(n_components=2, perplexity=perplexity, n_iter=5000)
+    embed = tsne_mod.fit_transform(data)
+
+    return data, np.array(labels, dtype=bool), tsne_mod, embed
+
+
+#%% Periodicity
+def get_psd(data, rate, win_size):
+
+    ### Demo cells: 583 (strong periodicity) and 48 (low periodicity)
+    pcf = pipe.load_pcf(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200625')
+
+    neurons = [583, 49]
+    rate = 1/5  # samples per centimeter
+
+    fig, ax = plt.subplots(len(neurons), 3, sharex='col')
+    for i, neuron in enumerate(neurons):
+        data = pcf.bin_avg_activity[neuron]
+        psd, freqs = psd_array_multitaper(data, rate, adaptive=True, normalization='full')
+
+        # Plot activity
+        ax[i, 0].plot(np.arange(0, 400, 5), data)
+        ax[i, 0].set_ylabel(f'mean dF/F')
+
+        # Plot frequencies
+        ax[i, 1].plot(freqs, psd)
+        ax[i, 1].set_ylabel(f'PSD')
+
+        # Plot periods
+        ax[i, 2].plot(1/freqs, psd)
+        ax[i, 2].set_ylabel(f'PSD')
+
+
+    ax[0, 0].set_title(f'Spatial activity map')
+    ax[0, 1].set_title(f'Frequency power density')
+    ax[0, 2].set_title(f'Period power density')
+    ax[1, 0].set_xlabel(f'VR position [cm]')
+    ax[1, 1].set_xlabel(f'Frequency [1/cm]')
+    ax[1, 2].set_xlabel(f'Period [cm]')
+    plt.tight_layout()
+
+
 
 
 #%% Visualization
@@ -142,7 +197,7 @@ def plot_eigenvalues(evals, limit=True):
     plt.show()
 
 
-def plot_variance_explained(variance_explained, cutoff=0.95, cum=True):
+def plot_variance_explained(variance_explained, cutoff=0.95, cum=True, return_cutoff=True):
     """
     Plots eigenvalues.
 
@@ -155,21 +210,22 @@ def plot_variance_explained(variance_explained, cutoff=0.95, cum=True):
 
     """
 
-    x = np.arange(1, len(variance_explained) + 1)
+    x = np.arange(0, len(variance_explained)+1)
     if cum:
         y = np.cumsum(variance_explained) / np.sum(variance_explained)
     else:
         y = variance_explained
 
     plt.figure()
-    plt.plot(x, y, '--k', label=f'Cutoff at component {np.where(y>cutoff)[0][0]+1}')
+    plt.plot(x, np.insert(y, 0, 0), '--k', label=f'Cutoff at component {np.where(y>cutoff)[0][0]+1}')
     plt.axhline(cutoff, color='r')
-
+    plt.ylim(-0.05, 1.05)
     plt.xlabel('Number of components')
     plt.ylabel('Variance explained')
     plt.legend()
     plt.show()
-    return
+    if return_cutoff:
+        return np.where(y > cutoff)[0][0]+1
 
 
 def plot_weights(weights, n_comps, params, var_exp=None):
@@ -189,7 +245,7 @@ def plot_weights(weights, n_comps, params, var_exp=None):
             ax.set_title(f'Component {idx+1} ({int(var_exp[idx]*1000)/10}%)')
 
 
-def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1), fname=None):
+def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1)):
     """
     Plots overview of PCA results: Data points across two components (default first two), with histogram distributions
     of place cells and non-place cells, as well as the weight profile of the first two components (upper right).
@@ -241,6 +297,8 @@ def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1), fname=
     ax_scatter.scatter(x[~labels], y[~labels], label='no place cells', alpha=0.5, color=colors[0])
     ax_scatter.scatter(x[labels], y[labels], label='place cells', alpha=0.5, color=colors[1])
     ax_scatter.legend()
+    ax_scatter.set_ylabel('Principal Component 2')
+    ax_scatter.set_xlabel('Principal Component 1')
 
     # Get color of different groups
     # colors = [sc.to_rgba(i) for i in np.unique(labels)]
@@ -273,7 +331,7 @@ def plot_pc_with_hist(scores, weights, labels, params, components=(0, 1), fname=
 
 def random():
     # Load data
-    pcf = pipe.load_pcf(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200625')
+    pcf = pipe.load_pcf(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200511')
 
     # Neurons as samples, position bins as features
     raw_data = pcf.bin_avg_activity
@@ -339,6 +397,35 @@ def random():
 
 
     # t-SNE
+    fig, ax = plt.subplots(2, 3)
+    perplexities = [5, 30, 50, 75, 100, 500]
+    count = 0
+    for row in range(2):
+        for col in range(3):
+            pca_mod = PCA(n_components=50)
+            pca_results = pca_mod.fit_transform(data)
+            tsne_mod = TSNE(n_components=2, perplexity=perplexities[count], n_iter=5000)
+            embed = tsne_mod.fit_transform(pca_results)
+            ax[row, col].scatter(x=embed[:, 0], y=embed[:, 1], c=labels)
+            ax[row, col].set_xlabel('Component 1')
+            ax[row, col].set_ylabel('Component 2')
+            ax[row, col].set_title(f'Perplexity {perplexities[count]}')
+            count += 1
+
+    # 3D
+    for perp in perplexities:
+        tsne_mod = TSNE(n_components=3, perplexity=perp, n_iter=5000)
+        embed = tsne_mod.fit_transform(data)
+        df = pd.DataFrame(np.vstack((embed.T, labels)).T)
+        df.rename(columns=str, inplace=True)
+        df.rename(columns={'3': 'labels'}, inplace=True)
+        pio.renderers.default = 'browser'
+        fig = px.scatter_3d(df, x='0', y='1', z='2', color='labels')
+        fig.show()
+
+
+
+
 
 
 
