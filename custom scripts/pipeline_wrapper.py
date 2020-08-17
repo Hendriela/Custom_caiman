@@ -836,4 +836,16 @@ for row in range(2):
 # load t-SNE results
 tsne = pd.read_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\t-SNE\tsne_results.pickle')
 
+#%%
+import grasping.alignment as Ga
+camera_frames = [[582,681],[328],[3405],[1629],[711],[2872],[2715],[950,2142,3396],[1005,3232],[62,430,1537,3153]]
+cnm = pipe.load_cnmf(r'W:\Neurophysiology-Storage1\Wahl\Jithin\imaging\M12_Pre_Stroke_Frontal\24\Frontal')
+Aligned_traces, single_grasp = Ga.align_traces(cnm.estimates.F_dff,camera_frames)
 
+np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Jithin\imaging\M12_Pre_Stroke_Frontal\24\Frontal\aligned.csv', Aligned_traces, delimiter=',')
+
+modulated_cells = Ga.get_modulated_cells(Aligned_traces)
+
+plt.figure()
+for grasp in range(neuron.shape[1]):
+    plt.plot(neuron[:, grasp])
