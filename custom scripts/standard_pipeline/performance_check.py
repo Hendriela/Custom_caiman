@@ -878,7 +878,8 @@ def plot_all_mice_avg(input, field='licking', rotate_labels=False, session_range
     sns.set(font_scale=scale)
 
 
-def plot_all_mice_separately(input, field='licking', rotate_labels=False, session_range=None, scale=1):
+def plot_all_mice_separately(input, field='licking', rotate_labels=False, session_range=None, scale=1, hlines=None,
+                             vlines=None):
     """
     Plots the performance in % licks in RZ per session of all mice in separate graphs.
     :param input: pandas DataFrame from load_performance_data()
@@ -895,11 +896,17 @@ def plot_all_mice_separately(input, field='licking', rotate_labels=False, sessio
     grid.map(sns.lineplot, 'sess_id', field)
     grid.set_axis_labels('session', 'licks in reward zone [%]')
 
-    # for ax in grid.axes.ravel():
-    #     ax.axvline(30.5, color='r')
-    #     ax.axvline(37.5, color='r')
-    #     ax.axvline(42.5, color='r')
-    #     ax.axvline(45.5, color='r')
+    # Plot red vertical lines (signalling stroke) if provided
+    if vlines is not None:
+        for line in vlines:
+            for ax in grid.axes.ravel():
+                ax.axvline(line, color='r')
+
+    # Plot green horizontal line (signaling baseline) if provided (one per mouse/axes)
+    if hlines is not None:
+        hlines = [x*100 for x in hlines]
+        for idx, ax in enumerate(grid.axes.ravel()):
+            ax.axhline(hlines[idx], color='g')
 
     if session_range is None:
         out = grid.set(ylim=(0, 150), xticks=range(len(sessions)), xticklabels=sessions)
