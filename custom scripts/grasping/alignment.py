@@ -35,11 +35,11 @@ def align_traces(data, camera_frames, window_size=2):
     CAMERA_FR = 59                                              # Get camera frame rate (hard coded)
     grasp_frame_list = []
     for video_nb, video in enumerate(camera_frames):
-        video = np.array(video) - 4                 # Subtract the first 4 frames where microscope is off
+        video = np.array(video) - 4                 # Subtract the first 4 frames when microscope is off
         # Divide frames by frame rate to get the elapsed time, which you multiply by the microscope frame rate to get the
         # number of microscopy frames that were taken during that time
-        micro_frames = (video/CAMERA_FR) * MICROSCOPE_FR
-        grasp_frames = np.round(micro_frames).astype(int)      # Round to integers to get frame indices
+        grasp_frames = (video/CAMERA_FR) * MICROSCOPE_FR
+        grasp_frames = np.round(grasp_frames).astype(int)      # Round to integers to get frame indices
         grasp_frames += video_nb*2000
         grasp_frame_list.append(grasp_frames)
     grasp_frames = np.hstack(grasp_frame_list)
@@ -65,7 +65,7 @@ def align_traces(data, camera_frames, window_size=2):
     # Average the trace of every neuron across grasps while ignoring NaNs
     mean_aligned = np.nanmean(aligned, axis=2)
 
-    return mean_aligned
+    return mean_aligned, aligned
 
 
 def get_modulated_cells(data, threshold=4, pre_window=None, post_window=None):
