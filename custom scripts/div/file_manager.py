@@ -5,22 +5,23 @@ from pathlib import Path
 from standard_pipeline.place_cell_pipeline import progress
 
 
-def transfer_raw_movies(source, target, basename='file', recovery=False):
+def transfer_raw_movies(source, target, basename='file', restore=False):
     """
     Transfers all raw TIFF movies in the source directory and its subdirectories to the target directory while
     maintaining the source directory structure and creating new directories in the target if necessary.
     :param source: str, parent directory from where TIFF files should be taken
     :param target: str, target directory where TIFF files should be moved to
     :param basename: str, basename (before the underscore) of the TIFF files that should be transferred; default 'file'
-    :param recovery: bool flag whether the function is used to recover raw files back to the working directory. If yes,
-                        no PCF object has to be in the parent directory of transfer TIFF files.
+    :param restore: bool flag whether the function is used to recover raw files back to the working directory. If True,
+                        no PCF object has to be in the parent directory of transfer TIFF files. If False, raw files in
+                        the source directory are deleted after successful transfer to make room on the server.
     :return:
     """
     tif_list = []
     # Find movie files that are part of a completely analysed session (PCF file exists)
     for step in os.walk(source):
         if len(glob(step[0] + f'\\{basename}_00???.tif')) == 1:
-            if len(glob(step[0].rsplit(os.sep, 1)[0] + r'\\pcf*')) > 0 or recovery:
+            if len(glob(step[0].rsplit(os.sep, 1)[0] + r'\\pcf*')) > 0 or restore:
                 tif_list.append(glob(step[0] + f'\\{basename}_00???.tif')[0][len(source):])
 
     for idx, file in enumerate(tif_list):
@@ -31,7 +32,11 @@ def transfer_raw_movies(source, target, basename='file', recovery=False):
             if not os.path.isdir(parent):
                 os.mkdir(parent)
         # Transfer the file to the new location
-        shutil.move(src=source+file, dst=target+file)
+        shutil.copy(src=source+file, dst=target+file)
+        # If the files were transferred from the server to the backup hard drive, delete the files from the server after
+        # successful transfer.
+        if not restore:
+            [os.remove(source+fname) for fname in tif_list]
     print('\nDone!')
 
 
