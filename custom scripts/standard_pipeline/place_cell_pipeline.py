@@ -393,7 +393,7 @@ def import_template_coordinates(curr_path, temp_path):
 #%% Motion correction wrapper functions
 
 
-def motion_correction(root, params, dview, basename='Caudal_recording', percentile=0.01, temp_dir=r'C:\Users\Jnambi\temp_jithin',
+def motion_correction(root, params, dview, basename='Caudal_recording', percentile=0.01, temp_dir=r'E:\temp_jithin',
                       remove_f_order=True, remove_c_order=True, get_images=True, overwrite=False):
     """
     Wrapper function that performs motion correction, saves it as C-order files and can immediately remove F-order files
