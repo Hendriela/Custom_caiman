@@ -45,21 +45,22 @@ def progress(count, total, status='', percent=True):
     sys.stdout.flush()
 
 
-def align_behavior(root, performance_check=True, overwrite=False, verbose=False, enc_unit='speed'):
+def align_behavior(root, performance_check=True, overwrite=False, verbose=False, enc_unit='speed', use_existing=False):
     """
     This function is the main function called by pipelines!
     Wrapper for aligning multiple behavioral files. Looks through all subfolders of root for behavioral files.
     If it finds a folder with behavioral files but without merged_behavior.txt, it aligns them.
     If the folder does not contain a .tif file (training without imaging), frame trigger is ignored.
     Calls either align_nonfolder_files in case of training data or align_folder_files for combined imaging data
-    :param root: string, path of the folder where files are searched
-    :param performance_check: boolean flag whether performance should be checked during alignment
-    :param overwrite: bool flag whether trials that have been already processed should be aligned again (useful if the
-                    alignment script changed and data has to be re-aligned
-    :param verbose: bool flag whether unnecessary status updates should be printed to the console
-    :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
-                    rotation [degrees] / sample window (8 ms) is saved
-    :return: saves merged_behavior.txt for each aligned trial
+    :param root:                string, path of the folder where files are searched
+    :param performance_check:   boolean flag whether performance should be checked during alignment
+    :param overwrite:           bool flag whether trials that have been already processed should be aligned again
+                                (useful if the alignment script changed and data has to be re-aligned)
+    :param verbose:             bool flag whether unnecessary status updates should be printed to the console
+    :param enc_unit:            str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
+                                rotation [degrees] / sample window (8 ms) is saved
+    :param use_existing:        bool flag whether to use existing merged_behavior files to get trial frame numbers.
+    :return:                    saves merged_behavior.txt for each aligned trial
     """
     # list that includes session that have been processed to avoid processing a session multiple times
     processed_sessions = []
@@ -67,10 +68,17 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False,
         if len(step[2]) > 0:   # check if there are files in the current folder
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
                 if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:
-                    if len(glob(step[0] + r'\\file*.tif')) > 0:  # check if there is an imaging file for this trial
-                        sess_folder = str(Path(step[0]).parents[0])     # if yes, the one folder up is the session path
+                    # If the log file is in the same folder as the behavioral files, its a non-imaging session
+                    if len(glob(step[0] + r'\\TDT LOG*.txt')) > 0:
+                        sess_folder = step[0]
                         if sess_folder not in processed_sessions:        # check if session folder has been processed
+                            align_files(sess_folder, imaging=False, verbose=verbose, enc_unit=enc_unit)
+                    # If the LOG file is in the parent directory, its an imaging session
+                    elif len(glob(str(Path(step[0]).parents[0]) + r'\\TDT LOG*.txt')) > 0:
+                        sess_folder = str(Path(step[0]).parents[0])
+                        if sess_folder not in processed_sessions:
                             align_files(sess_folder, imaging=True, verbose=verbose, enc_unit=enc_unit)
+                    # If there is no LOG file (first Batch2 sessions), assume that its a non-imaging session
                     else:
                         sess_folder = step[0]
                         if sess_folder not in processed_sessions:
@@ -94,11 +102,12 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False,
 def align_files(root, imaging, verbose=False, enc_unit='speed'):
     """
     Wrapper for that calls align_behavior_files for the proper files. Works for both imaging and non-imaging structure.
-    :param root: str, path to the session or trial folder (includes behavioral .txt files)
-    :param imaging: boolean flag whether this was an imaging trial (.tif file exists)
-    :param verbose: boolean flag whether unnecessary status updates should be printed to the console
-    :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
-                     rotation [degrees] / sample window (8 ms) is saved
+    This function is called separately for one session.
+    :param root:            str, path to the session folder (includes behavioral .txt files)
+    :param imaging:         boolean flag whether this was an imaging trial (.tif files exist)
+    :param verbose:         boolean flag whether unnecessary status updates should be printed to the console
+    :param enc_unit:        str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
+                            rotation [degrees] / sample window (8 ms) is saved
     :return: saves merged_behavior_timestamp.txt for each aligned trial
     """
     def find_file(tstamp, file_list):
@@ -149,15 +158,35 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
             print(f'\nNow processing trial {counter} of {len(enc_files)}, time stamp {timestamp}...')
         frame_count = None
         if imaging:
-            movie_path = glob(str(Path(file).parents[0]) + r'\\*.tif')
-            if len(movie_path) == 1:
-                with ScanImageTiffReader(movie_path[0]) as tif:
-                    frame_count = tif.shape()[0]
-            elif len(movie_path) > 1:
-                print(f'More than one TIFF file at {root}! Skipping trial, please check!')
-                continue
-        merge, proc_time = align_behavior_files(file, pos_file, trig_file, imaging=imaging, frame_count=frame_count,
-                                                verbose=verbose, enc_unit=enc_unit)
+            old_file = glob(os.path.dirname(file) + r'\\merged_behavior*.txt')
+            if len(old_file) == 1:
+                # use the sum of frame triggers from previous merged behavior file (loads faster than raw movie)
+                frame_count = int(np.sum(np.loadtxt(old_file[0])[:, 3]))
+            else:
+                # if trial has not been aligned yet, get frame count from raw file (either one has to be present)
+                movie_path = glob(str(Path(file).parents[0]) + r'\\*.tif')
+                if len(movie_path) == 1:
+                    with ScanImageTiffReader(movie_path[0]) as tif:
+                        frame_count = tif.shape()[0]
+                elif len(movie_path) > 1:
+                    print(f'More than one TIFF file at {root}! Skipping trial, please check!')
+                    continue
+                else:
+                    print(f'No TIFF files or previous merged_behavior files at {root}! Skipping trial, please check!')
+                    continue
+
+        # Get path of LOG file
+        log_files = glob(root + r'\\TDT LOG*.txt')
+        if len(log_files == 1):
+            log_file = log_files[0]
+        elif len(log_files > 1):
+            print(f'More than one LOG file in {root}. Not implemented yet!')
+            log_file = None
+        else:
+            log_file = None
+
+        merge, proc_time = align_behavior_files(file, pos_file, trig_file, log_file, imaging=imaging,
+                                                frame_count=frame_count, verbose=verbose, enc_unit=enc_unit)
 
         if merge is not None and proc_time is not None:
             # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
@@ -178,7 +207,7 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
     print('Done!\n')
 
 
-def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_count=None, enc_unit='speed', verbose=False):
+def align_behavior_files(enc_path, pos_path, trig_path, log_file, imaging=False, frame_count=None, enc_unit='speed', verbose=False):
     """
     Main function that aligns behavioral data from three text files to a common master time frame provided by LabView.
     Data are re-sampled at the rate of the data type with the highest sampling rate (TDT, 2 kHz). Missing values of data
@@ -186,6 +215,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, imaging=False, frame_cou
     :param enc_path: str, path to the Encoder.txt file (running speed)
     :param pos_path: str, path to the TCP.txt file (VR position)
     :param trig_path: str, path to the TDT.txt file (licking and frame trigger)
+    :param log_file:
     :param imaging: bool flag whether the behavioral data is accompanied by an imaging movie
     :param frame_count: int, frame count of the imaging movie (if imaging=True)
     :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in

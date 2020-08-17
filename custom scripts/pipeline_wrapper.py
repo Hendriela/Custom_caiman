@@ -428,22 +428,23 @@ path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3']
 stroke = ['M32', 'M40', 'M41']
 control = ['M33', 'M38', 'M39']
 
-data = performance.load_performance_data(roots=path, norm_date='20200513', stroke=stroke)
+data = performance.load_performance_data(roots=path, norm_date='20200810', stroke=stroke)
 
 performance.plot_all_mice_avg(data, rotate_labels=False, session_range=(26, 38), scale=2)
 performance.plot_all_mice_avg(data, rotate_labels=False, scale=2)
 
 performance.plot_all_mice_separately(data, field='licking_binned', rotate_labels=False,
-                                     session_range=(26, 47), scale=1.75)
+                                     session_range=(60, 64), scale=1.75, hlines=baselines)
 sns.set_context('talk')
 axis = performance.plot_single_mouse(data, 'M41', field='licking', session_range=(26, 47))
 axis = performance.plot_single_mouse(data, 'M32', session_range=(10, 15), scale=2, ax=axis)
 
-# plot red lines at strokes
-plt.axvline(30.5, color='r')
-plt.axvline(37.5, color='r')
-plt.axvline(42.5, color='r')
-plt.axvline(45.5, color='r')
+# Get performance baselines
+baselines = []
+for mouse in np.unique(data['mouse']):
+    curr_df = data.loc[data['mouse'] == mouse]
+    dat = curr_df.loc[(curr_df['sess_norm'] >= -87) & (curr_df['sess_norm'] <= -81)]
+    baselines.append(dat['licking_binned'].mean())
 
 plt.figure()
 filter_data = data[data['sess_norm'] >= -7]
