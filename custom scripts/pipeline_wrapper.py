@@ -430,13 +430,13 @@ control = ['M33', 'M38', 'M39']
 
 data = performance.load_performance_data(roots=path, norm_date='20200513', stroke=stroke)
 
-performance.plot_all_mice_avg(data, rotate_labels=False, session_range=(26, 38), scale=2)
+performance.plot_all_mice_avg(data, rotate_labels=False, session_range=(26, 37), scale=2)
 performance.plot_all_mice_avg(data, rotate_labels=False, scale=2)
 
 performance.plot_all_mice_separately(data, field='licking_binned', rotate_labels=False,
-                                     session_range=(26, 47), scale=1.75)
+                                     session_range=(26, 37), scale=1.75)
 sns.set_context('talk')
-axis = performance.plot_single_mouse(data, 'M41', field='licking', session_range=(26, 47))
+axis = performance.plot_single_mouse(data, 'M41', field='licking_binned', session_range=(26, 37))
 axis = performance.plot_single_mouse(data, 'M32', session_range=(10, 15), scale=2, ax=axis)
 
 # plot red lines at strokes
