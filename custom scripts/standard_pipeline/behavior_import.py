@@ -5,9 +5,10 @@ import sys
 import os
 from timeit import default_timer as timer
 from ScanImageTiffReader import ScanImageTiffReader
-from datetime import datetime
+from datetime import datetime, timedelta
 from standard_pipeline import performance_check as performance
 from pathlib import Path
+import pandas as pd
 
 
 def load_file(path):
@@ -177,18 +178,18 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
 
         # Get path of LOG file
         log_files = glob(root + r'\\TDT LOG*.txt')
-        if len(log_files == 1):
+        if len(log_files) == 1:
             log_file = log_files[0]
-        elif len(log_files > 1):
+        elif len(log_files) > 1:
             print(f'More than one LOG file in {root}. Not implemented yet!')
             log_file = None
         else:
             log_file = None
 
-        merge, proc_time = align_behavior_files(file, pos_file, trig_file, log_file, imaging=imaging,
+        merge = align_behavior_files(file, pos_file, trig_file, log_file, imaging=imaging,
                                                 frame_count=frame_count, verbose=verbose, enc_unit=enc_unit)
 
-        if merge is not None and proc_time is not None:
+        if merge is not None:
             # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
             if imaging:
                 file_path = os.path.join(str(Path(file).parents[0]), f'merged_behavior_{str(timestamp)}.txt')
@@ -207,7 +208,7 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
     print('Done!\n')
 
 
-def align_behavior_files(enc_path, pos_path, trig_path, log_file, imaging=False, frame_count=None, enc_unit='speed', verbose=False):
+def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False, frame_count=None, enc_unit='speed', verbose=False):
     """
     Main function that aligns behavioral data from three text files to a common master time frame provided by LabView.
     Data are re-sampled at the rate of the data type with the highest sampling rate (TDT, 2 kHz). Missing values of data
@@ -215,7 +216,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_file, imaging=False,
     :param enc_path: str, path to the Encoder.txt file (running speed)
     :param pos_path: str, path to the TCP.txt file (VR position)
     :param trig_path: str, path to the TDT.txt file (licking and frame trigger)
-    :param log_file:
+    :param log_path: str, path to the LOG.txt file of this session (water reward times
     :param imaging: bool flag whether the behavioral data is accompanied by an imaging movie
     :param frame_count: int, frame count of the imaging movie (if imaging=True)
     :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
@@ -223,6 +224,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_file, imaging=False,
     :param verbose: bool flag whether status updates should be printed into the console (progress bar not affected)
     :return: merge, np.array with columns [time stamp - position - licks - frame - encoder]
     """
+    # Load behavioral files
     encoder = load_file(enc_path)
     position = load_file(pos_path)
     trigger = load_file(trig_path)
@@ -504,3 +506,231 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_file, imaging=False,
         return None, None
 
     return merge, (end-start)
+
+
+def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False, frame_count=None, enc_unit='speed', verbose=False):
+    """
+    Main function that aligns behavioral data from three text files to a common master time frame provided by LabView.
+    Data are re-sampled at the rate of the data type with the highest sampling rate (TDT, 2 kHz). Missing values of data
+    with lower sampling rate are filled in based on their last available value.
+    :param enc_path: str, path to the Encoder.txt file (running speed)
+    :param pos_path: str, path to the TCP.txt file (VR position)
+    :param trig_path: str, path to the TDT.txt file (licking and frame trigger)
+    :param log_path: str, path to the LOG.txt file of this session (water reward times
+    :param imaging: bool flag whether the behavioral data is accompanied by an imaging movie
+    :param frame_count: int, frame count of the imaging movie (if imaging=True)
+    :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
+                     rotation [degrees] / sample window (8 ms) is saved
+    :param verbose: bool flag whether status updates should be printed into the console (progress bar not affected)
+    :return: merge, np.array with columns [time stamp - position - licks - frame - encoder]
+    """
+    # Load behavioral files
+    encoder = load_file(enc_path)
+    position = load_file(pos_path)
+    trigger = load_file(trig_path)
+    raw_trig = trigger.copy()
+
+    # Separate licking and trigger signals (different start times)
+    licking = trigger[:, :2].copy()
+    licking[0, 0] = licking[0, 1]
+    licking[0, 1] = encoder[0, 1]
+    trigger = np.delete(trigger, 1, axis=1)
+
+    data = [trigger, licking, encoder, position]
+
+    if imaging and frame_count is None:
+        print(f'Error in trial {enc_path}: provide frame count if imaging=True!')
+        return None, None
+
+    # check if the trial might be incomplete (VR not run until the end or TDT file incomplete)
+    if max(position[:, 1]) < 110 or abs(position[-1, 0] - trigger[-1, 0]) > 2:
+        print('Trial incomplete, please remove file!')
+        with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
+            out = bad_file.write(f'{trig_path}\n')
+        return None, None
+
+    ### check if a file was copied from the previous one (bug in LabView), if the start time stamp differs by >2s
+    # transform the integer time stamps plus the date from the TDT file into datetime objects
+    time_format = '%Y%m%d%H%M%S%f'
+    date = trig_path.split('_')[-2]
+    start_times = np.array([datetime.strptime(date+str(int(x[0, 0])), time_format) for x in data])
+
+    # calculate absolute difference in seconds between the start times
+    max_diff = np.max(np.abs(start_times[:, None] - start_times)).total_seconds()
+    if max_diff > 2:
+        print(f'Faulty trial (TDT file copied from previous trial), time stamps differed by {int(max(max_diff))}s!')
+        with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
+            out = bad_file.write(f'{trig_path}\tTDT from previous trial, diff {int(max(max_diff))}s\n')
+        return None, None
+
+    ### preprocess frame trigger signal
+    if imaging:
+        frames_to_prepend = 0
+        # get a list of indices for every time stamp a frame was acquired
+        trig_blocks = np.split(np.where(trigger[1:, 1])[0]+1, np.where(np.diff(np.where(trigger[1:, 1])[0]) != 1)[0]+1)
+        # take the middle of each frame acquisition as the unique time stamp of that frame, save trigger idx in a list
+        trig_idx = []
+        for block in trig_blocks:
+            trigger[block, 1] = 0  # set the whole period to 0
+            if np.isnan(np.mean(block)):
+                print(f'No frame trigger in {trig_path}. Check file!')
+                # return None, None
+            trigger[int(round(np.mean(block))), 1] = 1
+            trig_idx.append(int(round(np.mean(block))))
+
+        # check if imported frame trigger matches frame count of .tif file and try to fix it
+        more_frames_in_TDT = int(np.sum(trigger[1:, 1]) - frame_count)  # pos if TDT, neg if .tif had more frames
+        if more_frames_in_TDT == 0 and verbose:
+            print('Frame count matched, no correction necessary.')
+        elif more_frames_in_TDT < 0:
+            # first check if TDT has been logging shorter than TCP
+            tdt_offset = position[-1, 0] - trigger[-1, 0]
+            # if all missing frames would fit in the offset (time where tdt was not logging), print out warning
+            if tdt_offset / 0.033 > abs(more_frames_in_TDT):
+                print('TDT not logging long enough, too long trial? Check trial!')
+            # if TDT file had too little frames, they are assumed to have been recorded before TDT logging
+            # these frames are added after merge array has been filled
+            frames_to_prepend = abs(more_frames_in_TDT)
+
+        elif more_frames_in_TDT > 0:
+            # if TDT included too many frames, its assumed that the false-positive frames are from the end of recording
+            if more_frames_in_TDT < 5:
+                for i in range(more_frames_in_TDT):
+                    trigger[trig_blocks[-i], 2] = 0
+            else:
+                print(f'{more_frames_in_TDT} too many frames imported from TDT, could not be corrected!')
+                with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
+                    out = bad_file.write(f'{trig_path}\n')
+                return None, None
+
+        if frames_to_prepend > 0:
+            first_frame = np.where(trigger[1:,1] == 1)[0][0]
+            first_frame_start = np.where(raw_trig[:, 2] == 1)[0][0]
+            median_frame_time = int(np.median([len(frame) for frame in trig_blocks]))
+            if median_frame_time > 70:
+                median_frame_time = 66
+            if first_frame > frames_to_prepend * median_frame_time:
+                # if frames would fit in the merge array before the first recorded frame, prepend them with proper steps
+                # make a list of the new indices (in steps of median_frame_time before the first frame)
+                idx_start = first_frame - frames_to_prepend * median_frame_time
+                # add 1 to indices because we do not count the first index of the trigger signal
+                idx_list = np.arange(start=idx_start+1, stop=first_frame, step=median_frame_time)
+                if idx_list.shape[0] != frames_to_prepend:
+                    print(f'Frame correction failed for {trig_path}!')
+                    return None, None
+                trigger[idx_list, 1] = 1
+                if verbose:
+                    print(f'Imported frame count missed {frames_to_prepend}, corrected by prepending them to the'
+                          f'start of the file in 30Hz distances.')
+
+            # else, if trigger and position stop at the same time point (0.2s difference) and the time is right to fit
+            # frame_count frames with a frame rate maximally deviating from the median frame time by 2 ms/frame,
+            # create regular frame count indices and replace original ones with it
+            elif abs(trigger[-1, 0] - position[-1, 0]) < 0.2:
+                print(f'Weird frame count alignment, check script for {trig_path}!')
+                return None, None
+                # if the first frame is known (after at least 35ms) take this index, otherwise put first frame at 0
+                # if first_frame_start > 70:
+                #     start_frame = first_frame_start
+                # else:
+                #     start_frame = 0
+                # frame_idx, spacing = np.linspace(start_frame, merge.shape[0] - 2, num=frame_count,
+                #                                  retstep=True, dtype=int)
+                # if abs(median_frame_time - spacing) < 4:
+                #     merge[:, 3] = 0
+                #     merge[frame_idx, 3] = 1
+
+            # if frames dont fit, and we dont have a good start-end-period, and less than 30 frames missing,
+            # put them in steps of 2 equally in the start and end
+            elif frames_to_prepend < 30:
+                for i in range(1, frames_to_prepend):
+                    if i % 2 == 0:  # for every even step, put the frame in the beginning
+                        if trigger[i * 2, 1] != 1:
+                            trigger[i * 2, 1] = 1
+                        else:
+                            trigger[i + 1 * 2, 1] = 1
+                    else:  # for every uneven step, put the frame in the end
+                        if trigger[-(i * 2), 1] != 1:
+                            trigger[-(i * 2), 1] = 1
+                        else:
+                            trigger[-((i + 1) * 2), 1] = 1
+                if verbose:
+                    print(f'Imported frame count missed {frames_to_prepend}, corrected by adding frames regularly'
+                          f'at start and end of file.')
+            else:
+                # correction does not work if the whole log file is not large enough to include all missing frames
+                print(f'{int(abs(more_frames_in_TDT))} too few frames imported from TDT, could not be corrected.')
+                with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
+                    out = bad_file.write(f'{trig_path}\t{more_frames_in_TDT}\n')
+                return None, None
+
+    ### Preprocess position signal
+    pos_to_be_del = np.arange(np.argmax(position[:, 1])+1, position.shape[0])  # Get indices after the max position
+    position = np.delete(position, pos_to_be_del, 0)  # remove all data points after maximum position (end of corridor)
+    position[position[:, 1] < -10, 1] = -10           # cap position values to -10 and 110
+    position[position[:, 1] > 110, 1] = 110
+    data[3] = position                                # Put preprocessed positions back into data list
+
+    # Transform relative time to absolute time for all measurements
+    fixed_times = []
+    for idx, dataset in enumerate(data):
+        timesteps = np.array([start_times[idx] + timedelta(seconds=x) for x in dataset[1:, 0]])
+        fixed_times.append(np.array([timesteps, dataset[1:, 1]]).T)
+
+    # Transform data to pandas dataframes with timestamps indices
+    datasets = ['trigger', 'licking', 'encoder', 'position']
+    df_list = []
+    for name, dataset in zip(datasets, fixed_times):
+        df = pd.DataFrame(dataset[:, 1], index=dataset[:, 0], columns=[name])
+        df_list.append(df)
+
+    # Serially merge dataframes by the time stamp of the trigger (highest sampling rate)
+    merge = pd.merge_asof(df_list[0], df_list[1], left_index=True, right_index=True)
+    merge = pd.merge_asof(merge, df_list[2], left_index=True, right_index=True)
+    merge = pd.merge_asof(merge, df_list[3], left_index=True, right_index=True)
+
+    # Load LOG file
+    log = pd.read_csv(log_path, sep='\t', parse_dates=[[0, 1]])
+    # Extract data for the current trial based on the first and last times of the trigger timestamps
+    trial_log = log.loc[(log['Date_Time'] > merge.index[0]) & (log['Date_Time'] < merge.index[-1])]
+    # Get times when the valve opened
+    water_times = trial_log.loc[trial_log['Event'].str.contains('Dev1/port0/line0-B'), 'Date_Time']
+    # Initialize empty water column and set to '1' for every water valve opening timestamp
+    merge['water'] = 0
+    for water_time in water_times:
+        merge.loc[merge.index[merge.index.get_loc(water_time, method='nearest')], 'water'] = 1
+
+    # Delete rows before the first frame
+    first_frame = merge.index[np.where(merge['trigger'] == 1)[0][0]]
+    merge_filt = merge[merge.index >= first_frame]
+
+    # Fill in NaN values
+    merge_filt['position'].fillna(-10, inplace=True)
+    merge_filt['encoder'].fillna(0, inplace=True)
+
+    # Set proper data types (float for position, int for the rest)
+    merge_filt['trigger'] = merge_filt['trigger'].astype(int)
+    merge_filt['licking'] = merge_filt['licking'].astype(int)
+    merge_filt['encoder'] = merge_filt['encoder'].astype(int)
+
+    # translate encoder data into velocity [cm/s] if enc_unit = 'speed'
+    if enc_unit == 'speed':
+        sample_rate = 0.008                                      # sample rate of encoder in s (default 0.008 s or 8 ms)
+        d_wheel = 10.5                                           # wheel diameter in cm (default 10.5 cm)
+        n_ticks = 1436                                           # number of ticks in a full wheel rotation
+        deg_dist = (d_wheel*np.pi)/n_ticks                       # distance in cm the band moves for each encoder tick
+        speed = -merge_filt.loc[:, 'encoder'] * deg_dist/sample_rate               # speed in cm/s for each sample
+        speed[speed == -0] = 0
+        merge_filt['speed'] = speed
+
+    # check frame count again
+    if imaging and np.sum(merge_filt['trigger']) != frame_count:
+        print(f'Frame count matching unsuccessful: \n{np.sum(merge[:, 3])} frames in merge, should be {frame_count} frames.')
+        return None, None
+
+    # transform back to numpy array for saving
+    time_passed = merge_filt.index - merge_filt.index[0]
+    seconds = np.array(time_passed.total_seconds())
+    array = np.hstack((seconds[..., np.newaxis], np.array(merge_filt)))
+
+    return merge
