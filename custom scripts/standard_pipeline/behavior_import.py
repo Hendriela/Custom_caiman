@@ -196,8 +196,8 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
             else:
                 file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
             np.savetxt(file_path, merge, delimiter='\t',
-                       fmt=['%.4f', '%.2f', '%1i', '%1i', '%1i', '%.2f'],
-                       header='Time\tVR pos\tlicks\tframe\tencoder\tcm/s')
+                       fmt=['%.5f', '%.3f', '%1i', '%1i', '%1i', '%.2f', '%1i'],
+                       header='Time\tVR pos\tlicks\tframe\tencoder\tcm/s\treward')
             if verbose:
                 print(f'Done! \nSaving merged file to {file_path}...\n')
 
@@ -208,7 +208,7 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
     print('Done!\n')
 
 
-def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False, frame_count=None, enc_unit='speed', verbose=False):
+def align_behavior_files_old(enc_path, pos_path, trig_path, imaging=False, frame_count=None, enc_unit='speed', verbose=False):
     """
     Main function that aligns behavioral data from three text files to a common master time frame provided by LabView.
     Data are re-sampled at the rate of the data type with the highest sampling rate (TDT, 2 kHz). Missing values of data
@@ -216,7 +216,6 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     :param enc_path: str, path to the Encoder.txt file (running speed)
     :param pos_path: str, path to the TCP.txt file (VR position)
     :param trig_path: str, path to the TDT.txt file (licking and frame trigger)
-    :param log_path: str, path to the LOG.txt file of this session (water reward times
     :param imaging: bool flag whether the behavioral data is accompanied by an imaging movie
     :param frame_count: int, frame count of the imaging movie (if imaging=True)
     :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
@@ -516,7 +515,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     :param enc_path: str, path to the Encoder.txt file (running speed)
     :param pos_path: str, path to the TCP.txt file (VR position)
     :param trig_path: str, path to the TDT.txt file (licking and frame trigger)
-    :param log_path: str, path to the LOG.txt file of this session (water reward times
+    :param log_path: str, path to the LOG.txt file of this session (water reward times)
     :param imaging: bool flag whether the behavioral data is accompanied by an imaging movie
     :param frame_count: int, frame count of the imaging movie (if imaging=True)
     :param enc_unit: str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
@@ -596,7 +595,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
             # if TDT included too many frames, its assumed that the false-positive frames are from the end of recording
             if more_frames_in_TDT < 5:
                 for i in range(more_frames_in_TDT):
-                    trigger[trig_blocks[-i], 2] = 0
+                    trigger[trig_blocks[-i], 1] = 0
             else:
                 print(f'{more_frames_in_TDT} too many frames imported from TDT, could not be corrected!')
                 with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
@@ -604,7 +603,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
                 return None, None
 
         if frames_to_prepend > 0:
-            first_frame = np.where(trigger[1:,1] == 1)[0][0]
+            first_frame = np.where(trigger[1:, 1] == 1)[0][0]
             first_frame_start = np.where(raw_trig[:, 2] == 1)[0][0]
             median_frame_time = int(np.median([len(frame) for frame in trig_blocks]))
             if median_frame_time > 70:
@@ -729,8 +728,9 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
         return None, None
 
     # transform back to numpy array for saving
-    time_passed = merge_filt.index - merge_filt.index[0]
-    seconds = np.array(time_passed.total_seconds())
-    array = np.hstack((seconds[..., np.newaxis], np.array(merge_filt)))
+    time_passed = merge_filt.index - merge_filt.index[0]                                        # transfer timestamps to
+    seconds = np.array(time_passed.total_seconds())                                             # time change in seconds
+    array_df = merge_filt[['position', 'licking', 'trigger', 'encoder', 'speed', 'water']]      # change column order
+    array = np.hstack((seconds[..., np.newaxis], np.array(array_df)))                           # combine both arrays
 
-    return merge
+    return array
