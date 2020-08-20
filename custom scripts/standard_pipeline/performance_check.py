@@ -355,11 +355,11 @@ def save_performance_data(session, validation=False):
         for i, file in enumerate(file_list):
             if validation and i > 4:
                 session_performance[i, 0], session_performance[i, 1],  session_performance[i, 2] = \
-                    extract_performance_from_merged(np.loadtxt(file), novel=is_session_novel(session),
+                    extract_performance_from_merged(pd.read_csv(file, sep='\t'), novel=is_session_novel(session),
                                                     valid=validation, buffer=0)
             else:
                 session_performance[i, 0], session_performance[i, 1],  session_performance[i, 2] = \
-                    extract_performance_from_merged(np.loadtxt(file), novel=is_session_novel(session), buffer=2)
+                    extract_performance_from_merged(pd.read_csv(file, sep='\t'), novel=is_session_novel(session), buffer=2)
 
         file_path = os.path.join(session, f'performance.txt')
         np.savetxt(file_path, session_performance, delimiter='\t',  fmt=['%.4f', '%.4f', '%.4f'],
@@ -420,7 +420,7 @@ def get_binned_licking(data, bin_size=2, normalized=True):
 def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size=1):
     """
     Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
-    :param data: np.array of the merged_behavior*.txt file
+    :param data: pd.DataFrame of the merged_behavior*.txt file
     :param novel: bool, flag whether file was performed in novel corridor (changes reward zone location)
     :param buffer: int, position bins around the RZ that are still counted as RZ for licking
     :param valid: bool, flag whether trial was a RZ position validation trial (training corridor with shifted RZs)
@@ -439,10 +439,15 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
     zone_borders[:, 0] -= buffer
     zone_borders[:, 1] += buffer
 
+    # Get indices of proper columns and transform DataFrame to numpy array for easier processing
+    lick_idx = data.columns.get_loc('licks')
+    enc_idx = data.columns.get_loc('encoder')
+    pos_idx = data.columns.get_loc('VR pos')
+    data = np.array(data)
 
     ### GET LICKING DATA ###
     # select only time point where the mouse licked
-    lick_only = data[np.where(data[:, 2] == 1)]
+    lick_only = data[np.where(data[:, lick_idx] == 1)]
 
     if lick_only.shape[0] == 0:
         lick_ratio = np.nan  # set nan, if there was no licking during the trial
@@ -457,7 +462,7 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
             # out of these, select only time points where the mouse was in a reward zone
             lick_zone_only = []
             for zone in zone_borders:
-                lick_zone_only.append(licks[(zone[0] <= licks[:, 1]) & (licks[:, 1] <= zone[1])])
+                lick_zone_only.append(licks[(zone[0] <= licks[:, pos_idx]) & (licks[:, pos_idx] <= zone[1])])
             zone_licks = np.vstack(lick_zone_only)
             # the length of the zone-only licks divided by the all-licks is the zone-lick ratio
             lick_ratio = zone_licks.shape[0]/lick_only.shape[0]
@@ -479,7 +484,7 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
 
     ### GET STOPPING DATA ###
     # select only time points where the mouse was not running (encoder between -2 and 2)
-    stop_only = data[(-2 <= data[:, -1]) & (data[:, -1] <= 2)]
+    stop_only = data[(-2 <= data[:, enc_idx]) & (data[:, enc_idx] <= 2)]
     # split into discrete stops
     diff = np.round(np.diff(stop_only[:, 0]) * 10000).astype(int) # get an array of time differences
     stops = np.split(stop_only, np.where(diff > 5)[0] + 1)  # split at points where difference > 0.5 ms (sample gap)
@@ -488,7 +493,8 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
     # select only stops that were inside a reward zone (min or max position was inside a zone border)
     zone_stop_only = []
     for zone in zone_borders:
-        zone_stop_only.append([i for i in stops if zone[0] <= np.max(i[:, 1]) <= zone[1] or zone[0] <= np.min(i[:, 1]) <= zone[1]])
+        zone_stop_only.append([i for i in stops if zone[0] <= np.max(i[:, pos_idx]) <= zone[1] or
+                               zone[0] <= np.min(i[:, pos_idx]) <= zone[1]])
     # the number of the zone-only stops divided by the number of the total stops is the zone-stop ratio
     zone_stops = np.sum([len(i) for i in zone_stop_only])
     stop_ratio = zone_stops/len(stops)
@@ -500,7 +506,7 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
     zone_bins = []
     for zone in zone_borders:
         zone_bins.extend(np.arange(start=zone[0], stop=zone[1]+1, step=bin_size))
-    bin_idx = np.digitize(data[:, 1], bins)
+    bin_idx = np.digitize(data[:, pos_idx], bins)
     for curr_bin in np.unique(bin_idx):
         if sum(data[np.where(bin_idx == curr_bin)[0], 2]) >= 1:
             if bins[curr_bin-1] in zone_bins:

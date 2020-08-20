@@ -85,10 +85,10 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False,
                             align_files(sess_folder, imaging=False, verbose=verbose, enc_unit=enc_unit)
 
                     # calculate licking and stopping performance
-                    if performance_check:
+                    if performance_check and sess_folder not in processed_sessions:
+                        print(f'Saving performance for {sess_folder}')
                         performance.save_performance_data(sess_folder)
-                        processed_sessions.append(sess_folder)
-                    processed_sessions.append(step[0])
+                    processed_sessions.append(sess_folder)
 
                 else:
                     if verbose:
@@ -180,7 +180,7 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
         if len(log_files) == 1:
             log_file = log_files[0]
         elif len(log_files) > 1:
-            print(f'More than one LOG file in {root}. Not implemented yet!')
+            print(f'More than one LOG file in {root}. Try to merge them before processing!')
             log_file = None
         else:
             log_file = None
