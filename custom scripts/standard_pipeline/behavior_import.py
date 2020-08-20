@@ -46,7 +46,7 @@ def progress(count, total, status='', percent=True):
     sys.stdout.flush()
 
 
-def align_behavior(root, performance_check=True, overwrite=False, verbose=False, enc_unit='speed', use_existing=False):
+def align_behavior(root, performance_check=True, overwrite=False, verbose=False, enc_unit='speed'):
     """
     This function is the main function called by pipelines!
     Wrapper for aligning multiple behavioral files. Looks through all subfolders of root for behavioral files.
@@ -60,7 +60,6 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False,
     :param verbose:             bool flag whether unnecessary status updates should be printed to the console
     :param enc_unit:            str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
                                 rotation [degrees] / sample window (8 ms) is saved
-    :param use_existing:        bool flag whether to use existing merged_behavior files to get trial frame numbers.
     :return:                    saves merged_behavior.txt for each aligned trial
     """
     # list that includes session that have been processed to avoid processing a session multiple times
@@ -523,6 +522,9 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     :param verbose: bool flag whether status updates should be printed into the console (progress bar not affected)
     :return: merge, np.array with columns [time stamp - position - licks - frame - encoder]
     """
+
+    pd.options.mode.chained_assignment = None   # Disable false positive SettingWithCopyWarning
+
     # Load behavioral files
     encoder = load_file(enc_path)
     position = load_file(pos_path)
@@ -689,15 +691,18 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     merge = pd.merge_asof(merge, df_list[3], left_index=True, right_index=True)
 
     # Load LOG file
-    log = pd.read_csv(log_path, sep='\t', parse_dates=[[0, 1]])
-    # Extract data for the current trial based on the first and last times of the trigger timestamps
-    trial_log = log.loc[(log['Date_Time'] > merge.index[0]) & (log['Date_Time'] < merge.index[-1])]
-    # Get times when the valve opened
-    water_times = trial_log.loc[trial_log['Event'].str.contains('Dev1/port0/line0-B'), 'Date_Time']
-    # Initialize empty water column and set to '1' for every water valve opening timestamp
-    merge['water'] = 0
-    for water_time in water_times:
-        merge.loc[merge.index[merge.index.get_loc(water_time, method='nearest')], 'water'] = 1
+    if log_path is not None:
+        log = pd.read_csv(log_path, sep='\t', parse_dates=[[0, 1]])
+        # Extract data for the current trial based on the first and last times of the trigger timestamps
+        trial_log = log.loc[(log['Date_Time'] > merge.index[0]) & (log['Date_Time'] < merge.index[-1])]
+        # Get times when the valve opened
+        water_times = trial_log.loc[trial_log['Event'].str.contains('Dev1/port0/line0-B'), 'Date_Time']
+        # Initialize empty water column and set to '1' for every water valve opening timestamp
+        merge['water'] = 0
+        for water_time in water_times:
+            merge.loc[merge.index[merge.index.get_loc(water_time, method='nearest')], 'water'] = 1
+    else:
+        merge['water'] = -1
 
     # Delete rows before the first frame
     first_frame = merge.index[np.where(merge['trigger'] == 1)[0][0]]
@@ -706,6 +711,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     # Fill in NaN values
     merge_filt['position'].fillna(-10, inplace=True)
     merge_filt['encoder'].fillna(0, inplace=True)
+    merge_filt['licking'].fillna(0, inplace=True)
 
     # Set proper data types (float for position, int for the rest)
     merge_filt['trigger'] = merge_filt['trigger'].astype(int)
