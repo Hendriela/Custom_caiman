@@ -753,8 +753,9 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
         merge_filt['speed'] = speed
 
     # check frame count again
-    if imaging and np.sum(merge_filt['trigger']) != frame_count:
-        print(f'Frame count matching unsuccessful: \n{np.sum(merge[:, 3])} frames in merge, should be {frame_count} frames.')
+    merge_trig = np.sum(merge_filt['trigger'])
+    if imaging and merge_trig != frame_count:
+        print(f'Frame count matching unsuccessful: \n{merge_trig} frames in merge, should be {frame_count} frames.')
         return None
 
     # transform back to numpy array for saving
