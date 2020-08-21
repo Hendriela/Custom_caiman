@@ -46,7 +46,7 @@ def progress(count, total, status='', percent=True):
     sys.stdout.flush()
 
 
-def align_behavior(root, performance_check=True, overwrite=False, verbose=False, enc_unit='speed'):
+def align_behavior(root, performance_check=True, overwrite=False, verbose=False, enc_unit='speed', skip_sessions=None):
     """
     This function is the main function called by pipelines!
     Wrapper for aligning multiple behavioral files. Looks through all subfolders of root for behavioral files.
@@ -60,6 +60,8 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False,
     :param verbose:             bool flag whether unnecessary status updates should be printed to the console
     :param enc_unit:            str, if 'speed', encoder data is translated into cm/s; otherwise raw encoder data in
                                 rotation [degrees] / sample window (8 ms) is saved
+    :param skip_sessions:       optional, str path to .txt file where processed sessions are saved and sessions in this
+                                file are skipped. Useful when the whole dataset should be processed once in batches.
     :return:                    saves merged_behavior.txt for each aligned trial
     """
     # list that includes session that have been processed to avoid processing a session multiple times
@@ -68,27 +70,46 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False,
         if len(step[2]) > 0:   # check if there are files in the current folder
             if len(glob(step[0] + r'\\Encoder*.txt')) > 0:  # check if the folder has behavioral files
                 if len(glob(step[0] + r'\\merged*.txt')) == 0 or overwrite:
+                    # If necessary, read the sessions that should be skipped from the provided file
+                    if skip_sessions is not None:
+                        with open(skip_sessions, 'r') as skip_file:
+                            sess_to_skip = skip_file.read().splitlines()
                     # If the log file is in the same folder as the behavioral files, its a non-imaging session
                     if len(glob(step[0] + r'\\TDT LOG*.txt')) > 0:
                         sess_folder = step[0]
                         if sess_folder not in processed_sessions:        # check if session folder has been processed
-                            align_files(sess_folder, imaging=False, verbose=verbose, enc_unit=enc_unit)
+                            if skip_sessions and sess_folder not in sess_to_skip:
+                                align_files(sess_folder, imaging=False, verbose=verbose, enc_unit=enc_unit)
                     # If the LOG file is in the parent directory, its an imaging session
                     elif len(glob(str(Path(step[0]).parents[0]) + r'\\TDT LOG*.txt')) > 0:
                         sess_folder = str(Path(step[0]).parents[0])
                         if sess_folder not in processed_sessions:
-                            align_files(sess_folder, imaging=True, verbose=verbose, enc_unit=enc_unit)
+                            if skip_sessions and sess_folder not in sess_to_skip:
+                                align_files(sess_folder, imaging=True, verbose=verbose, enc_unit=enc_unit)
                     # If there is no LOG file (first Batch2 sessions), assume that its a non-imaging session
                     else:
                         sess_folder = step[0]
                         if sess_folder not in processed_sessions:
-                            align_files(sess_folder, imaging=False, verbose=verbose, enc_unit=enc_unit)
+                            if skip_sessions and sess_folder not in sess_to_skip:
+                                align_files(sess_folder, imaging=False, verbose=verbose, enc_unit=enc_unit)
 
                     # calculate licking and stopping performance
-                    if performance_check and sess_folder not in processed_sessions:
-                        print(f'Saving performance for {sess_folder}')
-                        performance.save_performance_data(sess_folder)
+                    if skip_sessions is not None:
+                        if performance_check and sess_folder not in sess_to_skip:
+                            if verbose:
+                                print(f'Saving performance for {sess_folder}')
+                            performance.save_performance_data(sess_folder)
+                    else:
+                        if performance_check and sess_folder not in processed_sessions:
+                            if verbose:
+                                print(f'Saving performance for {sess_folder}')
+                            performance.save_performance_data(sess_folder)
                     processed_sessions.append(sess_folder)
+
+                    # Write the session folder in the file to avoid processing it again
+                    if skip_sessions is not None and sess_folder not in sess_to_skip:
+                        with open(skip_sessions, 'a') as skip_file:
+                            out = skip_file.write(f'{sess_folder}\n')
 
                 else:
                     if verbose:
@@ -704,8 +725,11 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     else:
         merge['water'] = -1
 
-    # Delete rows before the first frame
-    first_frame = merge.index[np.where(merge['trigger'] == 1)[0][0]]
+    # Delete rows before the first frame (dont delete anything if no frame trigger)
+    if merge['trigger'].sum() > 0:
+        first_frame = merge.index[np.where(merge['trigger'] == 1)[0][0]]
+    else:
+        first_frame = merge.index[0]
     merge_filt = merge[merge.index >= first_frame]
 
     # Fill in NaN values
