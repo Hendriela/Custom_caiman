@@ -569,7 +569,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
         print('Trial incomplete, please remove file!')
         with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
             out = bad_file.write(f'{trig_path}\n')
-        return None, None
+        return None
 
     ### check if a file was copied from the previous one (bug in LabView), if the start time stamp differs by >2s
     # transform the integer time stamps plus the date from the TDT file into datetime objects
@@ -583,7 +583,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
         print(f'Faulty trial (TDT file copied from previous trial), time stamps differed by {int(max(max_diff))}s!')
         with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
             out = bad_file.write(f'{trig_path}\tTDT from previous trial, diff {int(max(max_diff))}s\n')
-        return None, None
+        return None
 
     ### preprocess frame trigger signal
     if imaging:
@@ -623,7 +623,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
                 print(f'{more_frames_in_TDT} too many frames imported from TDT, could not be corrected!')
                 with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
                     out = bad_file.write(f'{trig_path}\n')
-                return None, None
+                return None
 
         if frames_to_prepend > 0:
             first_frame = np.where(trigger[1:, 1] == 1)[0][0]
@@ -639,7 +639,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
                 idx_list = np.arange(start=idx_start+1, stop=first_frame, step=median_frame_time)
                 if idx_list.shape[0] != frames_to_prepend:
                     print(f'Frame correction failed for {trig_path}!')
-                    return None, None
+                    return None
                 trigger[idx_list, 1] = 1
                 if verbose:
                     print(f'Imported frame count missed {frames_to_prepend}, corrected by prepending them to the'
@@ -650,7 +650,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
             # create regular frame count indices and replace original ones with it
             elif abs(trigger[-1, 0] - position[-1, 0]) < 0.2:
                 print(f'Weird frame count alignment, check script for {trig_path}!')
-                return None, None
+                return None
                 # if the first frame is known (after at least 35ms) take this index, otherwise put first frame at 0
                 # if first_frame_start > 70:
                 #     start_frame = first_frame_start
@@ -684,7 +684,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
                 print(f'{int(abs(more_frames_in_TDT))} too few frames imported from TDT, could not be corrected.')
                 with open(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\bad_trials.txt', 'a') as bad_file:
                     out = bad_file.write(f'{trig_path}\t{more_frames_in_TDT}\n')
-                return None, None
+                return None
 
     ### Preprocess position signal
     pos_to_be_del = np.arange(np.argmax(position[:, 1])+1, position.shape[0])  # Get indices after the max position
@@ -755,7 +755,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     # check frame count again
     if imaging and np.sum(merge_filt['trigger']) != frame_count:
         print(f'Frame count matching unsuccessful: \n{np.sum(merge[:, 3])} frames in merge, should be {frame_count} frames.')
-        return None, None
+        return None
 
     # transform back to numpy array for saving
     time_passed = merge_filt.index - merge_filt.index[0]                                        # transfer timestamps to
