@@ -714,6 +714,10 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     # Load LOG file
     if log_path is not None:
         log = pd.read_csv(log_path, sep='\t', parse_dates=[[0, 1]])
+        # Filter out bad lines if Datetime column could not be parsed
+        if log['Date_Time'].dtype == 'object':
+            log = log.loc[~np.isnan(log['Trial'])]
+            log['Date_Time'] = pd.to_datetime(log['Date_Time'])
         # Extract data for the current trial based on the first and last times of the trigger timestamps
         trial_log = log.loc[(log['Date_Time'] > merge.index[0]) & (log['Date_Time'] < merge.index[-1])]
         # Get times when the valve opened
