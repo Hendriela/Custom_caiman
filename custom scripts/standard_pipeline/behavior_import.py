@@ -626,7 +626,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
                 return None
 
         if frames_to_prepend > 0:
-            first_frame = np.where(trigger[1:, 1] == 1)[0][0]
+            first_frame = np.where(trigger[1:, 1] == 1)[0][0]+1
             first_frame_start = np.where(raw_trig[:, 2] == 1)[0][0]
             median_frame_time = int(np.median([len(frame) for frame in trig_blocks]))
             if median_frame_time > 70:
@@ -645,32 +645,14 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
                     print(f'Imported frame count missed {frames_to_prepend}, corrected by prepending them to the'
                           f'start of the file in 30Hz distances.')
 
-            # else, if trigger and position stop at the same time point (0.2s difference) and the time is right to fit
-            # frame_count frames with a frame rate maximally deviating from the median frame time by 2 ms/frame,
-            # create regular frame count indices and replace original ones with it
-            elif abs(trigger[-1, 0] - position[-1, 0]) < 0.2:
-                print(f'Weird frame count alignment, check script for {trig_path}!')
-                return None
-                # if the first frame is known (after at least 35ms) take this index, otherwise put first frame at 0
-                # if first_frame_start > 70:
-                #     start_frame = first_frame_start
-                # else:
-                #     start_frame = 0
-                # frame_idx, spacing = np.linspace(start_frame, merge.shape[0] - 2, num=frame_count,
-                #                                  retstep=True, dtype=int)
-                # if abs(median_frame_time - spacing) < 4:
-                #     merge[:, 3] = 0
-                #     merge[frame_idx, 3] = 1
-
-            # if frames dont fit, and we dont have a good start-end-period, and less than 30 frames missing,
-            # put them in steps of 2 equally in the start and end
+            # if frames dont fit, and less than 30 frames missing, put them in steps of 2 equally in the start and end
             elif frames_to_prepend < 30:
-                for i in range(1, frames_to_prepend):
+                for i in range(1, frames_to_prepend+1):
                     if i % 2 == 0:  # for every even step, put the frame in the beginning
                         if trigger[i * 2, 1] != 1:
                             trigger[i * 2, 1] = 1
                         else:
-                            trigger[i + 1 * 2, 1] = 1
+                            trigger[i + 2 * 2, 1] = 1
                     else:  # for every uneven step, put the frame in the end
                         if trigger[-(i * 2), 1] != 1:
                             trigger[-(i * 2), 1] = 1

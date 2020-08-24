@@ -417,7 +417,7 @@ def get_binned_licking(data, bin_size=2, normalized=True):
     return hist
 
 
-def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size=1):
+def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size=1, use_reward=False):
     """
     Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
     :param data: pd.DataFrame of the merged_behavior*.txt file
@@ -425,6 +425,9 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
     :param buffer: int, position bins around the RZ that are still counted as RZ for licking
     :param valid: bool, flag whether trial was a RZ position validation trial (training corridor with shifted RZs)
     :param bin_size: int, bin size in VR units for binned licking performance analysis (divisible by zone borders)
+    :param use_reward: bool flag whether to use valve openings to calculate number of passed reward zones. More
+                        more sensitive for well performing mice, but vulnerable against manual valve openings and
+                        useless for autoreward trials.
     :returns lick_ratio: float, ratio between individual licking bouts that occurred in reward zones div. by all licks
     :returns stop_ratio: float, ratio between stops in reward zones divided by total number of stops
     """
@@ -439,6 +442,20 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
     zone_borders[:, 0] -= buffer
     zone_borders[:, 1] += buffer
 
+    # Find out which reward zones were passed (reward given) if reward data is available
+    reward_from_merged = False
+    if use_reward and any(data['reward'] == -1):
+        rz_passed = np.zeros(len(zone_borders))
+        for idx, zone in enumerate(zone_borders):
+            rz_data = data.loc[(data['VR pos'] > zone[0]) & (data['VR pos'] < zone[1]), 'reward']
+            # Cap reward at 1 per reward zone (ignore possible manual water rewards given)
+            if rz_data.sum() >= 1:
+                rz_passed[idx] = 1
+            else:
+                rz_passed[idx] = 0
+        passed_rz = rz_passed.sum()/len(zone_borders)
+        reward_from_merged = True
+
     # Get indices of proper columns and transform DataFrame to numpy array for easier processing
     lick_idx = data.columns.get_loc('licks')
     enc_idx = data.columns.get_loc('encoder')
@@ -451,7 +468,8 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
 
     if lick_only.shape[0] == 0:
         lick_ratio = np.nan  # set nan, if there was no licking during the trial
-        passed_rz = 0
+        if not reward_from_merged:
+            passed_rz = 0
     else:
         # remove continuous licks that were longer than 5 seconds
         diff = np.round(np.diff(lick_only[:, 0]) * 10000).astype(int)  # get an array of time differences
@@ -468,8 +486,9 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
             lick_ratio = zone_licks.shape[0]/lick_only.shape[0]
 
             # correct by fraction of reward zones where the mouse actually licked
-            passed_rz = len([x for x in lick_zone_only if len(x) > 0])
-            lick_ratio = lick_ratio * (passed_rz / len(zone_borders))
+            if not reward_from_merged:
+                passed_rz = len([x for x in lick_zone_only if len(x) > 0])/len(zone_borders)
+            lick_ratio = lick_ratio * passed_rz
 
             # # correct by the fraction of time the mouse spent in reward zones vs outside
             # rz_idx = 0
@@ -480,7 +499,8 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
 
         else:
             lick_ratio = np.nan
-            passed_rz = 0
+            if not reward_from_merged:
+                passed_rz = 0
 
     ### GET STOPPING DATA ###
     # select only time points where the mouse was not running (encoder between -2 and 2)
@@ -514,7 +534,7 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
             else:
                 licked_nonrz_bins += 1
     try:
-        binned_lick_ratio = (licked_rz_bins/(licked_rz_bins+licked_nonrz_bins)) * (passed_rz / len(zone_borders))
+        binned_lick_ratio = (licked_rz_bins/(licked_rz_bins+licked_nonrz_bins)) * passed_rz
     except ZeroDivisionError:
         binned_lick_ratio = 0
 
