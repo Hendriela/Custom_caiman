@@ -78,13 +78,13 @@ def align_behavior(root, performance_check=True, overwrite=False, verbose=False,
                     if len(glob(step[0] + r'\\TDT LOG*.txt')) > 0:
                         sess_folder = step[0]
                         if sess_folder not in processed_sessions:        # check if session folder has been processed
-                            if skip_sessions and sess_folder not in sess_to_skip:
+                            if (skip_sessions is not None and sess_folder not in sess_to_skip) or skip_sessions is None:
                                 align_files(sess_folder, imaging=False, verbose=verbose, enc_unit=enc_unit)
                     # If the LOG file is in the parent directory, its an imaging session
                     elif len(glob(str(Path(step[0]).parents[0]) + r'\\TDT LOG*.txt')) > 0:
                         sess_folder = str(Path(step[0]).parents[0])
                         if sess_folder not in processed_sessions:
-                            if skip_sessions and sess_folder not in sess_to_skip:
+                            if (skip_sessions is not None and sess_folder not in sess_to_skip) or skip_sessions is None:
                                 align_files(sess_folder, imaging=True, verbose=verbose, enc_unit=enc_unit)
                     # If there is no LOG file (first Batch2 sessions), assume that its a non-imaging session
                     else:
