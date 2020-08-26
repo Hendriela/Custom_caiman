@@ -693,7 +693,7 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     merge = pd.merge_asof(merge, df_list[2], left_index=True, right_index=True)
     merge = pd.merge_asof(merge, df_list[3], left_index=True, right_index=True)
 
-    # Load LOG file
+    # Load LOG file TODO maybe make another boolean column with "being in reward zone"
     if log_path is not None:
         log = pd.read_csv(log_path, sep='\t', parse_dates=[[0, 1]])
         # Filter out bad lines if Datetime column could not be parsed

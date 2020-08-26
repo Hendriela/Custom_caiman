@@ -113,13 +113,15 @@ class PlaceCellFinder:
         if self.params['trial_list'] is None:
             self.params['trial_list'] = []
             self.params['frame_list'] = []
-            file_list = glob(self.params['root'] + r'\\*\\*_00???.tif')
+            file_list = glob(self.params['root'] + r'\\*\\merged_behavior*.txt')
             file_list.sort(key=natural_keys)
-            file_list = [x for x in file_list if 'wave' not in x]           # ignore files with waves
-            for file in file_list:
-                self.params['trial_list'].append(os.path.dirname(file))     # append trial folder to list
-                with ScanImageTiffReader(file) as tif:
-                    self.params['frame_list'].append(tif.shape()[0])        # append frame count of TIFF file)
+            # Ignore files with 'wave' movies
+            file_list = [x for x in file_list if all([True if 'wave' not in file else False
+                                                      for file in os.listdir(os.path.dirname(x))])]
+            # Get final trial directory list
+            self.params['trial_list'] = [os.path.dirname(file) for file in file_list]
+            # Get frame counts of all trials from merged_behavior files
+            self.params['frame_list'] = [int(np.sum(np.loadtxt(file)[:, 3])) for file in file_list]
 
         # calculate track_length dependent binning parameters
         if self.params['track_length'] % self.params['bin_length'] == 0:
@@ -151,7 +153,7 @@ class PlaceCellFinder:
                 self.params['session'] = self.params['root'].split('/')[-1]
             self.params['network'] = None
 
-        # get regions of reward zones
+        # get regions of reward zones # TODO from LOG, and put extra column into behavior files
         if is_session_novel(self.params['root']):
             zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
             self.params['novel'] = True
@@ -242,26 +244,24 @@ class PlaceCellFinder:
         :return: Updated PCF object with the session list
         """
 
-        n_trials = 0
-
         if self.params['excl_bad_trials']:
-            sample_mask = np.zeros(sum(self.params['frame_list']), dtype=bool)
-            trial_mask = np.zeros(len(self.params['frame_list']), dtype=bool)
+            # Exclude trials that have a tiff file not named 'file'
+            sample_mask = np.ones(sum(self.params['frame_list']), dtype=bool)
+            trial_mask = np.ones(len(self.params['frame_list']), dtype=bool)
             cum_frame_list = np.cumsum(self.params['frame_list'])
             for idx, file in enumerate(self.params['trial_list']):
                 tif_name = glob(file+'\*.tif')
+                # Go through all trials that have a tiff file
                 if len(tif_name) == 1:
                     tif_name = tif_name[0]
-                else:
-                    raise Exception(f'Wrong number of TIFF files in {file}.')
-                if 'file' in tif_name:
-                    if idx == 0:
-                        sample_mask[np.arange(start=0, stop=cum_frame_list[idx])] = True
-                    else:
-                        sample_mask[np.arange(start=cum_frame_list[idx-1], stop=cum_frame_list[idx])] = True
-                    trial_mask[idx] = True
-                else:
-                    self.params['trial_excluded'] = True
+                    # If a trial has a tiff file but its name is not 'file', exclude it (mask to False for its frames)
+                    if 'file' not in tif_name:
+                        if idx == 0:
+                            sample_mask[np.arange(start=0, stop=cum_frame_list[idx])] = False
+                        else:
+                            sample_mask[np.arange(start=cum_frame_list[idx-1], stop=cum_frame_list[idx])] = False
+                        trial_mask[idx] = False
+                        self.params['trial_excluded'] = True
             # Filter data samples and trial/frame lists via the calculated masks
             data = self.cnmf.estimates.F_dff[:, sample_mask]
             spikes = self.cnmf.estimates.spikes[:, sample_mask]
@@ -270,6 +270,7 @@ class PlaceCellFinder:
         else:
             data = self.cnmf.estimates.F_dff
             spikes = self.cnmf.estimates.spikes
+            self.params['trial_excluded'] = False
         n_trials = len(self.params['frame_list'])
 
         n_neuron = data.shape[0]

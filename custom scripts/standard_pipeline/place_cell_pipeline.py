@@ -1098,7 +1098,7 @@ def perform_whole_pipeline(root):
     def pcf_pipeline(cnm):
         # Initialize PCF object with the raw data (CNM object) and the parameter dict
         pcf = pc.PlaceCellFinder(cnm, pcf_params)
-
+        pcf_old = pipe.load_pcf(step[0])
         # If necessary, perform Peters spike prediction
         pcf.cnmf.estimates.spikes = predict_spikes(pcf.cnmf.estimates.F_dff)
 

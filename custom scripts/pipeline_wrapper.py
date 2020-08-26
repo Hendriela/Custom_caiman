@@ -322,7 +322,7 @@ cnm.estimates.view_components(img=cnm.estimates.Cn)
 #%% Initialize PlaceCellFinder object
 
 #cnm = pipe.load_cnmf(root)
-params = {'root': root,                  # main directory of this session
+params = {'root': step[0],                  # main directory of this session
           'trans_length': 0.5,           # minimum length in seconds of a significant transient
           'trans_thresh': 4,             # factor of sigma above which a transient is significant
           'bin_length': 5,               # length in cm VR distance of each bin in which to group the dF/F traces (has to be divisor of track_length
@@ -332,7 +332,7 @@ params = {'root': root,                  # main directory of this session
                                          # from difference between max and baseline dF/F
           'min_pf_size': 15,          # minimum size in cm for a place field (should be 15-20 cm)
           'fluo_infield': 7,             # factor above which the mean DF/F in the place field should lie compared to outside the field
-          'trans_time': 0.2,             # fraction of the (unbinned!) signal while the mouse is located in
+          'trans_time': 0.15,             # fraction of the (unbinned!) signal while the mouse is located in
                                          # the place field that should consist of significant transients
           'track_length': 400,           # length in cm of the virtual reality corridor
           'split_size': 10}              # size in frames of bootstrapping segments
@@ -541,11 +541,13 @@ for root in roots:
 
     # Initialize PCF object with the raw data (CNM object) and the parameter dict
     pcf = pc.PlaceCellFinder(cnm, pcf_params)
+    old_pcf = pipe.load_pcf(root, 'pcf_results_save.pickle')
 
     # If necessary, perform Peters spike prediction
+    pcf.cnmf.estimates.spikes = old_pcf.cnmf.estimates.spikes
     pcf.cnmf.estimates.spikes = predict_spikes(pcf.cnmf.estimates.F_dff)
 
-    # split traces into trials'
+    # split traces into trials
     pcf.split_traces_into_trials()
 
     # Import behavior and align traces to it, while removing resting frames
