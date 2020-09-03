@@ -734,6 +734,26 @@ def normalize_dates(date_list, norm_date):
     else:
         return norm_days
 
+
+def normalize_performance(data, session_range):
+    """
+    Normalize performance by dividing licking performance by the mean of the provided session window.
+    :param data: DataFrame holding behavioral data, from load_performance_data()
+    :param session_range: tuple of first and last session date (str) of the baseline window
+    :return: input DataFrame with additional 'licking_binned_norm' column
+    """
+    session_idx = (int(data.loc[data['session_date'] == session_range[0], 'sess_id'].mean()),
+                   int(data.loc[data['session_date'] == session_range[1], 'sess_id'].mean()))
+
+    df_list = []
+    for mouse in np.unique(data['mouse']):
+        curr_df = data.loc[data['mouse'] == mouse]
+        dat = curr_df.loc[(curr_df['sess_id'] >= session_idx[0]) & (curr_df['sess_id'] <= session_idx[1])]
+        base = dat['licking_binned'].mean()
+        curr_df['licking_binned_norm'] = curr_df['licking_binned'] / base
+        df_list.append(curr_df)
+    return pd.concat(df_list)
+
 #%% Plotting
 
 # todo make vertical line or something to signify stroke sessions
@@ -886,16 +906,16 @@ def plot_all_mice_avg(input, field='licking', rotate_labels=False, session_range
     sns.set()
     sns.set_style('whitegrid')
     data = deepcopy(input)
-    data[field] = data[field] * 100
+    # data[field] = data[field] * 100
     plt.figure()
     sessions = np.sort(data['sess_norm'].unique())
     ax = sns.lineplot(x='sess_id', y=field, data=data)
 
     if session_range is None:
-        ax.set(ylim=(0, 100), ylabel='licks in reward zone [%]',
+        ax.set(ylabel='licks in reward zone [%]',
                title='Average of all mice', xticks=range(len(sessions)), xticklabels=sessions)
     else:
-        ax.set(ylim=(0, 100), xlim=(session_range[0], session_range[1]), ylabel='licks in reward zone [%]',
+        ax.set(xlim=(session_range[0], session_range[1]), ylabel='licks in reward zone [%]',
                title='Average of all mice', xticks=range(len(sessions)), xticklabels=sessions)
 
     if rotate_labels:
@@ -935,7 +955,7 @@ def plot_all_mice_separately(input, field='licking', rotate_labels=False, sessio
             ax.axhline(hlines[idx], color='g')
 
     if session_range is None:
-        out = grid.set(ylim=(0, 150), xticks=range(len(sessions)), xticklabels=sessions)
+        out = grid.set(ylim=(0, 100), xticks=range(len(sessions)), xticklabels=sessions)
     else:
         out = grid.set(ylim=(0, 100), xlim=(session_range[0], session_range[1]),
                        xticks=range(len(sessions)), xticklabels=sessions)
