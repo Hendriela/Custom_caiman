@@ -413,14 +413,9 @@ for root in roots:
 
 #%% Performance evaluation
 
-path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32',
-        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33',
-        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M35',
-        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M36',
-        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37',
+path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33',
         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38',
         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39',
-        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40',
         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41']
 
 path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3']
@@ -429,12 +424,15 @@ stroke = ['M32', 'M40', 'M41']
 control = ['M33', 'M38', 'M39']
 
 data = performance.load_performance_data(roots=path, norm_date='20200810', stroke=stroke)
+data = data[data['session_date'] != '20200826']
+data = performance.normalize_performance(data, ('20200818', '20200824'))
 
-performance.plot_all_mice_avg(data, rotate_labels=False, session_range=(26, 38), scale=2)
-performance.plot_all_mice_avg(data, rotate_labels=False, scale=2)
+
+performance.plot_all_mice_avg(data, rotate_labels=False, field='licking_binned_norm',
+                              session_range=(60, 73), scale=2)
 
 performance.plot_all_mice_separately(data, field='licking_binned', rotate_labels=False,
-                                     session_range=(60, 64), scale=1.75, hlines=baselines)
+                                     session_range=(60, 73), scale=1.75, vlines=[69.5])
 sns.set_context('talk')
 axis = performance.plot_single_mouse(data, 'M41', field='licking', session_range=(26, 47))
 axis = performance.plot_single_mouse(data, 'M32', session_range=(10, 15), scale=2, ax=axis)
@@ -447,12 +445,14 @@ for mouse in np.unique(data['mouse']):
     baselines.append(dat['licking_binned'].mean())
 
 plt.figure()
+filter_data = data[data['session_date'] != '20200826']
 filter_data = data[data['sess_norm'] >= -7]
+filter_data = filter_data[filter_data['sess_norm'] <= 32]
 sns.set()
-sns.lineplot(x='sess_norm', y='licking', hue='group', data=filter_data)
+sns.lineplot(x='sess_norm', y='licking_binned', hue='group', data=filter_data)
 plt.axvline(-1, color='r')
 plt.axvline(7, color='r')
-plt.axvline(13, color='r')
+plt.axvline(69, color='r')
 plt.axvline(21, color='r')
 
 from scipy.stats import ttest_ind

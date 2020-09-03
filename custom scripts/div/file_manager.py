@@ -35,8 +35,8 @@ def transfer_raw_movies(source, target, basename='file', restore=False):
         shutil.copy(src=source+file, dst=target+file)
         # If the files were transferred from the server to the backup hard drive, delete the files from the server after
         # successful transfer.
-        if not restore:
-            [os.remove(source+fname) for fname in tif_list]
+    if not restore:
+        [os.remove(source+fname) for fname in tif_list]
     print('\nDone!')
 
 

@@ -985,7 +985,7 @@ def perform_whole_pipeline(root):
             merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
             rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
             stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
-            K = 20  # number of components per patch (10)
+            K = 23  # number of components per patch (10)
             gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
             method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
             ssub = 2  # spatial subsampling during initialization
@@ -993,11 +993,11 @@ def perform_whole_pipeline(root):
 
             # evaluation parameters
             min_SNR = 8  # signal to noise ratio for accepting a component (default 2)
-            SNR_lowest = 3.7
+            SNR_lowest = 4.1
             rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
             rval_lowest = -1
-            cnn_thr = 0.83  # threshold for CNN based classifier (default 0.99)
-            cnn_lowest = 0.18  # neurons with cnn probability lower than this value are rejected (default 0.1)
+            cnn_thr = 0.9  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.22  # neurons with cnn probability lower than this value are rejected (default 0.1)
 
             opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
                          'K': K,
@@ -1043,7 +1043,7 @@ def perform_whole_pipeline(root):
                           'min_pf_size': 15,  # minimum size in cm for a place field (should be 15-20 cm)
                           'fluo_infield': 7,
                           # factor above which the mean DF/F in the place field should lie vs. outside the field
-                          'trans_time': 0.2,  # fraction of the (unbinned!) signal while the mouse is located in
+                          'trans_time': 0.15,  # fraction of the (unbinned!) signal while the mouse is located in
                           # the place field that should consist of significant transients
                           'track_length': 400,  # length in cm of the virtual reality corridor
                           'split_size': 50}  # size in frames of bootstrapping segments
@@ -1098,7 +1098,6 @@ def perform_whole_pipeline(root):
     def pcf_pipeline(cnm):
         # Initialize PCF object with the raw data (CNM object) and the parameter dict
         pcf = pc.PlaceCellFinder(cnm, pcf_params)
-        pcf_old = pipe.load_pcf(step[0])
         # If necessary, perform Peters spike prediction
         pcf.cnmf.estimates.spikes = predict_spikes(pcf.cnmf.estimates.F_dff)
 
