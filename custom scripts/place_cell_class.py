@@ -526,17 +526,23 @@ class PlaceCellFinder:
         # check that every bin has at least one frame in it
         if np.any(bin_frame_count == 0):
             all_zero_idx = np.where(bin_frame_count == 0)
-            # if not, take a frame of the next bin (or the previous bin in case its the last bin
+            # create temporary copy that keeps frame count changes
+            bfc_copy = bin_frame_count.copy()
+            # if not, take a frame from the nearest non-zero bin
             for i in range(len(all_zero_idx[0])):
                 zero_idx = (all_zero_idx[0][i], all_zero_idx[1][i])
-                if zero_idx[0] == 79 and bin_frame_count[78, zero_idx[1]] > 1:
-                    bin_frame_count[78, zero_idx[1]] -= 1
-                    bin_frame_count[79, zero_idx[1]] += 1
-                elif zero_idx[0] < 79 and bin_frame_count[zero_idx[0]+1, zero_idx[1]] > 1:
-                    bin_frame_count[zero_idx[0]+1, zero_idx[1]] -= 1
-                    bin_frame_count[zero_idx[0], zero_idx[1]] += 1
-                else:
-                    raise ValueError('No frame in these bins (#bin, #trial): {}'.format(*zip(zero_idx[0], zero_idx[1])))
+                # Get all non-zero indices of the current trial
+                non_zero_idx = np.nonzero(bin_frame_count[:, zero_idx[1]])[0]
+                # Find nearest non-zero index to the current zero idx of the current trial
+                nearest = non_zero_idx[np.argmin(abs(non_zero_idx - zero_idx[0]))]
+                # Take one frame from the nearest non-zero index and add it to the current zero bin (in the copy array)
+                bfc_copy[zero_idx] += 1
+                bfc_copy[nearest, zero_idx[1]] -= 1
+            # apply changes to the main array
+            bin_frame_count = bfc_copy
+            # Test again if bin count adjustment worked
+            if np.any(bin_frame_count == 0):
+                raise ValueError('Bins without any frames even after adjustment.')
 
         ############################################################################################################
 
