@@ -924,21 +924,29 @@ def plot_all_mice_avg(input, field='licking', rotate_labels=False, session_range
     sns.set(font_scale=scale)
 
 
-def plot_all_mice_separately(input, field='licking', rotate_labels=False, session_range=None, scale=1, hlines=None,
-                             vlines=None):
+def plot_all_mice_separately(input, field='licking', x_axis='sess_norm', rotate_labels=False, session_range=None,
+                             scale=1, hlines=None, vlines=None, columns=3):
     """
     Plots the performance in % licks in RZ per session of all mice in separate graphs.
     :param input: pandas DataFrame from load_performance_data()
+    :param field: column of the input DataFrame that should be plotted on the y-axis
+    :param x_axis: column of the input DataFrame that should be plotted on the x-axis
     :param rotate_labels: bool flag whether x-axis labels should be rotated by 45°
     :param session_range: optional tuple or list, restricted range of sessions to be displayed (from input['sess_id'])
+    :param scale: int, scaling factor of axis and tick labels applied by seaborn
+    :param hlines: optional tuple or list, y-axis positions for green horizontal lines (e.g. pre-stroke baselines)
+    :param vlines: optional tuple or list, x-axis positions for red vertical lines (e.g. stroke dates)
+    :param columns: int, number of columns of the figure
     :return:
     """
     sns.set()
     sns.set_style('whitegrid')
     data = deepcopy(input)
     data[field] = data[field] * 100
-    sessions = np.array(np.sort(data['sess_norm'].unique()), dtype=int)
-    grid = sns.FacetGrid(data, col='mouse', col_wrap=3, height=3, aspect=2)
+    sessions = np.array(np.sort(data[x_axis].unique()), dtype=int)
+    if len(data['mouse'].unique()) < columns:
+        columns = len(data['mouse'].unique())
+    grid = sns.FacetGrid(data, col='mouse', col_wrap=columns, height=3, aspect=2)
     grid.map(sns.lineplot, 'sess_id', field)
     grid.set_axis_labels('session', 'licks in reward zone [%]')
 
@@ -955,7 +963,7 @@ def plot_all_mice_separately(input, field='licking', rotate_labels=False, sessio
             ax.axhline(hlines[idx], color='g')
 
     if session_range is None:
-        out = grid.set(ylim=(0, 100), xticks=range(len(sessions)), xticklabels=sessions)
+        out = grid.set(ylim=(0, 100), xticks=np.sort(input['sess_id'].unique()), xticklabels=sessions)
     else:
         out = grid.set(ylim=(0, 100), xlim=(session_range[0], session_range[1]),
                        xticks=range(len(sessions)), xticklabels=sessions)
