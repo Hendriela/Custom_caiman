@@ -466,7 +466,10 @@ def motion_correction(root, params, dview, percentile=0.01, temp_dir=r'C:\Users\
                 stack = stack - int(np.percentile(stack, percentile))
 
                 fname = os.path.splitext(os.path.basename(raw_file))[0]
-                new_path = os.path.join(temp_dir, fname+'_corrected.tif')  # avoid overwriting
+                if not os.path.isfile(os.path.join(temp_dir, fname+'_corrected.tif')):  # avoid overwriting
+                    new_path = os.path.join(temp_dir, fname+'_corrected.tif')
+                else:
+                    new_path = os.path.join(temp_dir, fname + '_corrected_2.tif')
                 tif.imwrite(new_path, data=stack)
                 temp_files.append(new_path)
 
@@ -626,6 +629,7 @@ def get_spatial_info(all_data, behavior, n_bootstrap=2000):
 
     else:
         return si_raw
+
 
 def check_eval_results(cnm, idx, plot_contours=False):
     """Checks results of component evaluation and determines why the component got rejected or accepted
@@ -890,7 +894,7 @@ def perform_whole_pipeline(root):
             rval_thr = 0.8  # space correlation threshold for accepting a component (default 0.85)
             rval_lowest = -1
             cnn_thr = 0.95  # threshold for CNN based classifier (default 0.99)
-            cnn_lowest = 0.1  # neurons with cnn probability lower than this value are rejected (default 0.1)
+            cnn_lowest = 0.15  # neurons with cnn probability lower than this value are rejected (default 0.1)
 
             opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
                          'K': K,
@@ -1127,6 +1131,7 @@ def perform_whole_pipeline(root):
     pcf_files = []
 
     # SEARCH THROUGH FILES AND PERFORM NECESSARY PROCESSING STEPS
+    print('Searching for unprocessed sessions in the directory...')
     for step in os.walk(root):
         mmap_file = glob(step[0]+'\\memmap__*.mmap')
         pre_sel_file = glob(step[0] + '\\cnm_pre_selection.hdf5')
