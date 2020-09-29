@@ -147,8 +147,7 @@ def save_alignment(directory, align_array, ref_sess_date, pcf_list):
 
 
 def load_alignment(file_path):
-    test = np.loadtxt(file_path)
-
+    return np.loadtxt(file_path)
 
 def piecewise_fov_shift(ref_img, tar_img, n_patch=8):
     """
