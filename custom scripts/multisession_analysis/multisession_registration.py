@@ -176,7 +176,7 @@ def piecewise_fov_shift(ref_img, tar_img, n_patch=8):
     return shift_map_x_big, shift_map_y_big
 
 
-def draw_single_contour(ax, spatial, template, half_size=50, color='w', verbose=False):
+def plot_single_contour(ax, spatial, template, half_size=50, color='w', verbose=False):
     """
     Draws the contour of one component and focuses the template image around its center.
     :param ax: Axes in which the plot should be drawn
@@ -350,7 +350,7 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, cell_idx, alignme
         :param idx: int, index of the neuron that should be drawn, here taken from place_cell_idx
         :return: 1-length list containing dictionary of contour data
         """
-        com = draw_single_contour(ax=ax, spatial=pcf.cnmf.estimates.A[:, cell_idx[idx]],
+        com = plot_single_contour(ax=ax, spatial=pcf.cnmf.estimates.A[:, cell_idx[idx]],
                                   template=pcf.cnmf.estimates.Cn)
         plt.setp(ax, url=idx, title=f'Session {ref_sess} (Index {ref_session}), Neuron {cell_idx[idx]} (Index {idx})')
         return com
@@ -414,7 +414,7 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, cell_idx, alignme
                     # -1 because the neuron_id from visualization.plot_contours starts counting at 1
                     curr_neuron = near_contours_sort[counter]['neuron_id']-1
                     # plot the current candidate
-                    curr_cont = draw_single_contour(ax=curr_ax,
+                    curr_cont = plot_single_contour(ax=curr_ax,
                                                     spatial=target_sessions[idx].cnmf.estimates.A[:, curr_neuron],
                                                     template=target_sessions[idx].cnmf.estimates.Cn)
                     if show_neuron_id:
@@ -849,7 +849,7 @@ if __name__ == '__main__':
         fig, ax = plt.subplots(1, alignments[0].shape[1], figsize=(17, 5))
         for sess in range(alignments[0].shape[1]):
             curr_spat = pcf_objects[sess].cnmf.estimates.A[:, alignments[0][cell, sess]]
-            draw_single_contour(ax[sess], curr_spat, pcf_objects[sess].cnmf.estimates.Cn, half_size=25, color='r')
+            plot_single_contour(ax[sess], curr_spat, pcf_objects[sess].cnmf.estimates.Cn, half_size=25, color='r')
             ax[sess].axis('off')
             ax[sess].set_title(sess_list[sess])
         plt.tight_layout()
