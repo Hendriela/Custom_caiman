@@ -28,18 +28,18 @@ c, dview, n_processes = cm.cluster.setup_cluster(
 #%% Manual cell tracking tool
 
 # Which sessions should be aligned?
-session_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200818',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200819',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200820',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200821',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200824',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200826',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200827',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200830',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200902',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200905',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200908',
-                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38\20200911']
+session_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200818',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200819',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200820',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200821',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200824',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200826',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200827',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200830',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200902',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200905',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200908',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200911']
 
 # This function loads the data of all sessions and stores it in the list "pcf_objects"
 spatial, templates, dim, pcf_objects = msr.load_multisession_data(session_list)
