@@ -78,6 +78,41 @@ plt.figure()
 visualization.plot_contours(spatial_union, templates[0])
 plt.show()
 
+#%% Manual multisession registration tool
+import sys
+sys.path.append('../custom scripts/')
+import multisession_analysis.multisession_registration as tracker
+# Which sessions should be aligned?
+session_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200818',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200819',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200820',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200821',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200824',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200826',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200827',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200830',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200902',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200908',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200911']
+
+# Which session should be the reference (place cells from this session will be tracked)
+reference_session = '20200818'
+spatial, templates, dim, pcf_objects = tracker.load_multisession_data(session_list, place_cell_mode=True)
+
+# Load alignment files
+alignment_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\safety copies\pc_alignment_M33_20200818.txt',
+                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\safety copies\pc_alignment_M33_20200819.txt',
+                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\safety copies\pc_alignment_M33_20200820.txt',
+                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\safety copies\pc_alignment_M33_20200821.txt',
+                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\safety copies\pc_alignment_M33_20200824.txt']
+cell_list_all = [np.loadtxt(x) for x in alignment_list]
+ref_dates_all = [os.path.splitext(os.path.split(x)[-1])[0].split(sep='_')[-1] for x in alignment_list]
+ref_dates_idx_all = [i for i, x in enumerate(session_list) if x.split(sep=os.path.sep)[-1] in ref_dates_all]
+for i in range(len(ref_dates_all)):
+    tracker.plot_aligned_cells([cell_list_all[i]], pcf_objects, [ref_dates_idx_all[i]], color=False, colbar=False)
+
+
+
 #%% plot all contours of one session
 sess_nr = 4
 plt.figure()

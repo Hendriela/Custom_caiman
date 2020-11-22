@@ -113,13 +113,14 @@ def get_simple_data(root, filepath=r'W:\Neurophysiology-Storage1\Wahl\Hendrik\Ph
     df.dropna(subset=['mouse'], inplace=True)
 
     # Set correct datatypes for columns
-    df.session = df.session.astype(np.int16)
-    df.n_cells = df.n_cells.astype(np.int16)
-    df.n_place_cells = df.n_place_cells.astype(np.int16)
+    df.session = df.session.astype(np.int64)
+    df.n_cells = df.n_cells.astype(np.int64)
+    df.n_place_cells = df.n_place_cells.astype(np.int64)
     df.ratio = df.ratio.astype(np.float64)
     df.mean_spikerate = df.mean_spikerate.astype(np.float64)
     df.median_spikerate = df.median_spikerate.astype(np.float64)
     df.pvc_slope = df.pvc_slope.astype(np.float64)
+    df.min_pvc = df.min_pvc.astype(np.float64)
     df.sec_peak_ratio = df.sec_peak_ratio.astype(np.float64)
 
     # give sessions a continuous id for plotting
@@ -226,7 +227,7 @@ def exp_to_prism_mouse_avg(df, field='lick_bin_norm', fname=None, grouping=True,
                     col = group_count*max_mice_per_group+mouse_count
                     tab[row, col] = df.loc[(df.mouse == mouse) & (df.session_date == session), field].mean()
 
-        tab = np.insert(tab, 0, df.sess_norm.unique() + 1, 1)
+        tab = np.insert(tab, 0, df.session_date.unique(), 1)
 
         if fname is None:
             fname = f'{field}_grouped_mice_avg.txt'
@@ -293,16 +294,16 @@ def plot_simple_data_single_mice(df, field, session_range=None, scale=1, stroke_
     sns.set()
     sns.set_style('whitegrid')
 
-    sessions = np.array(np.sort(df['sess_norm'].unique()), dtype=int)
-    grid = sns.FacetGrid(df, col='mouse', col_wrap=3, height=3, aspect=2)
+    sessions = np.array(np.sort(df['session_id'].unique()), dtype=int)
+    grid = sns.FacetGrid(df, col='mouse', col_wrap=2, height=3, aspect=2)
 
     grid.map(sns.lineplot, 'session_id', field)
-    grid.set_axis_labels('session', field)
+    grid.set_axis_labels('session_id', field)
 
-    if session_range is None:
-        out = grid.set(xticks=range(len(sessions)), xticklabels=sessions)
-    else:
-        out = grid.set(xlim=(session_range[0], session_range[1]), xticks=range(len(sessions)), xticklabels=sessions)
+    # if session_range is None:
+    #     out = grid.set(xticklabels=np.arange(1,len(sessions)+1))
+    # else:
+    #     out = grid.set(xlim=(session_range[0], session_range[1]), xticks=range(len(sessions)), xticklabels=sessions)
 
     for ax in grid.axes.ravel():
         for sess in stroke_sess:
@@ -318,7 +319,7 @@ def plot_simple_data_group_avg(df, field, session_range=None, scale=1, stroke_se
     sns.set_style('whitegrid')
 
     fig = plt.figure()
-    sns.lineplot(x='session_id', y=field, hue='group', data=df)
+    sns.lineplot(x='session_id', y=field, hue='group', data=df, palette=['r', 'black'])
 
     for sess in stroke_sess:
         plt.axvline(sess, color='r')

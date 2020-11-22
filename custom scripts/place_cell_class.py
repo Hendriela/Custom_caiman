@@ -19,7 +19,7 @@ from manual_selection_gui import gui_without_movie as gui
 from caiman.utils import visualization
 import pandas as pd
 from statannot import add_stat_annotation
-from multisession_analysis.multisession_registration import draw_single_contour
+from multisession_analysis import multisession_registration as msr
 from scipy.ndimage.filters import gaussian_filter1d
 
 
@@ -1061,7 +1061,7 @@ class PlaceCellFinder:
             for col in range(n_cols):
                 if i < len(pc_idx):
                     curr_ax = ax[row, col]
-                    com = draw_single_contour(ax=curr_ax, spatial=self.cnmf.estimates.A[:, pc_idx[i]], template=lcm)
+                    com = msr.plot_single_contour(ax=curr_ax, spatial=self.cnmf.estimates.A[:, pc_idx[i]], template=lcm)
                     curr_ax.set_picker(True)
                     curr_ax.set_url(i)
                     i += 1

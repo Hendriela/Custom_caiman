@@ -1073,3 +1073,55 @@ def plot_validation_performance(path, change_trial=5, bin_size=1, normalized=Tru
         plt.savefig(os.path.join(target, f'{mouse}_performance.png'))
         plt.close()
 
+
+def plot_binned_licking(path, bin_size=2, novel=False):
+    """
+    Plots the licking of a single session as a histogram binned over VR positions.
+    :param path: str, path of session
+    :param bin_size: int, amount of binning
+    :param novel: bool flag whether session was in the novel corridor
+    :return:
+    """
+
+    def atoi(text):
+        return int(text) if text.isdigit() else text
+
+    def natural_keys(text):
+        return [atoi(c) for c in re.split('(\d+)', text)]
+
+    if novel:
+        zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
+    else:
+        zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]]) + 10
+
+    mouse = path.split(sep=os.path.sep)[-2]
+    session = path.split(sep=os.path.sep)[-1]
+
+    file_list = glob(path + '\\*\\merged_behavior*.txt')
+    if len(file_list) == 0:
+        file_list = glob(path + '\\merged_behavior*.txt')
+    file_list.sort(key=natural_keys)
+
+    data = np.zeros((len(file_list), int(120 / bin_size)))
+    for idx, file in enumerate(file_list):
+        data[idx] = get_binned_licking(np.loadtxt(file), bin_size=bin_size, normalized=False)
+
+    data[data > 0] = 1
+
+    plt.figure(figsize=(8, 4))
+    plt.hist(np.linspace(0, 400, 60), bins=60, weights=(np.sum(data, axis=0) / len(data)) * 100,
+             facecolor='black', edgecolor='black')
+
+    for zone in zone_borders:
+        plt.axvspan(zone[0] * (10 / 3), zone[1] * (10 / 3), color='red', alpha=0.3)
+
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.ylim(0, 105)
+    plt.xlabel('VR position', fontsize=22)
+    plt.ylabel('Licked in bin [%]', fontsize=22)
+    plt.tight_layout()
+    plt.title(f'Mouse {mouse}, session {session}', fontsize=24)
+    ax = plt.gca()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)

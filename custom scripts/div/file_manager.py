@@ -2,7 +2,7 @@ import os
 from glob import glob
 import shutil
 from pathlib import Path
-from standard_pipeline.place_cell_pipeline import progress
+from standard_pipeline.behavior_import import progress
 
 
 def transfer_raw_movies(source, target, basename='file', restore=False):
@@ -73,3 +73,26 @@ def remove_mmap_after_analysis(root):
             print('Deleting cancelled.')
         else:
             print("Please enter yes or no.")
+
+
+def get_next_filename(fname, target=None, suffix='_copy', start_with_zero=False):
+    """
+    Looks for and returns the next available filename to avoid overwriting.
+    :param fname: str, filename of original file.
+    :param target: str, optional. If given, filename will be in the target rather than the original directory.
+    :param suffix: str, suffix to append to the original filename. Default is '_copy'.
+    :param start_with_zero: bool flag whether to start the numbering with 0 or 1.
+    :return:
+    """
+    if target is not None:
+        mod_fname = os.path.join(target, os.path.splitext(fname)[0].split(os.path.sep)[-1]) + suffix + '%s' + \
+                    os.path.splitext(fname)[1]
+    else:
+        mod_fname = os.path.splitext(fname)[0] + suffix + '%s' + os.path.splitext(fname)[1]
+    if start_with_zero:
+        i = 0
+    else:
+        i = 1
+    while os.path.exists(mod_fname % i):
+        i += 1
+    return os.path.splitext(mod_fname)[0][:-2] + str(i) + os.path.splitext(fname)[1]
