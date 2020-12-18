@@ -11,7 +11,9 @@ from math import ceil
 from point2d import Point2D
 from scipy.ndimage import zoom
 import os
-
+import pandas as pd
+from div import file_manager as fm
+from copy import deepcopy
 
 #%% LOADING AND AUTOMATICALLY ALIGNING MULTISESSION DATA
 
@@ -40,10 +42,11 @@ def align_multisession_caiman(dir_list):
     return spatial_union, assignments, matchings, spatial, templates, pcf_objects
 
 
-def load_multisession_data(dir_list):
+def load_multisession_data(dir_list, place_cell_mode=True):
     """
     Loads CNMF objects from multiple PCFs for multisession registration.
     :param dir_list: list of paths to session folders that should be aligned
+    :param place_cell_mode: bool flag whether to load PCF objects or CNM objects (for Jithin)
     :returns spatial: list of csc matrices from cnmf.estimates.A (one per session) with spatial data of components
     :returns templates: list of template images from cnmf.estimates.Cn (one per session)
     :returns dim: tuple, x and y dimensions of FOV, from templates[0].shape
@@ -56,10 +59,17 @@ def load_multisession_data(dir_list):
     count = 0
     for folder in dir_list:
         count += 1
-        curr_pcf = pipe.load_pcf(folder)    # load pcf object that includes the cnmf object
-        spatial_list.append(curr_pcf.cnmf.estimates.A)
+        if place_cell_mode:
+            curr_pcf = pipe.load_pcf(folder)    # load pcf object that includes the cnmf object
+            spatial_list.append(curr_pcf.cnmf.estimates.A)
+        else:
+            curr_pcf = pipe.load_cnmf(folder)
+            spatial_list.append(curr_pcf.estimates.A)
         try:
-            templates_list.append(curr_pcf.cnmf.estimates.Cn)
+            if place_cell_mode:
+                templates_list.append(curr_pcf.cnmf.estimates.Cn)
+            else:
+                templates_list.append(curr_pcf.estimates.Cn)
         except AttributeError:
             print(f'No local correlation image found in {folder}...')
             movie_file = glob(folder+'memmap__*.mmap')
@@ -67,9 +77,14 @@ def load_multisession_data(dir_list):
                 print(f'\tFound mmap file, local correlation image is being calculated.')
                 Yr, dims, T = load_memmap(movie_file[0])
                 images = np.reshape(Yr.T, [T] + list(dims), order='F')
-                curr_pcf.cnmf.estimates.Cn = pipe.get_local_correlation(images)
-                curr_pcf.save(overwrite=True)
-                templates_list.append(curr_pcf.cnmf.estimates.Cn)
+                if place_cell_mode:
+                    curr_pcf.cnmf.estimates.Cn = pipe.get_local_correlation(images)
+                    curr_pcf.save(overwrite=True)
+                    templates_list.append(curr_pcf.cnmf.estimates.Cn)
+                else:
+                    curr_pcf.estimates.Cn = pipe.get_local_correlation(images)
+                    pipe.save_cnmf(curr_pcf, overwrite=True)
+                    templates_list.append(curr_pcf.estimates.Cn)
             elif len(movie_file) > 1:
                 print('\tResult ambiguous, found more than one mmap file, no calculation possible.')
             else:
@@ -111,25 +126,112 @@ def plot_all_cells_multisession(direct_list, spatial_list, template_list):
 #%% SEMI-MANUALLY ALIGNING PLACE CELLS ACROSS SESSIONS
 
 
-def save_alignment(align_array, ref_sess_id, session_list):
+def save_alignment(directory, align_array, ref_sess_date, pcf_list, place_cell_mode=True):
     """
     Saves manual alignment array to a txt file with session dates as headers for each column. NaNs (no match found)
     are replaced by -10 to maintain visibility.
     :param align_array: data array, shape (n_placecells, n_sessions), from manual_place_cell_alignment()
-    :param ref_sess_id: int, index of reference session (where place cells are from) in session_list
-    :param session_list: list of paths to session folders
+    :param ref_sess_date: str, date of reference session (where place cells are from)
+    :param pcf_list: list of paths to session folders
+    :param place_cell_mode: bool flag whether to load PCF objects or CNM objects (for Jithin)
     :return:
     """
     sess_dates = []
     header = 'Neur_ID_'
-    for session in session_list:
-        sess_dates.append(session.split(os.path.sep)[-2])
-        header = header + f'{session.split(os.path.sep)[-2]}\t'
-    file_name = f'pc_alignment_{sess_dates[ref_sess_id]}.txt'
-    file_path = os.path.join(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\batch_analysis', file_name)
-    print(f'Saving alignment table to {file_path}...')
-    align_fix = np.nan_to_num(align_array, nan=-10).astype('int')
-    np.savetxt(file_path, align_fix, delimiter='\t', header=header, fmt='%d')
+    if place_cell_mode:
+        mouse = pcf_list[0].params["mouse"]
+        for pcf in pcf_list:
+            sess_dates.append(pcf.params['session'])
+            header = header + f'{pcf.params["session"]}\t'
+    else:
+        mouse = pcf_list[0].mmap_file.split(sep=os.path.sep)[-3]
+        for cnm in pcf_list:
+            sess_dates.append(cnm.mmap_file.split(sep=os.path.sep)[-4])
+            header = header + f'{cnm.mmap_file.split(sep=os.path.sep)[-4]}\t'
+    file_name = f'pc_alignment_{mouse}_{ref_sess_date}.txt'
+    file_path = os.path.join(directory, file_name)
+    if os.path.isfile(file_path):
+        answer = None
+        while answer not in ("y", "n", 'yes', 'no'):
+            answer = input(f"File [...]{file_path[-40:]} already exists!\nOverwrite? [y/n] ")
+            if answer == "yes" or answer == 'y':
+                print(f'Saving alignment table to {file_path}...')
+                align_fix = np.nan_to_num(align_array, nan=-10).astype('int')
+                np.savetxt(file_path, align_fix, delimiter='\t', header=header, fmt='%d')
+            elif answer == "no" or answer == 'n':
+                print('Saving cancelled.')
+                return None
+            else:
+                print("Please enter yes/y or no/n.")
+    else:
+        print(f'Saving alignment table to {file_path}...')
+        align_fix = np.nan_to_num(align_array, nan=-10).astype('int')
+        np.savetxt(file_path, align_fix, delimiter='\t', header=header, fmt='%d')
+
+
+def load_alignment(file_paths):
+    """
+    Loads one or more alignment.txt files from the list in a Pandas DataFrame
+    :param file_paths: list of alignment.txt files (from save_alignment())
+    :return: Pandas Dataframe with all aligned cells from all text files
+    """
+    cell_list = [np.loadtxt(x) for x in file_paths]
+    with open(file_paths[0]) as file:
+        dates = file.readline().strip().split('\t')
+        dates[0] = dates[0].split('_')[-1]
+    dates.insert(0, 'ref_date')
+    dtypes = [[x, 'float64'] for x in dates]
+    dtypes[0][1] = 'int32'
+    dtypes = dict(dtypes)
+    ref_dates = [os.path.splitext(os.path.split(x)[1])[0].split('_')[-1] for x in file_paths]
+    ref_idx = []
+    for i in range(len(cell_list)):
+        ref_idx.extend([ref_dates[i]]*len(cell_list[i]))
+    ref_idx = np.array(ref_idx)[..., np.newaxis]
+    df = pd.DataFrame(np.hstack((ref_idx, np.vstack(cell_list))), columns=dates)
+    return df.astype(dtypes)
+
+
+def align_traces(mousepath, alignment, ignore=None):
+    """
+    Load PCF objects of the sessions that were aligned in the alignment array
+    :param mousepath: str, path to the folder of the corresponding mouse
+    :param alignment: pd.DataFrame from load_alignment
+    :param ignore: optional list holding sessions that should not be loaded (e.g. first sess after stroke w/o behavior)
+    :return: data (dict): PCF objects of all aligned sessions, session dates as keys
+    :return: traces (np.array): binned traces of each cell and every session with shape (#neurons, #sessions, #bins)
+    :return: unique (pd.DataFrame): unique tracked cells with respective neuron IDs for every session
+    """
+
+    data = {}
+    if len(check_alignment(alignment)) > 0:
+        raise ValueError('Still some mismatched cells. Run check_alignment() again.')
+    # Get paths of all sessions
+    dates = alignment.columns[1:]
+    # Load PCF objects of the aligned sessions
+    for sess in dates:
+        if (ignore is None) or (ignore is not None and sess not in ignore):
+            data[sess] = pipe.load_pcf(os.path.join(mousepath, sess))
+
+    # Filter alignment IDs for unique cells
+    cell_ids = alignment[dates]
+    unique = cell_ids[~alignment[dates].duplicated()]
+
+    # Put VR-aligned traces of each cell and every session in a 3D array with shape (#neurons, #sessions, #bins)
+    traces = np.zeros((len(unique), len(dates), data[dates[0]].params['n_bins']))+np.nan
+    for date_idx, date in enumerate(dates):
+        found_cells = unique[date].loc[unique[date] != -10]
+        # Check that there are no mismatched cells
+        if len(found_cells.unique()) != len(found_cells):
+            raise ValueError(f'Double Neuron IDs in session {date}, check alignments again.')
+
+        # Go through all cells in that session and put the traces for each cell into the array
+        for cell_idx, cell in enumerate(unique[date]):
+            if int(cell) != -10:
+                traces[cell_idx, date_idx, :] = data[date].bin_avg_activity[int(cell)]
+
+    return data, traces, unique
+
 
 def piecewise_fov_shift(ref_img, tar_img, n_patch=8):
     """
@@ -158,7 +260,7 @@ def piecewise_fov_shift(ref_img, tar_img, n_patch=8):
     return shift_map_x_big, shift_map_y_big
 
 
-def draw_single_contour(ax, spatial, template, half_size=50, color='w', verbose=False):
+def plot_single_contour(ax, spatial, template, half_size=50, color='w', verbose=False):
     """
     Draws the contour of one component and focuses the template image around its center.
     :param ax: Axes in which the plot should be drawn
@@ -228,18 +330,60 @@ def shift_com(com, shift, dims):
     return com_shift
 
 
-def prepare_manual_alignment_data(pcf_sessions, ref_session):
+def get_ref_idx(pcf_sessions, ref_sess_str, place_cell_mode):
+    """
+    Finds the index of the PCF object with the matching session date.
+    :param pcf_sessions: list of PCF objects
+    :param ref_sess_str: string of the session date, format 'YYYMMDD'
+    :param place_cell_mode: bool flag whether to load PCF objects or CNM objects (for Jithin)
+    :return: ref_sess_idx, integer index of the corresponding PCF object
+    """
+    # Get index of reference session
+    if place_cell_mode:
+        ref_sess_idx = None
+        for idx, pcf in enumerate(pcf_sessions):
+            if pcf.params['session'] == ref_sess_str:
+                if ref_sess_idx is None:
+                    ref_sess_idx = idx
+                else:
+                    raise IndexError(f'More than one PCF object has the session date {ref_sess_str}!')
+        if ref_sess_idx is None:
+            raise IndexError(f'No PCF object has the session date {ref_sess_str}!')
+    else:
+        ref_sess_idx = None
+        for idx, cnm in enumerate(pcf_sessions):
+            # Jithins structure has the session date in the third parent folder
+            if cnm.mmap_file.split(sep=os.path.sep)[-4] == ref_sess_str:
+                if ref_sess_idx is None:
+                    ref_sess_idx = idx
+                else:
+                    raise IndexError(f'More than one CNM object has the session date {ref_sess_str}!')
+        if ref_sess_idx is None:
+            raise IndexError(f'No CNM object has the session date {ref_sess_str}!')
+
+    return ref_sess_idx
+
+
+def prepare_manual_alignment_data(pcf_sessions, ref_sess, place_cell_mode=True):
     """
     Prepares PCF and CNMF data for manual alignment tool. Initializes alignment array and calculates contours and
     shifts from all cells in all sessions.
     :param pcf_sessions: list of PCF objects to be aligned
-    :param ref_session: int, index of session to be used as a reference (place cells will be taken from this session)
+    :param ref_sess: str, date of session to be used as a reference (place cells will be taken from this session)
+    :param place_cell_mode: bool flag whether to load PCF objects or CNM objects (for Jithin)
     :return: alignment array, all_contours list (list of sessions, each session is list of neuron contours),
             all_shifts (list of sessions, each session is 2 arrays of x_shift and y_shift for every pixel)
     """
+
+    ref_session = get_ref_idx(pcf_sessions, ref_sess, place_cell_mode)
     target_sess = [x for j, x in enumerate(pcf_sessions) if j != ref_session]
-    # get indices of place cells from first session
-    place_cell_idx = [x[0] for x in pcf_sessions[ref_session].place_cells]
+
+    if place_cell_mode:
+        # get indices of place cells from first session
+        place_cell_idx = [x[0] for x in pcf_sessions[ref_session].place_cells]
+    else:
+        # if not in place cell mode, give all neurons to align
+        place_cell_idx = np.arange(pcf_sessions[ref_session].estimates.F_dff.shape[0])
 
     # initialize alignment array (#place cells X #sessions)
     alignment = np.full((len(place_cell_idx), len(pcf_sessions)), -1.0)  # +1 due to the reference session being popped
@@ -250,27 +394,41 @@ def prepare_manual_alignment_data(pcf_sessions, ref_session):
     for sess_idx in range(len(pcf_sessions)):
         if sess_idx != ref_session:
             sess = pcf_sessions[sess_idx]
-            curr_shifts_x, curr_shifts_y = piecewise_fov_shift(pcf_sessions[ref_session].cnmf.estimates.Cn,
-                                                               sess.cnmf.estimates.Cn)
+            if place_cell_mode:
+                curr_shifts_x, curr_shifts_y = piecewise_fov_shift(pcf_sessions[ref_session].cnmf.estimates.Cn,
+                                                                   sess.cnmf.estimates.Cn)
+            else:
+                curr_shifts_x, curr_shifts_y = piecewise_fov_shift(pcf_sessions[ref_session].estimates.Cn,
+                                                                   sess.estimates.Cn)
             all_shifts.append((curr_shifts_x, curr_shifts_y))
             plt.figure()
-            all_contours.append(visualization.plot_contours(sess.cnmf.estimates.A, sess.cnmf.estimates.Cn))
+            if place_cell_mode:
+                all_contours.append(visualization.plot_contours(sess.cnmf.estimates.A, sess.cnmf.estimates.Cn))
+            else:
+                all_contours.append(visualization.plot_contours(sess.estimates.A, sess.estimates.Cn))
             plt.close()
     return target_sess, place_cell_idx, alignment, all_contours, all_shifts
 
 
-def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, alignment, all_contours, all_shifts,
-                                ref_session, show_neuron_id=False):
+def manual_place_cell_alignment(pcf_sessions, target_sessions, cell_idx, alignment, all_contours, all_shifts, dim,
+                                ref_sess, place_cell_mode=True, show_neuron_id=False):
     """
-    IDs refer to the same neuron in different sessions
-    :param pcf_sessions:
-    :param target_sessions:
-    :param place_cell_idx:
-    :param alignment:
-    :param all_contours:
-    :param all_shifts:
-    :param ref_session:
-    :return:
+    Master function that produces and updates the interactive figure. The reference cell is drawn on the left graph.
+    The candidate target cells are plotted on the right side, with the cell closest to the reference cell first.
+    IDs are constantly updated in the alignment array and refer to the same neuron in different sessions.
+    If alignment is already partly filled (not -1 in all fields), the alignment picks up at the first not-aligned cell.
+    The arguments for this function should be the output of the prepare_manual_alignment_data() function!
+    :param pcf_sessions: list of all PCF objects that should be aligned
+    :param target_sessions: list of PCF objects excluding the reference session
+    :param cell_idx: list of cell indices in the reference session that should be aligned
+    :param alignment: numpy array that saves the corresponding cell IDs across sessions
+    :param all_contours: list of sessions holding the contour coordinates for every neuron
+    :param all_shifts: list of sessions holding the FOV shifts in x and y direction
+    :param dim: dimensions of the FOV in pixel
+    :param ref_sess: str of date of the reference session
+    :param place_cell_mode: bool flag whether to load PCF objects or CNM objects (for Jithin)
+    :param show_neuron_id: bool flag whether the IDs of the candidate neurons should be displayed
+    :return: alignment: filled np.array with the shape (#cells, #sessions)
     """
     def targ_to_real_idx(idx):
         """
@@ -296,18 +454,17 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
             raise IndexError('Cant find index of reference session in target list.')
         return adj_idx
 
-    def draw_reference(ax, pcf, idx):
+    def draw_reference(ax, cnm, idx):
         """
         Draws reference cell into the provided Axes and returns its contour data.
         :param ax: Axes where to draw the cell, here ref_ax
-        :param pcf: PCF object that contains the component data, here pcf_sessions[session]
+        :param cnm: CNM object that contains the component data, here pcf_sessions[session]
         :param idx: int, index of the neuron that should be drawn, here taken from place_cell_idx
         :return: 1-length list containing dictionary of contour data
         """
-        com = draw_single_contour(ax=ax, spatial=pcf.cnmf.estimates.A[:, place_cell_idx[idx]],
-                                  template=pcf.cnmf.estimates.Cn)
-        plt.setp(ax, url=idx, title=f'Session {ref_session + 1}, Neuron {place_cell_idx[idx]}')
-        #ax.tick_params(labelbottom=False, labelleft=False)
+        com = plot_single_contour(ax=ax, spatial=cnm.estimates.A[:, cell_idx[idx]],
+                                  template=cnm.estimates.Cn)
+        plt.setp(ax, url=idx, title=f'Session {ref_sess} (Index {ref_session}), Neuron {cell_idx[idx]} (Index {idx})')
         return com
 
     def find_target_cells(reference_com, session_contours, dims, fov_shift, max_dist=25):
@@ -369,9 +526,14 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
                     # -1 because the neuron_id from visualization.plot_contours starts counting at 1
                     curr_neuron = near_contours_sort[counter]['neuron_id']-1
                     # plot the current candidate
-                    curr_cont = draw_single_contour(ax=curr_ax,
-                                                    spatial=target_sessions[idx].cnmf.estimates.A[:, curr_neuron],
-                                                    template=target_sessions[idx].cnmf.estimates.Cn)
+                    if place_cell_mode:
+                        curr_cont = plot_single_contour(ax=curr_ax,
+                                                        spatial=target_sessions[idx].cnmf.estimates.A[:, curr_neuron],
+                                                        template=target_sessions[idx].cnmf.estimates.Cn)
+                    else:
+                        curr_cont = plot_single_contour(ax=curr_ax,
+                                                        spatial=target_sessions[idx].estimates.A[:, curr_neuron],
+                                                        template=target_sessions[idx].estimates.Cn)
                     if show_neuron_id:
                         t = curr_ax.text(0.5, 0.5, f'{curr_neuron}', va='center', ha='center', transform=curr_ax.transAxes)
                     # the url property of the Axes is used as a tag to remember which neuron has been clicked
@@ -389,7 +551,11 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
                     plt.setp(curr_ax, url=(ref_cell_idx, real_idx, -1))
                     curr_ax.tick_params(labelbottom=False, labelleft=False)
                 if row == 0 and column == int(n_cols/2):
-                    curr_ax.set_title(f'Session {real_idx + 1}')
+                    if place_cell_mode:
+                        curr_session = target_sessions[idx].params["session"]
+                    else:
+                        curr_session = target_sessions[idx].mmap_file.split(sep=os.path.sep)[-4]
+                    curr_ax.set_title(f'Session {curr_session} (Index {real_idx})')
 
     def draw_both_sides(ref_idx, targ_sess_idx):
         fig.clear()  # remove potential previous layouts
@@ -399,12 +565,15 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
         ref_ax = fig.add_subplot(ref[0])  # draw reference plot
 
         # first draw the reference cell
-        ref_com = draw_reference(ref_ax, pcf_sessions[ref_session], ref_idx)
+        if place_cell_mode:
+            ref_com = draw_reference(ref_ax, pcf_sessions[ref_session].cnmf, ref_idx)
+        else:
+            ref_com = draw_reference(ref_ax, pcf_sessions[ref_session], ref_idx)
 
         # Find cells in the next session(s) that have their center of mass near the reference cell
         nearby_contours = find_target_cells(reference_com=ref_com,
                                             session_contours=all_contours[targ_sess_idx],
-                                            dims=pcf_sessions[ref_session].cnmf.estimates.Cn.shape,
+                                            dims=dim,
                                             fov_shift=all_shifts[targ_sess_idx])
 
         # Draw target cells in the right plots
@@ -413,13 +582,16 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
 ##########################################################################################
 ################ START OF PLOTTING #######################################################
 
-    # build figure
-    fig = plt.figure(figsize=(18, 8))  # draw figure
+    ref_session = get_ref_idx(pcf_sessions, ref_sess, place_cell_mode)
 
     # see if the alignment array has already been (partly) filled to skip processed cells
-    if len(np.unique(alignment_array)) != 1:
-        start_ref = np.where(alignment_array == -1)[0][0]   # row of first -1 shows with which reference cell to start
-        start_real = np.where(alignment_array == -1)[1][0]   # col of first -1 shows with which target session to start
+    if len(np.unique(alignment)) != 1:
+        untagged_cells = np.where(alignment == -1)
+        if len(untagged_cells) == 0:
+            return print("All cells aligned!")
+        else:
+            start_ref = untagged_cells[0][0]   # row of first -1 shows with which reference cell to start
+            start_real = untagged_cells[1][0]   # col of first -1 shows with which target session to start
         if start_real == ref_session:
             start_tar = 0
         else:
@@ -427,6 +599,9 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
     else:   # otherwise start with the first cell
         start_ref = 0
         start_tar = 0
+
+    # build figure
+    fig = plt.figure(figsize=(18, 8))  # draw figure
 
     # First drawing
     draw_both_sides(start_ref, start_tar)  # Draw the first reference (place) cell and the target cells
@@ -442,7 +617,7 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
         print(f'Reference cell {ref_id}, clicked neuron {id_s}.')
 
         # update the alignment array with the clicked assignment
-        alignment[ref_id, ref_session] = place_cell_idx[ref_id]   # which ID did this place cell have?
+        alignment[ref_id, ref_session] = cell_idx[ref_id]   # which ID did this place cell have?
         if neuron_id == -1:  # '-1' means "no match" has been clicked, fill spot with nan
             alignment[ref_id, real_sess_id] = np.nan
         else:
@@ -465,9 +640,164 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, place_cell_idx, a
     return alignment
 
 
+def show_whole_fov(reference_session, target_session, ref_cell_id, place_cell_mode=True, move_together=True):
+    """
+    Shows the whole FOV of the reference session with the contour of the reference cell, as well as the FOV of the
+    target session with the contours and IDs of all cells.
+    CAREFUL: Caiman starts labelling cells with 1, meaning that you have to subtract 1 from the ID plotted on the left
+    graph if you want to use it for the alignment.
+    :param reference_session: PCF object of the reference session (from pcf_objects)
+    :param target_session: PCF object of the target session (from pcf_objects)
+    :param ref_cell_id: ID number of the reference cell (from the title in the main figure)
+    :param place_cell_mode: bool flag whether to load PCF objects or CNM objects (for Jithin)
+    :param move_together: bool flag whether the reference and target FOVs should move together or independently
+    :return:
+    """
+    # Initialize figure
+    if move_together:
+        fig, ax = plt.subplots(1, 2, figsize=(18, 8), sharex='all', sharey='all')
+    else:
+        fig, ax = plt.subplots(1, 2, figsize=(18, 8))
+
+    if place_cell_mode:
+        reference = reference_session.cnmf
+        target = target_session.cnmf
+        ref_curr_session = reference_session.params['session']
+        tar_curr_session = target_session.params['session']
+    else:
+        reference = reference_session
+        target = target_session
+        ref_curr_session = reference.mmap_file.split(sep=os.path.sep)[-4]
+        tar_curr_session = target.mmap_file.split(sep=os.path.sep)[-4]
+
+    # Plot reference cell on the left side
+    plt.sca(ax[0])
+    out = visualization.plot_contours(reference.estimates.A[:, ref_cell_id], reference.estimates.Cn,
+                                      display_numbers=False, colors='r', verbose=False)
+    ax[0].set_title('Session {}, reference neuron {}'.format(ref_curr_session, ref_cell_id))
+
+    # Plot all other cells on the right side
+    plt.sca(ax[1])
+    out = visualization.plot_contours(target.estimates.A, target.estimates.Cn,
+                                      display_numbers=True, colors='r', verbose=False)
+    ax[1].set_title('Session {}, all other neurons'.format(tar_curr_session))
+
+
+def check_alignment(alignments, save=None):
+    """
+    Checks alignment arrays for cells that received different IDs in the same session. The results are stored in a list
+    of DataFrames, each DF holding the IDs of one cell across sessions. The results can also be saved as a text file.
+    :param alignments: pandas DataFrame with all alignment.txt data
+    :return:
+    """
+    dates = alignments.columns[1:]
+    misalign = []
+    breakpoint = False
+    for sess in dates:
+        # Get all unique cell IDs (and remove un-assigned -10s)
+        unique = np.unique(alignments[sess])
+        unique = np.delete(unique, np.where(unique == -10))
+        unique = np.delete(unique, np.where(unique == -1))
+        for cell in unique:
+            # Get the cross-session IDs of the same cells
+            rows = alignments.loc[alignments[sess] == cell]
+            exists = [rows.equals(x) for x in misalign]
+            has_mismatch = [True if len(rows[date].unique())>1 else False for date in dates]
+            # if it has not been checked before and the cell was tracked more than 1 time, save it
+            if not any(exists) and len(rows) > 1 and any(has_mismatch):
+                misalign.append(rows)
+
+    if save is not None:
+        with open(save, 'w') as f:
+            misalign[0].to_csv(f)
+            f.write('\n')
+        for i in range(1, len(misalign)):
+            with open(save, 'a') as f:
+                misalign[i].to_csv(f, header=True)
+                f.write('\n')
+
+    return misalign
+
+    # Old confusing method
+    # dates = alignments.columns[1:]
+    # ref_dates = alignments['ref_date'].unique().astype(str)
+    # sess_dic = {k: {} for k in dates}
+    # change_dic = {k: deepcopy(sess_dic) for k in ref_dates}
+    # test = []
+    # for sess in dates:
+    #     # Get all unique cell IDs (and remove un-assigned -10s)
+    #     unique = np.unique(alignments[sess])
+    #     unique = np.delete(unique, np.where(unique == -10))
+    #     for cell in unique:
+    #         # Get all IDs of the same cells
+    #         rows = alignments.loc[alignments[sess] == cell]
+    #         wrong = []
+    #         exists = [rows.equals(x) for x in test]
+    #         if not any(exists) and len(rows) > 1:
+    #             test.append(rows)
+    #         # Go through sessions and look for sessions where the ID was not the same
+    #         for session in dates:
+    #             if len(np.unique(rows[session])) > 1:
+    #                 wrong.append((session, rows[session]))
+    #         # If there were mismatched IDs, print them out together with their session dates
+    #         if len(wrong) > 0:
+    #             # print(f'\nThe cell with ID {cell} on session {sess} has different IDs in other sessions:')
+    #             for i in wrong:
+    #                 # print(f'\tFor session {i[0]}:')
+    #                 new_dic = {}
+    #                 for j in range(len(i[1])):
+    #                     new_dic[rows["ref_date"].iloc[j]] = i[1].iloc[j]
+    #                 for key in new_dic:
+    #                     ref_cell_idx = str(int(rows.loc[rows['ref_date']==key, sess].unique()))
+    #                     if ref_cell_idx not in change_dic[str(key)][i[0]]:
+    #                         change_dic[str(key)][i[0]][ref_cell_idx] = new_dic
+    #                         # print(f'\t\tIn reference session {rows["ref_date"].iloc[j]}:', i[1].iloc[j])
+
+
+def reset_misaligned_cells(misalignment, file_list):
+    """
+    OLD FUNCTION, NOT RECOMMENDED! USE "MISALIGN" LIST FROM CHECK_DOUBLE_CELLS!
+    Takes misalignment list from check_alignment() and resets the IDs in the .txt files to -1 so it can be checked
+    again.
+    :param misalignment:
+    :param file_list:
+    :return:
+    """
+    # load the alignment files and save a copy
+    align = {}
+    for file in file_list:
+        date = os.path.splitext(file)[0].split('_')[-1]
+        with open(file) as f:
+            header = f.readline()
+        align[date] = np.loadtxt(file)
+        # Get next filename and save the array
+        new_file = fm.get_next_filename(file)
+        np.savetxt(new_file, align[date], delimiter='\t', header=header, fmt='%d')
+
+    new_align = deepcopy(align)
+
+    for cell in misalignment:
+        # Get indices of the columns with the mismatched IDs for numpy indexing
+        bad_cols = [cell.columns.get_loc(session)-1 for session in cell.columns[1:] if len(cell[session].unique()) > 1]
+        for date in cell['ref_date']:
+            arr = align[str(date)]
+            # Find row of the cell in each np alignment array
+            row = np.where((arr == np.array(cell.loc[cell['ref_date'] == int(date), cell.columns[1:]]))
+                           .all(axis=1))[0][0]
+            # Change the value of the cell at the session to -1
+            new_align[str(date)][row, bad_cols] = -1
+
+    # save new alignment files
+    for file in file_list:
+        date = os.path.splitext(file)[0].split('_')[-1]
+        with open(file) as f:
+            header = f.readline()
+        np.savetxt(file, new_align[date], delimiter='\t', header=header, fmt='%d')
+
+
+
 def plot_aligned_cells(cell_list, pcf_objects_list, ref_dates, color=False, colbar=False, sort=True, show_neuron_id=False):
     """
-
     :param cell_list: list of assignments, one array (element) per session. Can be e.g. alignments
     :param pcf_objects_list:
     :param ref_dates: list of index showing which session the place cells were from. Same length as cell_list.
@@ -494,7 +824,8 @@ def plot_aligned_cells(cell_list, pcf_objects_list, ref_dates, color=False, colb
     for m in range(len(cell_list)):
         this_sess_bins = []
         for p in range(cell_list[m].shape[0]):
-            curr_pc_id = find_pc_id(pcf_objects_list[ref_dates[m]], int(cell_list[m][p, ref_dates[m]]))
+            curr_pc_id = np.where(np.array([x[0] for x in pcf_objects_list[ref_dates[m]].place_cells]) ==
+                                  int(cell_list[m][p, ref_dates[m]]))[0][0]
             this_sess_bins.append((p, pcf_objects_list[ref_dates[m]].place_cells[curr_pc_id][1][0][0]))  # get the first index of the first place field
         bins.append(this_sess_bins)
 
@@ -540,7 +871,7 @@ def plot_aligned_cells(cell_list, pcf_objects_list, ref_dates, color=False, colb
         glob_scale = False
 
     fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8), sharex=True)
-    fig.suptitle('Place cells in session 1 tracked over time', fontsize=22)
+    fig.suptitle(f'Place cells in session {pcf_objects_list[ref_dates[0]].params["session"]} tracked over time', fontsize=22)
     for nrow in range(nrows):
         if not glob_scale:
             cell_max = np.max(all_cells[nrow])
@@ -558,11 +889,7 @@ def plot_aligned_cells(cell_list, pcf_objects_list, ref_dates, color=False, colb
             else:
                 curr_data = all_cells[nrow][col]
             if nrow == 0:
-                if len(pcf_objects_list[col].params['root'].split(os.path.sep)) > 1:
-                    sess_date = pcf_objects_list[col].params['root'].split(os.path.sep)[-2][:8]
-                else:
-                    sess_date = pcf_objects_list[col].params['root'].split('/')[-2][:8]
-                ax[nrow, col].set_title(sess_date)
+                ax[nrow, col].set_title(pcf_objects_list[col].params['session'])
             elif nrow == nrows-1:
                 # set x ticks to VR position, not bin number
                 ax[nrow, col].set_xlim(0, len(all_cells[nrow][col]))
@@ -606,7 +933,13 @@ def plot_aligned_cells(cell_list, pcf_objects_list, ref_dates, color=False, colb
                 else:
                     ax[nrow, col].plot(curr_data)
                     ax[nrow, col].set_ylim(bottom=cell_min, top=cell_max)
-                    pc_idx = find_pc_id(pcf_objects_list[col], int(all_cell_array[comb_bins_sort[nrow], col]))
+                    pc_idx = np.where(np.array([x[0] for x in pcf_objects_list[col].place_cells]) ==
+                                      int(all_cell_array[comb_bins_sort[nrow], col]))[0]
+                    if len(pc_idx) == 0:
+                        pc_idx = None
+                    else:
+                        pc_idx = pc_idx[0]
+                    # pc_idx = find_pc_id(pcf_objects_list[col], int(all_cell_array[comb_bins_sort[nrow], col]))
                     if pc_idx is not None:
                         curr_place_fields = pcf_objects_list[col].place_cells[pc_idx][1]
                         for field in curr_place_fields:
@@ -631,6 +964,9 @@ def plot_aligned_cells(cell_list, pcf_objects_list, ref_dates, color=False, colb
         ax[int(nrows / 2), 0].set_ylabel('# Neuron\n$\Delta$F/F', fontsize=15)
 
 
+def align_data():
+    return None
+
 #%%
 if __name__ == '__main__':
     dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191122a\N2',
@@ -652,7 +988,7 @@ if __name__ == '__main__':
 
     alignment_array = manual_place_cell_alignment(pcf_sessions=pcf_objects,
                                                   target_sessions=target_session_list,
-                                                  place_cell_idx=place_cell_indices,
+                                                  cell_idx=place_cell_indices,
                                                   alignment=alignment_array,
                                                   all_contours=all_contours_list,
                                                   all_shifts=all_shifts_list,
@@ -771,7 +1107,7 @@ if __name__ == '__main__':
         fig, ax = plt.subplots(1, alignments[0].shape[1], figsize=(17, 5))
         for sess in range(alignments[0].shape[1]):
             curr_spat = pcf_objects[sess].cnmf.estimates.A[:, alignments[0][cell, sess]]
-            draw_single_contour(ax[sess], curr_spat, pcf_objects[sess].cnmf.estimates.Cn, half_size=25, color='r')
+            plot_single_contour(ax[sess], curr_spat, pcf_objects[sess].cnmf.estimates.Cn, half_size=25, color='r')
             ax[sess].axis('off')
             ax[sess].set_title(sess_list[sess])
         plt.tight_layout()

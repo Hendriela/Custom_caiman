@@ -111,13 +111,13 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
         for filename in file_list:
             curr_stamp = datetime.strptime(filename.split('_')[-1][:-4], time_format)
             diff = time_stamp-curr_stamp
-            if abs(diff.total_seconds()) < 2:
+            if abs(diff.total_seconds()) < 3:
                 matched_file.append(filename)
         if len(matched_file) == 0:
-            print(f'No files with timestamp {tstamp} found in {file_list}!')
+            print(f'No files with timestamp {tstamp} found in {root}!')
             return
         elif len(matched_file) > 1:
-            print(f'More than one file with timestamp {tstamp} found in {file_list}!')
+            print(f'More than one file with timestamp {tstamp} found in {root}!')
             return
         else:
             return matched_file[0]

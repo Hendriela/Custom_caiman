@@ -5,17 +5,57 @@ import pandas as pd
 import os
 import pickle
 import seaborn as sns
+from multisession_analysis import multisession_registration as multi
+from multisession_analysis import singlecell as single
+import matplotlib.pyplot as plt
+#
+# roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191122a\N2',
+#          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191125\N2',
+#          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191126b\N2',
+#          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191127a\N2',
+#          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2',
+#          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191205\N2',
+#          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191206\N2',
+#          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191207\N2',
+#          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191208\N2',
+#          r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2']
 
-roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191122a\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191125\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191126b\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191127a\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191204\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191205\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191206\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191207\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191208\N2',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2']
+
+#%% new version
+
+paths = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200818.txt',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200819.txt',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200820.txt',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200821.txt',
+         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200824.txt']
+
+
+alignments = multi.load_alignment(paths)
+data, traces, unique = multi.align_traces(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33', alignments)
+
+# All cells
+corr_matrix_all = single.correlate_activity(traces, unique, stroke='20200825', ignore=['20200826'], title='All cells', show_coef=True, borders=True)
+
+# Split into place cells and non-place cells
+pc_traces, non_pc_traces = single.split_place_cells(traces, data, unique)
+fig, ax = plt.subplots(1,2, figsize=(16,8))
+corr_matrix_pc = single.correlate_activity(pc_traces, unique, stroke='20200825', ignore=['20200826'],
+                                           title='Place cells', ax=ax[0], borders=True)
+corr_matrix_non_pc = single.correlate_activity(non_pc_traces, unique, stroke='20200825', ignore=['20200826'],
+                                               title='Non-Place cells', ax=ax[1], borders=True)
+
+# Save data in txt files for prism
+np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\correlation\all_cells.txt', corr_matrix_all, fmt='%.4f', delimiter='\t')
+np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\correlation\only_pcs.txt', corr_matrix_pc, fmt='%.4f', delimiter='\t')
+np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\correlation\no_pcs.txt', corr_matrix_non_pc, fmt='%.4f', delimiter='\t')
+
+# Get spike rate from single cells
+spikerate_all = single.get_single_spikerate(unique, data, split_pc=False)
+spikerate_pc, spikerate_non_pc = single.get_single_spikerate(unique, data, split_pc=True)
+
+np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\spikerate_all.txt', spikerate_all, fmt='%.4f', delimiter='\t')
+np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\spikerate_pc.txt', spikerate_pc, fmt='%.4f', delimiter='\t')
+np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\spikerate_non_pc.txt', spikerate_non_pc, fmt='%.4f', delimiter='\t')
 
 #%% Load pcf files into a dict for better indexing
 

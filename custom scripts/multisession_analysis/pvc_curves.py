@@ -54,7 +54,6 @@ def pvc_curve(activity_matrix, plot=True, max_delta_bins=30):
     curve_yvals = np.empty(max_delta_bins + 1)
     curve_stdev = np.empty(max_delta_bins + 1)
     for delta_bin in range(max_delta_bins + 1):
-        mean_pvc_delta_bin = 0
         pvc_vals = []
         for offset in range(num_bins - delta_bin):
             idx_x = offset
@@ -75,6 +74,35 @@ def pvc_curve(activity_matrix, plot=True, max_delta_bins=30):
         plot_pvc_curve(curve_yvals, curve_stdev, show=True)
 
     return curve_yvals, curve_stdev
+
+
+def pvc_curve_singlecell(activity_matrix, max_delta_bins=30):
+    """
+    Same as pvc_curve(), but PVC curve is not averaged across neurons. DOES NOT REALLY MAKE SENSE?
+    :param activity_matrix:
+    :param max_delta_bins:
+    :return:
+    """
+    num_bins = np.size(activity_matrix, 0)
+    num_neurons = np.size(activity_matrix, 1)
+    curve_yvals = np.empty((max_delta_bins + 1, num_neurons))
+    curve_stdev = np.empty((max_delta_bins + 1, num_neurons))
+    for delta_bin in range(max_delta_bins + 1):
+        pvc_vals = np.zeros((num_bins - delta_bin, num_neurons))
+        for offset in range(num_bins - delta_bin):
+            idx_x = offset
+            idx_y = offset + delta_bin
+
+            pvc_xy_num = activity_matrix[idx_x] * activity_matrix[idx_y]
+            pvc_xy_den_term1 = activity_matrix[idx_x] * activity_matrix[idx_x]
+            pvc_xy_den_term2 = activity_matrix[idx_y] * activity_matrix[idx_y]
+
+            pvc_vals[offset] = pvc_xy_num / np.sqrt(pvc_xy_den_term1 * pvc_xy_den_term2)
+        mean_pvc_delta_bin = np.mean(pvc_vals, axis=0)
+        stdev_delta_bin = np.std(pvc_vals, axis=0)
+        curve_yvals[delta_bin] = mean_pvc_delta_bin
+        curve_stdev[delta_bin] = stdev_delta_bin
+    return curve_yvals.T, curve_stdev.T
 
 
 def across_mice(block, max_delta_bins=30 ):

@@ -355,11 +355,11 @@ def save_performance_data(session, validation=False):
         for i, file in enumerate(file_list):
             if validation and i > 4:
                 session_performance[i, 0], session_performance[i, 1],  session_performance[i, 2] = \
-                    extract_performance_from_merged(np.loadtxt(file), novel=is_session_novel(session),
+                    extract_performance_from_merged(pd.read_csv(file, sep='\t'), novel=is_session_novel(session),
                                                     valid=validation, buffer=0)
             else:
                 session_performance[i, 0], session_performance[i, 1],  session_performance[i, 2] = \
-                    extract_performance_from_merged(np.loadtxt(file), novel=is_session_novel(session), buffer=2)
+                    extract_performance_from_merged(pd.read_csv(file, sep='\t'), novel=is_session_novel(session), buffer=2)
 
         file_path = os.path.join(session, f'performance.txt')
         np.savetxt(file_path, session_performance, delimiter='\t',  fmt=['%.4f', '%.4f', '%.4f'],
@@ -417,14 +417,17 @@ def get_binned_licking(data, bin_size=2, normalized=True):
     return hist
 
 
-def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size=1):
+def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size=1, use_reward=False):
     """
     Extracts behavior data from one merged_behavior.txt file (acquired through behavior_import.py).
-    :param data: np.array of the merged_behavior*.txt file
+    :param data: pd.DataFrame of the merged_behavior*.txt file
     :param novel: bool, flag whether file was performed in novel corridor (changes reward zone location)
     :param buffer: int, position bins around the RZ that are still counted as RZ for licking
     :param valid: bool, flag whether trial was a RZ position validation trial (training corridor with shifted RZs)
     :param bin_size: int, bin size in VR units for binned licking performance analysis (divisible by zone borders)
+    :param use_reward: bool flag whether to use valve openings to calculate number of passed reward zones. More
+                        more sensitive for well performing mice, but vulnerable against manual valve openings and
+                        useless for autoreward trials.
     :returns lick_ratio: float, ratio between individual licking bouts that occurred in reward zones div. by all licks
     :returns stop_ratio: float, ratio between stops in reward zones divided by total number of stops
     """
@@ -439,14 +442,34 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
     zone_borders[:, 0] -= buffer
     zone_borders[:, 1] += buffer
 
+    # Find out which reward zones were passed (reward given) if reward data is available
+    reward_from_merged = False
+    if use_reward and any(data['reward'] == -1):
+        rz_passed = np.zeros(len(zone_borders))
+        for idx, zone in enumerate(zone_borders):
+            rz_data = data.loc[(data['VR pos'] > zone[0]) & (data['VR pos'] < zone[1]), 'reward']
+            # Cap reward at 1 per reward zone (ignore possible manual water rewards given)
+            if rz_data.sum() >= 1:
+                rz_passed[idx] = 1
+            else:
+                rz_passed[idx] = 0
+        passed_rz = rz_passed.sum()/len(zone_borders)
+        reward_from_merged = True
+
+    # Get indices of proper columns and transform DataFrame to numpy array for easier processing
+    lick_idx = data.columns.get_loc('licks')
+    enc_idx = data.columns.get_loc('encoder')
+    pos_idx = data.columns.get_loc('VR pos')
+    data = np.array(data)
 
     ### GET LICKING DATA ###
     # select only time point where the mouse licked
-    lick_only = data[np.where(data[:, 2] == 1)]
+    lick_only = data[np.where(data[:, lick_idx] == 1)]
 
     if lick_only.shape[0] == 0:
         lick_ratio = np.nan  # set nan, if there was no licking during the trial
-        passed_rz = 0
+        if not reward_from_merged:
+            passed_rz = 0
     else:
         # remove continuous licks that were longer than 5 seconds
         diff = np.round(np.diff(lick_only[:, 0]) * 10000).astype(int)  # get an array of time differences
@@ -457,14 +480,15 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
             # out of these, select only time points where the mouse was in a reward zone
             lick_zone_only = []
             for zone in zone_borders:
-                lick_zone_only.append(licks[(zone[0] <= licks[:, 1]) & (licks[:, 1] <= zone[1])])
+                lick_zone_only.append(licks[(zone[0] <= licks[:, pos_idx]) & (licks[:, pos_idx] <= zone[1])])
             zone_licks = np.vstack(lick_zone_only)
             # the length of the zone-only licks divided by the all-licks is the zone-lick ratio
             lick_ratio = zone_licks.shape[0]/lick_only.shape[0]
 
             # correct by fraction of reward zones where the mouse actually licked
-            passed_rz = len([x for x in lick_zone_only if len(x) > 0])
-            lick_ratio = lick_ratio * (passed_rz / len(zone_borders))
+            if not reward_from_merged:
+                passed_rz = len([x for x in lick_zone_only if len(x) > 0])/len(zone_borders)
+            lick_ratio = lick_ratio * passed_rz
 
             # # correct by the fraction of time the mouse spent in reward zones vs outside
             # rz_idx = 0
@@ -475,11 +499,12 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
 
         else:
             lick_ratio = np.nan
-            passed_rz = 0
+            if not reward_from_merged:
+                passed_rz = 0
 
     ### GET STOPPING DATA ###
     # select only time points where the mouse was not running (encoder between -2 and 2)
-    stop_only = data[(-2 <= data[:, -1]) & (data[:, -1] <= 2)]
+    stop_only = data[(-2 <= data[:, enc_idx]) & (data[:, enc_idx] <= 2)]
     # split into discrete stops
     diff = np.round(np.diff(stop_only[:, 0]) * 10000).astype(int) # get an array of time differences
     stops = np.split(stop_only, np.where(diff > 5)[0] + 1)  # split at points where difference > 0.5 ms (sample gap)
@@ -488,7 +513,8 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
     # select only stops that were inside a reward zone (min or max position was inside a zone border)
     zone_stop_only = []
     for zone in zone_borders:
-        zone_stop_only.append([i for i in stops if zone[0] <= np.max(i[:, 1]) <= zone[1] or zone[0] <= np.min(i[:, 1]) <= zone[1]])
+        zone_stop_only.append([i for i in stops if zone[0] <= np.max(i[:, pos_idx]) <= zone[1] or
+                               zone[0] <= np.min(i[:, pos_idx]) <= zone[1]])
     # the number of the zone-only stops divided by the number of the total stops is the zone-stop ratio
     zone_stops = np.sum([len(i) for i in zone_stop_only])
     stop_ratio = zone_stops/len(stops)
@@ -500,7 +526,7 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
     zone_bins = []
     for zone in zone_borders:
         zone_bins.extend(np.arange(start=zone[0], stop=zone[1]+1, step=bin_size))
-    bin_idx = np.digitize(data[:, 1], bins)
+    bin_idx = np.digitize(data[:, pos_idx], bins)
     for curr_bin in np.unique(bin_idx):
         if sum(data[np.where(bin_idx == curr_bin)[0], 2]) >= 1:
             if bins[curr_bin-1] in zone_bins:
@@ -508,7 +534,7 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
             else:
                 licked_nonrz_bins += 1
     try:
-        binned_lick_ratio = (licked_rz_bins/(licked_rz_bins+licked_nonrz_bins)) * (passed_rz / len(zone_borders))
+        binned_lick_ratio = (licked_rz_bins/(licked_rz_bins+licked_nonrz_bins)) * passed_rz
     except ZeroDivisionError:
         binned_lick_ratio = 0
 
@@ -708,6 +734,26 @@ def normalize_dates(date_list, norm_date):
     else:
         return norm_days
 
+
+def normalize_performance(data, session_range):
+    """
+    Normalize performance by dividing licking performance by the mean of the provided session window.
+    :param data: DataFrame holding behavioral data, from load_performance_data()
+    :param session_range: tuple of first and last session date (str) of the baseline window
+    :return: input DataFrame with additional 'licking_binned_norm' column
+    """
+    session_idx = (int(data.loc[data['session_date'] == session_range[0], 'sess_id'].mean()),
+                   int(data.loc[data['session_date'] == session_range[1], 'sess_id'].mean()))
+
+    df_list = []
+    for mouse in np.unique(data['mouse']):
+        curr_df = data.loc[data['mouse'] == mouse]
+        dat = curr_df.loc[(curr_df['sess_id'] >= session_idx[0]) & (curr_df['sess_id'] <= session_idx[1])]
+        base = dat['licking_binned'].mean()
+        curr_df['licking_binned_norm'] = curr_df['licking_binned'] / base
+        df_list.append(curr_df)
+    return pd.concat(df_list)
+
 #%% Plotting
 
 # todo make vertical line or something to signify stroke sessions
@@ -866,10 +912,10 @@ def plot_all_mice_avg(input, field='licking', rotate_labels=False, session_range
     ax = sns.lineplot(x='sess_id', y=field, data=data)
 
     if session_range is None:
-        ax.set(ylim=(0, 100), ylabel='licks in reward zone [%]',
+        ax.set(ylabel='licks in reward zone [%]',
                title='Average of all mice', xticks=range(len(sessions)), xticklabels=sessions)
     else:
-        ax.set(ylim=(0, 100), xlim=(session_range[0], session_range[1]), ylabel='licks in reward zone [%]',
+        ax.set(xlim=(session_range[0], session_range[1]), ylabel='licks in reward zone [%]',
                title='Average of all mice', xticks=range(len(sessions)), xticklabels=sessions)
 
     if rotate_labels:
@@ -878,31 +924,46 @@ def plot_all_mice_avg(input, field='licking', rotate_labels=False, session_range
     sns.set(font_scale=scale)
 
 
-def plot_all_mice_separately(input, field='licking', rotate_labels=False, session_range=None, scale=1):
+def plot_all_mice_separately(input, field='licking_binned', x_axis='sess_norm', rotate_labels=False, session_range=None,
+                             scale=1, hlines=None, vlines=None, columns=3):
     """
     Plots the performance in % licks in RZ per session of all mice in separate graphs.
     :param input: pandas DataFrame from load_performance_data()
+    :param field: column of the input DataFrame that should be plotted on the y-axis
+    :param x_axis: column of the input DataFrame that should be plotted on the x-axis
     :param rotate_labels: bool flag whether x-axis labels should be rotated by 45°
     :param session_range: optional tuple or list, restricted range of sessions to be displayed (from input['sess_id'])
+    :param scale: int, scaling factor of axis and tick labels applied by seaborn
+    :param hlines: optional tuple or list, y-axis positions for green horizontal lines (e.g. pre-stroke baselines)
+    :param vlines: optional tuple or list, x-axis positions for red vertical lines (e.g. stroke dates)
+    :param columns: int, number of columns of the figure
     :return:
     """
     sns.set()
     sns.set_style('whitegrid')
     data = deepcopy(input)
     data[field] = data[field] * 100
-    sessions = np.array(np.sort(data['sess_norm'].unique()), dtype=int)
-    grid = sns.FacetGrid(data, col='mouse', col_wrap=3, height=3, aspect=2)
+    sessions = np.array(np.sort(data[x_axis].unique()), dtype=int)
+    if len(data['mouse'].unique()) < columns:
+        columns = len(data['mouse'].unique())
+    grid = sns.FacetGrid(data, col='mouse', col_wrap=columns, height=3, aspect=2)
     grid.map(sns.lineplot, 'sess_id', field)
     grid.set_axis_labels('session', 'licks in reward zone [%]')
 
-    # for ax in grid.axes.ravel():
-    #     ax.axvline(30.5, color='r')
-    #     ax.axvline(37.5, color='r')
-    #     ax.axvline(42.5, color='r')
-    #     ax.axvline(45.5, color='r')
+    # Plot red vertical lines (signalling stroke) if provided
+    if vlines is not None:
+        for line in vlines:
+            for ax in grid.axes.ravel():
+                ax.axvline(line, color='r')
+
+    # Plot green horizontal line (signaling baseline) if provided (one per mouse/axes)
+    if hlines is not None:
+        hlines = [x*100 for x in hlines]
+        for idx, ax in enumerate(grid.axes.ravel()):
+            ax.axhline(hlines[idx], color='g')
 
     if session_range is None:
-        out = grid.set(ylim=(0, 150), xticks=range(len(sessions)), xticklabels=sessions)
+        out = grid.set(ylim=(0, 100), xticks=np.sort(input['sess_id'].unique()), xticklabels=sessions)
     else:
         out = grid.set(ylim=(0, 100), xlim=(session_range[0], session_range[1]),
                        xticks=range(len(sessions)), xticklabels=sessions)
@@ -915,7 +976,7 @@ def plot_all_mice_separately(input, field='licking', rotate_labels=False, sessio
 
 
 def plot_validation_performance(path, change_trial=5, bin_size=1, normalized=True, cmap='jet', validation_zones=False,
-                                target=None):
+                                show_old=False, target=None):
     """
     Plots the performance, individual licks per bin and binary licks per bin of one validation session.
     :param path: str, directory of one session
@@ -936,7 +997,7 @@ def plot_validation_performance(path, change_trial=5, bin_size=1, normalized=Tru
     zone_borders_new = np.array([[-6, 4], [34, 44], [66, 76], [90, 100]])+10
     zone_borders_old = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])+10
 
-    mouse = path.split(sep=os.path.sep)[-2]
+    mouse = path.split(sep=os.path.sep)[-1]
 
     file_list = glob(path+'\\*\\merged_behavior*.txt')
     if len(file_list) == 0:
@@ -997,18 +1058,72 @@ def plot_validation_performance(path, change_trial=5, bin_size=1, normalized=Tru
     #### Plot performance
     perf_data = np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))
     fig = plt.figure(figsize=(12, 4))
-    out = plt.plot(perf_data[:, 0])
-    out[0].set_label('old')
+    if show_old:
+        out = plt.plot(perf_data[:, 0])
+        out[0].set_label('old')
     out2 = plt.plot(perf_data[:, 1])
     out2[0].set_label('new')
     plt.ylim(0, 1.1)
-    out[0].axes.tick_params(labelsize=10)
-    out[0].axes.set_ylabel('Licking performance', rotation=90, fontsize=12)
-    out[0].axes.set_xlabel('Trial', fontsize=12)
-    out[0].axes.axvline(change_trial-0.5, color='r')
-    out[0].axes.legend()
+    out2[0].axes.tick_params(labelsize=10)
+    out2[0].axes.set_ylabel('Licking performance', rotation=90, fontsize=12)
+    out2[0].axes.set_xlabel('Trial', fontsize=12)
+    out2[0].axes.axvline(change_trial-0.5, color='r')
+    if show_old:
+        out2[0].axes.legend()
     fig.tight_layout()
     if target is not None:
         plt.savefig(os.path.join(target, f'{mouse}_performance.png'))
         plt.close()
 
+
+def plot_binned_licking(path, bin_size=2, novel=False):
+    """
+    Plots the licking of a single session as a histogram binned over VR positions.
+    :param path: str, path of session
+    :param bin_size: int, amount of binning
+    :param novel: bool flag whether session was in the novel corridor
+    :return:
+    """
+
+    def atoi(text):
+        return int(text) if text.isdigit() else text
+
+    def natural_keys(text):
+        return [atoi(c) for c in re.split('(\d+)', text)]
+
+    if novel:
+        zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
+    else:
+        zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]]) + 10
+
+    mouse = path.split(sep=os.path.sep)[-2]
+    session = path.split(sep=os.path.sep)[-1]
+
+    file_list = glob(path + '\\*\\merged_behavior*.txt')
+    if len(file_list) == 0:
+        file_list = glob(path + '\\merged_behavior*.txt')
+    file_list.sort(key=natural_keys)
+
+    data = np.zeros((len(file_list), int(120 / bin_size)))
+    for idx, file in enumerate(file_list):
+        data[idx] = get_binned_licking(np.loadtxt(file), bin_size=bin_size, normalized=False)
+
+    data[data > 0] = 1
+
+    plt.figure(figsize=(8, 4))
+    plt.hist(np.linspace(0, 400, 60), bins=60, weights=(np.sum(data, axis=0) / len(data)) * 100,
+             facecolor='black', edgecolor='black')
+
+    for zone in zone_borders:
+        plt.axvspan(zone[0] * (10 / 3), zone[1] * (10 / 3), color='red', alpha=0.3)
+
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.ylim(0, 105)
+    plt.xlabel('VR position', fontsize=22)
+    plt.ylabel('Licked in bin [%]', fontsize=22)
+    plt.tight_layout()
+    plt.title(f'Mouse {mouse}, session {session}', fontsize=24)
+    ax = plt.gca()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
