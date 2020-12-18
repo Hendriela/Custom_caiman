@@ -213,7 +213,7 @@ def load_performance_data(roots, norm_date, stroke=None):
     for root in roots:
         for step in os.walk(root):
             # Find performance
-            if 'performance.txt' in step[2]:
+            if 'performance.txt' in step[2] and 'validation' not in step[0]:
                 # load data of the current session and add it to the global list as a pd.Series
                 file_path = os.path.join(step[0], 'performance.txt')
                 sess_data = np.loadtxt(file_path)
@@ -762,6 +762,7 @@ def normalize_performance(data, session_range):
 def quick_screen_session(path, valid=False):
     """
     Plots the binned running speed and licking of each trial in a session for a quick screening.
+    TODO: fix vlines of RZs when mouse is running backwards (e.g. M57 20201126)
     :param path:
     :return:
     """
@@ -924,7 +925,7 @@ def plot_all_mice_avg(input, field='licking', rotate_labels=False, session_range
     sns.set(font_scale=scale)
 
 
-def plot_all_mice_separately(input, field='licking', x_axis='sess_norm', rotate_labels=False, session_range=None,
+def plot_all_mice_separately(input, field='licking_binned', x_axis='sess_norm', rotate_labels=False, session_range=None,
                              scale=1, hlines=None, vlines=None, columns=3):
     """
     Plots the performance in % licks in RZ per session of all mice in separate graphs.
@@ -976,7 +977,7 @@ def plot_all_mice_separately(input, field='licking', x_axis='sess_norm', rotate_
 
 
 def plot_validation_performance(path, change_trial=5, bin_size=1, normalized=True, cmap='jet', validation_zones=False,
-                                target=None):
+                                show_old=False, target=None):
     """
     Plots the performance, individual licks per bin and binary licks per bin of one validation session.
     :param path: str, directory of one session
@@ -985,6 +986,7 @@ def plot_validation_performance(path, change_trial=5, bin_size=1, normalized=Tru
     :param normalized: bool flag whether performance should be normalized to the mean pre-change performance
     :param cmap: str, colormap for the individual-licks-plot
     :param validation_zones: bool flag whether to plot new validation zones (for sessions when zone positions shifted)
+    :param show_old: bool flag whether to plot the old method of performance calculation (no binned licking)
     :param target: str, if provided plots are saved to this directory and closed afterwards
     :return:
     """
@@ -997,7 +999,7 @@ def plot_validation_performance(path, change_trial=5, bin_size=1, normalized=Tru
     zone_borders_new = np.array([[-6, 4], [34, 44], [66, 76], [90, 100]])+10
     zone_borders_old = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]])+10
 
-    mouse = path.split(sep=os.path.sep)[-2]
+    mouse = path.split(sep=os.path.sep)[-1]
 
     file_list = glob(path+'\\*\\merged_behavior*.txt')
     if len(file_list) == 0:
@@ -1058,16 +1060,18 @@ def plot_validation_performance(path, change_trial=5, bin_size=1, normalized=Tru
     #### Plot performance
     perf_data = np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))
     fig = plt.figure(figsize=(12, 4))
-    out = plt.plot(perf_data[:, 0])
-    out[0].set_label('old')
+    if show_old:
+        out = plt.plot(perf_data[:, 0])
+        out[0].set_label('old')
     out2 = plt.plot(perf_data[:, 1])
     out2[0].set_label('new')
     plt.ylim(0, 1.1)
-    out[0].axes.tick_params(labelsize=10)
-    out[0].axes.set_ylabel('Licking performance', rotation=90, fontsize=12)
-    out[0].axes.set_xlabel('Trial', fontsize=12)
-    out[0].axes.axvline(change_trial-0.5, color='r')
-    out[0].axes.legend()
+    out2[0].axes.tick_params(labelsize=10)
+    out2[0].axes.set_ylabel('Licking performance', rotation=90, fontsize=12)
+    out2[0].axes.set_xlabel('Trial', fontsize=12)
+    out2[0].axes.axvline(change_trial-0.5, color='r')
+    if show_old:
+        out2[0].axes.legend()
     fig.tight_layout()
     if target is not None:
         plt.savefig(os.path.join(target, f'{mouse}_performance.png'))

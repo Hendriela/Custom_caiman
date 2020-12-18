@@ -9,6 +9,7 @@ from copy import deepcopy
 from datetime import datetime as dt
 import multisession_analysis.pvc_curves as pvc
 from scipy.signal import argrelextrema
+import standard_pipeline.performance_check as performance
 
 #%% Calculations
 
@@ -152,10 +153,82 @@ def get_simple_data(root, filepath=r'W:\Neurophysiology-Storage1\Wahl\Hendrik\Ph
                                      ((df.session >= norm_range[0]) & (df.session <= norm_range[1])), field].mean()
                 df.loc[df.mouse == mouse, field+'_norm'] = df.loc[df.mouse == mouse, field] / norm_factor
 
+    # add behavioral performance data
+    behav_data = performance.load_performance_data(roots=[root], norm_date='20200824', stroke=df['mouse'][0])
+    df = combine_simple_with_behav(df, behav_data)
+
     df.sort_values(by=['mouse', 'session'], inplace=True)  # order rows for mice and session dates
     df.to_pickle(filepath)  # save dataframe as pickle
 
     return df
+
+
+def combine_simple_with_behav(simple_data, behav_data, field='licking_binned'):
+    """
+    Add avg performance per session as a column to simple_data (for old version that did not do that automatically yet).
+    :param simple_data: pd.DataFrame with simple data, from get_simple_data()
+    :param behav_data: pd.DataFrame with behavioral data, from performance.load_behavior()
+    :return: simple_data_new, pd.DataFrame with performance as new column
+    """
+    simple_data[field] = 0.0
+    for i in range(len(simple_data)):
+        mouse = simple_data['mouse'][i]
+        session = simple_data['session'][i]
+        curr_perf = behav_data.loc[(behav_data['mouse'] == mouse) & (behav_data['session_date'] == str(session)), field]
+        simple_data.at[i, field] = curr_perf.mean()
+    return simple_data
+
+
+def correlate_behavior_with_simple(simple, field, ylabel='', nrows=2, plot_lin_fit=True, show_r=True, behav='licking_binned'):
+    """
+    Correlates behavioral performance with another metric. Scatter plots for individual mice are drawn and Pearson's R
+    is returned.
+    :param simple: pd.DataFrame from get_simple_data(). Should be filtered for correct mice and sessions
+    :param field: str, name of column that should be correlated against behavior
+    :param nrows: int, number of rows for subplots, default 2
+    :param plot_lin_fit: bool flag whether a linear fit should be drawn into the plots
+    :param show_r: bool flag whether Pearson's R should be drawn in the top-left corner of the plots
+    :param ylabel: str, is shown as y-label and title of the plot
+    :param behav: str, column name of behavioral data, default "licking_binned"
+    :return: r, 1D np.array with shape (#mice) with Pearson's R coefficient for every mouse.
+    """
+    mice = simple.mouse.unique()
+    # Array that stores Pearson's R coefficient
+    r = np.zeros(len(mice)) + np.nan
+
+    ncols = np.ceil(len(mice)/nrows)
+    fig = plt.figure(figsize=(10,8))
+    fig.suptitle(f'Correlation performance vs {ylabel}', fontsize=18)
+    for m_idx, mouse in enumerate(mice):
+        ax = fig.add_subplot(nrows, ncols, m_idx+1)
+        x = simple.loc[simple.mouse == mouse, behav].astype(float)
+        y = simple.loc[simple.mouse == mouse, field].astype(float)
+
+        # Plot scatter plot
+        ax.plot(x, y, 'o')
+
+        # Plot linear fit
+        if plot_lin_fit:
+            idx = np.isfinite(x) & np.isfinite(y)   # filter out NaN
+            fit = np.polyfit(x[idx], y[idx], 1)
+            x_fit = np.linspace(min(x), max(x), len(y))
+            y_fit = fit[0] * x_fit + fit[1]
+            ax.plot(x_fit, y_fit, '--', c='grey')
+
+        # Calculate Pearson's R correlation coefficient and plot it in the graph (transform to pd.DF to deal with nan)
+        r[m_idx] = pd.DataFrame(np.array((x,y)).T).corr()[0][1]
+        if show_r:
+            ax.text(0.05, 0.95, 'R={:.2f}'.format(r[m_idx]), transform=ax.transAxes)
+
+        # Formatting
+        ax.set_title(mouse)
+        if m_idx >= ncols:
+            ax.set_xlabel('Performance', fontsize=15)
+        if m_idx % ncols == 0:
+            ax.set_ylabel(ylabel, fontsize=15)
+    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    return r
 
 
 def load_all_pc_data(root):

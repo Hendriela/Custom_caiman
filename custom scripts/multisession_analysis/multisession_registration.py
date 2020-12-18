@@ -586,12 +586,12 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, cell_idx, alignme
 
     # see if the alignment array has already been (partly) filled to skip processed cells
     if len(np.unique(alignment)) != 1:
-        untagged_cells = np.where(alignment == -1)[0]
+        untagged_cells = np.where(alignment == -1)
         if len(untagged_cells) == 0:
             return print("All cells aligned!")
         else:
-            start_ref = untagged_cells[0]   # row of first -1 shows with which reference cell to start
-            start_real = untagged_cells[0]   # col of first -1 shows with which target session to start
+            start_ref = untagged_cells[0][0]   # row of first -1 shows with which reference cell to start
+            start_real = untagged_cells[1][0]   # col of first -1 shows with which target session to start
         if start_real == ref_session:
             start_tar = 0
         else:

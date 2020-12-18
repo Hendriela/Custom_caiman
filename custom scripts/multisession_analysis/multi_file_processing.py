@@ -18,7 +18,7 @@ def out():
     stroke = ['M32', 'M40', 'M41']
     control = ['M33', 'M38', 'M39']
 
-    data = performance.load_performance_data(roots=path, norm_date='20200513', stroke=stroke)
+    behav_data = performance.load_performance_data(roots=path, norm_date='20200824', stroke=stroke)
 
     performance.plot_all_mice_avg(data, field='licking_binned', rotate_labels=False, session_range=(16, 30), scale=2)
     performance.plot_all_mice_avg(data, rotate_labels=False, scale=2)
@@ -29,7 +29,7 @@ def out():
     axis = performance.plot_single_mouse(data, 'M32', session_range=(16, 30), scale=2, ax=axis)
 
     # filter_data = data[data['sess_id'] <= 15]
-    filter_data = data[(data['sess_id'] >= 16)]
+    filter_data = behav_data[(behav_data['sess_id'] >= 16)]
     filter_data = filter_data[(filter_data['sess_id'] <= 30)]
     filter_data = filter_data[filter_data.mouse != 'M35']
     filter_data = filter_data[filter_data.mouse != 'M37']
@@ -40,6 +40,21 @@ def out():
 
     batch.exp_to_prism_mouse_avg(filter_data, field='licking_binned', grouping=False, fname='learning_curve_block3_avg.txt')
     batch.exp_to_prism_single_trials(filter_data, field='licking_binned', fname='learning_curve_block3.txt')
+
+#%% Correlate behavior with simple data
+data = batch.get_simple_data(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3',
+                             filepath=r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\simple_data_novel.pickle',
+                             overwrite=True, session_range=[20200623, 20200625])
+
+simple_data = pd.read_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\simple_data.pickle')
+simple_data_filt = simple_data[simple_data.mouse.isin(['M33', 'M38', 'M39', 'M41'])]
+simple_data_filt = simple_data_filt[simple_data_filt.session.between(20200818, 20200911)]
+
+fields = ['mean_spikerate', 'median_spikerate', 'ratio', 'pvc_slope', 'min_pvc', 'sec_peak_ratio']
+ylabels = ['Mean spike rate [Hz]', 'Median spike rate [Hz]', 'Place cell ratio', 'PVC slope', 'minimum PVC', '2nd peak ratio']
+for field, ylabel in zip(fields, ylabels):
+    _ = batch.correlate_behavior_with_simple(simple_data_filt, field, ylabel)
+
 
 #%% normalize performance
 filter_data['lick_norm'] = np.nan
@@ -66,11 +81,7 @@ plt.ylim(0, 1.5)
 
 #%% simple data
 
-data = batch.get_simple_data(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3',
-                             filepath=r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\simple_data_novel.pickle',
-                             overwrite=True, session_range=[20200623, 20200625])
 
-data = pd.read_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\simple_data.pickle')
 
 #%%
 #r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191121b\N2',

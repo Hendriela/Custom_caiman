@@ -49,6 +49,13 @@ np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_proc
 np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\correlation\only_pcs.txt', corr_matrix_pc, fmt='%.4f', delimiter='\t')
 np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\correlation\no_pcs.txt', corr_matrix_non_pc, fmt='%.4f', delimiter='\t')
 
+# Get spike rate from single cells
+spikerate_all = single.get_single_spikerate(unique, data, split_pc=False)
+spikerate_pc, spikerate_non_pc = single.get_single_spikerate(unique, data, split_pc=True)
+
+np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\spikerate_all.txt', spikerate_all, fmt='%.4f', delimiter='\t')
+np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\spikerate_pc.txt', spikerate_pc, fmt='%.4f', delimiter='\t')
+np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\spikerate_non_pc.txt', spikerate_non_pc, fmt='%.4f', delimiter='\t')
 
 #%% Load pcf files into a dict for better indexing
 

@@ -2,6 +2,28 @@ import numpy as np
 import seaborn as sn
 import matplotlib.pyplot as plt
 import pandas as pd
+import multisession_analysis.pvc_curves as pvc
+from scipy.signal import argrelextrema
+
+
+def ignore_sessions(i, t, d):
+    """
+    Removes specified sessions from the traces array.
+    :param i: list of str, dates of sessions to be ignored in the analysis
+    :param t: np.array containing aligned traces with shape (#neurons, #sessions, #bins)
+    :param d: dates of aligned sessions (from alignment.columns)
+    :return: t_new; t with sessions removed
+    :return: d_new; pd.Index object holding dates with sessions removed
+    """
+    # Remove sessions that should be ignored
+    ignore_mask = np.ones(t.shape[1], dtype=bool)
+    for sess in i:
+        ignore_mask[np.where(d == sess)[0][0]] = False
+    t_new = t[:, ignore_mask, :]
+    d_new = d[ignore_mask]
+
+    return t_new, d_new
+
 
 def correlate_activity(traces, alignment, stroke='20200825', ignore=None, title=None, show_coef=True, ax=None, borders=False):
     """
@@ -40,14 +62,9 @@ def correlate_activity(traces, alignment, stroke='20200825', ignore=None, title=
         mat /= n_sess
         return mat
 
-    # Remove sessions that should be ignored
     dates = alignment.columns
     if ignore is not None:
-        ignore_mask = np.ones(traces.shape[1], dtype=bool)
-        for sess in ignore:
-            ignore_mask[np.where(dates == sess)[0][0]] = False
-        traces = traces[:, ignore_mask, :]
-        dates = dates[ignore_mask]
+        traces, dates = ignore_sessions(ignore, traces, dates)
 
     # Find index of stroke session (smallest non-negative date difference)
     date_diff = dates.astype(int) - int(stroke)
@@ -79,7 +96,13 @@ def correlate_activity(traces, alignment, stroke='20200825', ignore=None, title=
 
 
 def split_place_cells(traces, data, alignment):
-
+    """
+    Separates traces of all cells into place cells and non place cells. Arguments from multi.align_traces().
+    :param traces: 3D np.array containing aligned traces with shape (#neurons, #sessions, #bins)
+    :param data: dict with PCF objects of all aligned sessions (dates as keys)
+    :param alignment: pd.DataFrame holding respective neuron IDs of unique tracked cells for every session
+    :return: 2 np.arrays with same shape as traces, but NaNs for sessions where the cell was not a place cell and v/v.
+    """
     pc_traces = traces.copy()
     non_pc_traces = traces.copy()
 
@@ -94,6 +117,55 @@ def split_place_cells(traces, data, alignment):
     return pc_traces, non_pc_traces
 
 
-def
+def get_pvc(traces, alignment, ignore=None, max_delta_bin=30, stroke='20200825', save=None):
+
+    dates = alignment.columns
+    if ignore is not None:
+        traces, dates = ignore_sessions(ignore, traces, dates)
+
+    pvc_curves = np.zeros((traces.shape[0], traces.shape[1], max_delta_bin+1)) + np.nan
+    pvc_stdev = np.zeros((traces.shape[0], traces.shape[1], max_delta_bin+1)) + np.nan
+    # sec_peak = np.zeros((traces.shape[0], traces.shape[1])) TODO: Make this work with individual cells that have small fluctuating local maxima (e.g. M33 cell 21 session 1)
+    min_pvc = np.zeros((traces.shape[0], traces.shape[1]))
+
+    for sess in range(traces.shape[1]):
+        curr_mat = traces[:, sess]
+        curves, std = pvc.pvc_curve_singlecell(curr_mat.T, max_delta_bins=max_delta_bin)
+        pvc_curves[:, sess] = curves
+        pvc_stdev[:, sess] = std
+        min_pvc[:, sess] = np.nanmin(curves[:, :20], axis=1)
+        # for cell in range(len(curves)): TODO: see above, find way to get second peak ratio with unstable traces
+        #     curve = curves[cell]
+        #     try:
+        #         sec_peak[cell, sess] = curve[argrelextrema(curve, np.greater)[0][0]] / \
+        #                          curve[argrelextrema(curve, np.less)[0][0]]
+        #     except IndexError:
+        #         sec_peak[cell, sess] = np.nan
+
+    if save is not None:
+        d_diff = pd.to_datetime(dates) - pd.to_datetime(stroke)
+        np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\M33_min_pvc.txt',
+                   min_pvc, fmt='%.4f', delimiter='\t', header="\t".join(d_diff.days.astype(str)))
 
 
+def get_single_spikerate(alignment, data, split_pc=False):
+
+    dates = alignment.columns
+    if split_pc:
+        fr = (np.zeros((len(alignment), len(dates)))+np.nan, np.zeros((len(alignment), len(dates)))+np.nan)
+    else:
+        fr = np.zeros((len(alignment), len(dates))) + np.nan
+    for date_idx, date in enumerate(dates):
+        spike_dist = np.nansum(data[date].cnmf.estimates.spikes, axis=1) / (data[date].cnmf.estimates.spikes.shape[1] /
+                                                                            data[date].cnmf.params.data['fr'])
+        pc_idx = [x[0] for x in data[date].place_cells]
+        for cell_idx, cell in enumerate(alignment[date]):
+            if int(cell) != -10:
+                if split_pc:
+                    if int(cell) in pc_idx:
+                        fr[0][cell_idx, date_idx] = spike_dist[int(cell)]
+                    else:
+                        fr[1][cell_idx, date_idx] = spike_dist[int(cell)]
+                else:
+                    fr[cell_idx, date_idx] = spike_dist[int(cell)]
+    return fr

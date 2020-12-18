@@ -79,6 +79,19 @@ msr.show_whole_fov(reference_session=pcf_objects[5], target_session=pcf_objects[
 file_directory = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments'
 msr.save_alignment(file_directory, alignment_array, reference_session, pcf_objects)
 
+count = 0
+for idx, i in enumerate(pcf.params['frame_list']):
+    count += i
+    print(f'Trial {idx+1}, Frame {count-i} to {count}')
+
+align_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200818.txt',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200819.txt',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200820.txt',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200821.txt',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200824.txt']
+
+alignments = msr.load_alignment(align_list)
+
 
 #%% whole pipeline
 
@@ -910,7 +923,104 @@ for ax, row in zip(axes[:,0], mice):
 
 plt.tight_layout()
 
+#%% Plot comparison graphs between different trace datasets
+fr = 30 # frame rate, set to 1 to plot traces against frame counts
+cell = 49
+fig, ax = plt.subplots(2, 3)
+ax[0,2].plot(np.arange(len(cnm.estimates.F_dff[cell]))/fr, cnm.estimates.F_dff[cell])
+ax[0,2].set_title('estimates.F_dff')
+ax[0,2].axvline(5000/fr, color='r')
+ax[0,2].axvline(5800/fr, color='r')
+ax[0,1].plot(np.arange(len(cnm.estimates.F_dff[cell]))/fr, cnm.estimates.C[cell])
+ax[0,1].set_title('estimates.C (inferred trace)')
+ax[0,1].axvline(5000/fr, color='r')
+ax[0,1].axvline(5800/fr, color='r')
+ax[0,0].plot(np.arange(len(cnm.estimates.F_dff[cell]))/fr, cnm.estimates.C[cell]+cnm.estimates.R[cell])
+ax[0,0].set_title('estimates.C + residuals ("filtered raw trace")')
+ax[0,0].axvline(5000/fr, color='r')
+ax[0,0].axvline(5800/fr, color='r')
+ax[1,2].plot(np.arange(5000,5800)/fr, cnm.estimates.F_dff[cell, 5000:5800])
+# ax[1,0].set_title('estimates.F_dff zoom')
+ax[1,1].plot(np.arange(5000,5800)/fr, cnm.estimates.C[cell, 5000:5800])
+# ax[1,1].set_title('estimates.C zoom')
+ax[1,0].plot(np.arange(5000,5800)/fr, cnm.estimates.C[cell, 5000:5800]+cnm.estimates.R[cell, 5000:5800])
+# ax[1,2].set_title('estimates.S zoom')
+ax[1,0].set_xlabel('frames')
+ax[1,1].set_xlabel('frames')
+ax[1,2].set_xlabel('frames')
+
+# Plotting background components
+fig, ax = plt.subplots(2, 2)
+ax[0,0].imshow(np.reshape(pcf.cnmf.estimates.b[:,0],pcf.cnmf.dims, order='F'))
+ax[0,1].imshow(np.reshape(pcf.cnmf.estimates.b[:,1],pcf.cnmf.dims, order='F'))
+ax[1,0].plot(np.arange(len(pcf.cnmf.estimates.f[0]))/fr, pcf.cnmf.estimates.f[0])
+ax[1,1].plot(np.arange(len(pcf.cnmf.estimates.f[1]))/fr, pcf.cnmf.estimates.f[1])
+ax[0,0].set_title('Background component 1')
+ax[0,1].set_title('Background component 2')
+ax[1,0].set_xlabel('time [s]')
+ax[1,1].set_xlabel('time [s]')
+
+# Zoomed-in temporal components
+fig, ax = plt.subplots(2, 1)
+ax[0].plot(np.arange(14700, 15300)/fr, pcf.cnmf.estimates.f[0, 14700:15300])
+ax[1].plot(np.arange(14700, 15300)/fr, pcf.cnmf.estimates.f[1, 14700:15300])
+ax[0].set_title('Zoom background comp 1')
+ax[1].set_title('Zoom Background comp 2')
+ax[0].set_xlabel('time [s]')
+ax[1].set_xlabel('time [s]')
+
+# Residuals and (reconstructed) raw data
+fr = 30 # frame rate, set to 1 to plot traces against frame counts
+cell = 49
+fig, ax = plt.subplots(2, 3)
+ax[0,0].plot(np.arange(len(pcf.cnmf.estimates.F_dff[cell]))/fr, pcf.cnmf.estimates.C[cell])
+ax[0,0].set_title('denoised (inferred) temporal trace C')
+ax[0,0].axvline(5000/fr, color='r')
+ax[0,0].axvline(5800/fr, color='r')
+ax[0,1].plot(np.arange(len(pcf.cnmf.estimates.F_dff[cell]))/fr, pcf.cnmf.estimates.R[cell])
+ax[0,1].set_title('residual temporal trace R')
+ax[0,1].axvline(5000/fr, color='r')
+ax[0,1].axvline(5800/fr, color='r')
+ax[0,2].plot(np.arange(len(pcf.cnmf.estimates.F_dff[cell]))/fr, pcf.cnmf.estimates.C[cell]+pcf.cnmf.estimates.R[cell])
+ax[0,2].set_title('"filtered raw trace" (C + R)')
+ax[0,2].axvline(5000/fr, color='r')
+ax[0,2].axvline(5800/fr, color='r')
+ax[1,0].plot(np.arange(5000,5800)/fr, pcf.cnmf.estimates.C[cell, 5000:5800])
+# ax[1,0].set_title('estimates.F_dff zoom')
+ax[1,1].plot(np.arange(5000,5800)/fr, pcf.cnmf.estimates.R[cell, 5000:5800])
+# ax[1,1].set_title('estimates.C zoom')
+ax[1,2].plot(np.arange(5000,5800)/fr, pcf.cnmf.estimates.C[cell, 5000:5800]+pcf.cnmf.estimates.R[cell, 5000:5800])
+# ax[1,2].set_title('estimates.S zoom')
+ax[1,0].set_xlabel('time [s]')
+ax[1,1].set_xlabel('time [s]')
+ax[1,2].set_xlabel('time [s]')
 
 
+big_string = ''
+for substring in my_list:
+    big_string = big_string + ' ' + substring
 
+A = pcf.cnmf.estimates.A
+F =  pcf.cnmf.estimates.C +  pcf.cnmf.estimates.YrA
+b = pcf.cnmf.estimates.b
+f= pcf.cnmf.estimates.f
+B = A.T.dot(b).dot(f)
+import scipy.ndimage as nd
+Df = nd.percentile_filter(B, 10, (1000,1))
+plt.figure(); plt.plot(B[49]+pcf.cnmf.estimates.C[49]+pcf.cnmf.estimates.R[49])
+
+#%% Flag auto as False, how does dFF look
+import caiman.source_extraction.cnmf.utilities as ut
+flag_dff = ut.detrend_df_f(A, b, pcf.cnmf.estimates.C, f, YrA=pcf.cnmf.estimates.YrA, quantileMin=8,
+                           frames_window=500, flag_auto=False, use_fast=False, detrend_only=False)
+slow_dff = ut.extract_DF_F(Yr, A, C, bl, quantileMin=8, frames_window=200, block_size=400, dview=None)
+
+fig, ax = plt.subplots(2)
+ax[0].plot(pcf.cnmf.estimates.F_dff[49])
+ax[1].plot(flag_dff[49])
+
+plt.figure()
+plt.plot(flag_dff[49], label='auto=False')
+plt.plot(pcf.cnmf.estimates.F_dff[49], label='auto=True')
+plt.legend()
 
