@@ -14,7 +14,7 @@ import os
 import re
 from standard_pipeline.behavior_import import progress
 from standard_pipeline.performance_check import is_session_novel
-from ScanImageTiffReader import ScanImageTiffReader
+import tifffile as tiff
 from manual_selection_gui import gui_without_movie as gui
 from caiman.utils import visualization
 import pandas as pd
@@ -90,8 +90,10 @@ class PlaceCellFinder:
                        'bin_frame_count': None, # array[n_bins x n_trials], number of frames averaged in each bin
                        'place_results': None,   # array[n_neuron x criteria] that stores place cell finder results with
                                                 # order pre_screen - bin_size - dF/F - transients - p<0.05
-                       'mouse': None,
-                       'session': None}
+                       'mouse': None,           # current mouse ID
+                       'session': None,         # current session date
+                       'mean_intensity_image': None, # mean intensity overview image of current session
+                       'mean_intensity_path': None}  # path to mean intensity image
 
         def atoi(text):
             return int(text) if text.isdigit() else text
@@ -122,6 +124,13 @@ class PlaceCellFinder:
             self.params['trial_list'] = [os.path.dirname(file) for file in file_list]
             # Get frame counts of all trials from merged_behavior files
             self.params['frame_list'] = [int(np.sum(np.loadtxt(file)[:, 3])) for file in file_list]
+
+        # Load mean intensity image
+        self.params['mean_intensity_path'] = os.path.join(self.params['root'], 'mean_intensity_image.tif')
+        try:
+            self.params['mean_intensity_image'] = tiff.imread(self.params['mean_intensity_path'])
+        except:
+            print('Could not find mean intensity image in the root directory!')
 
         # calculate track_length dependent binning parameters
         if self.params['track_length'] % self.params['bin_length'] == 0:
