@@ -14,6 +14,7 @@ import os
 import pandas as pd
 from div import file_manager as fm
 from copy import deepcopy
+import tifffile as tiff
 
 #%% LOADING AND AUTOMATICALLY ALIGNING MULTISESSION DATA
 
@@ -353,24 +354,26 @@ def get_ref_idx(pcf_sessions, ref_sess_str, place_cell_mode):
         ref_sess_idx = None
         for idx, cnm in enumerate(pcf_sessions):
             # Jithins structure has the session date in the third parent folder
-            if cnm.mmap_file.split(sep=os.path.sep)[-4] == ref_sess_str:
+            if ref_sess_str in cnm.mmap_file:
                 if ref_sess_idx is None:
                     ref_sess_idx = idx
                 else:
-                    raise IndexError(f'More than one CNM object has the session date {ref_sess_str}!')
+                    raise IndexError(f'More than one CNM object has the session "{ref_sess_str}"!')
         if ref_sess_idx is None:
-            raise IndexError(f'No CNM object has the session date {ref_sess_str}!')
+            raise IndexError(f'No CNM object has the session date "{ref_sess_str}"!')
 
     return ref_sess_idx
 
 
-def prepare_manual_alignment_data(pcf_sessions, ref_sess, place_cell_mode=True):
+def prepare_manual_alignment_data(pcf_sessions, ref_sess, place_cell_mode=True, shift_from_mean=True, session_list=None):
     """
     Prepares PCF and CNMF data for manual alignment tool. Initializes alignment array and calculates contours and
     shifts from all cells in all sessions.
     :param pcf_sessions: list of PCF objects to be aligned
     :param ref_sess: str, date of session to be used as a reference (place cells will be taken from this session)
     :param place_cell_mode: bool flag whether to load PCF objects or CNM objects (for Jithin)
+    :param shift_from_mean: bool flag whether the FOV shift is calculated from mean intensity or local correlation image
+    :param session_list: list of session paths, only necessary if place_cell_mode=False
     :return: alignment array, all_contours list (list of sessions, each session is list of neuron contours),
             all_shifts (list of sessions, each session is 2 arrays of x_shift and y_shift for every pixel)
     """
@@ -395,18 +398,33 @@ def prepare_manual_alignment_data(pcf_sessions, ref_sess, place_cell_mode=True):
         if sess_idx != ref_session:
             sess = pcf_sessions[sess_idx]
             if place_cell_mode:
-                curr_shifts_x, curr_shifts_y = piecewise_fov_shift(pcf_sessions[ref_session].cnmf.estimates.Cn,
-                                                                   sess.cnmf.estimates.Cn)
+                if shift_from_mean:
+                    ref_im = tiff.imread(os.path.join(pcf_sessions[ref_session].params['root'],
+                                                      'mean_intensity_image.tif'))
+                    tar_im = tiff.imread(os.path.join(sess.params['root'], 'mean_intensity_image.tif'))
+                else:
+                    ref_im = pcf_sessions[ref_session].cnmf.estimates.Cn
+                    tar_im = sess.cnmf.estimates.Cn
+
+            # For Jithin, files have to taken from session_list because CNM file paths are changed after creation
             else:
-                curr_shifts_x, curr_shifts_y = piecewise_fov_shift(pcf_sessions[ref_session].estimates.Cn,
-                                                                   sess.estimates.Cn)
+                if shift_from_mean:
+                    ref_im = tiff.imread(os.path.join(session_list[ref_session], 'mean_intensity_image.tif'))
+                    tar_im = tiff.imread(os.path.join(session_list[sess_idx], 'mean_intensity_image.tif'))
+                else:
+                    ref_im = pcf_sessions[ref_session].estimates.Cn
+                    tar_im = sess.cnmf.estimates.Cn
+
+            curr_shifts_x, curr_shifts_y = piecewise_fov_shift(ref_im, tar_im)
             all_shifts.append((curr_shifts_x, curr_shifts_y))
+
             plt.figure()
             if place_cell_mode:
                 all_contours.append(visualization.plot_contours(sess.cnmf.estimates.A, sess.cnmf.estimates.Cn))
             else:
                 all_contours.append(visualization.plot_contours(sess.estimates.A, sess.estimates.Cn))
             plt.close()
+
     return target_sess, place_cell_idx, alignment, all_contours, all_shifts
 
 
@@ -464,7 +482,10 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, cell_idx, alignme
         """
         com = plot_single_contour(ax=ax, spatial=cnm.estimates.A[:, cell_idx[idx]],
                                   template=cnm.estimates.Cn)
-        plt.setp(ax, url=idx, title=f'Session {ref_sess} (Index {ref_session}), Neuron {cell_idx[idx]} (Index {idx})')
+        if place_cell_mode:
+            plt.setp(ax, url=idx, title=f'Session {ref_sess} (Index {ref_session}), Neuron {cell_idx[idx]} (Index {idx})')
+        else:
+            plt.setp(ax, url=idx, title=f'{ref_sess} (Index {ref_session}), Neuron {cell_idx[idx]} (Index {idx})')
         return com
 
     def find_target_cells(reference_com, session_contours, dims, fov_shift, max_dist=25):
@@ -553,9 +574,9 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, cell_idx, alignme
                 if row == 0 and column == int(n_cols/2):
                     if place_cell_mode:
                         curr_session = target_sessions[idx].params["session"]
+                        curr_ax.set_title(f'Session {curr_session} (Index {real_idx})')
                     else:
-                        curr_session = target_sessions[idx].mmap_file.split(sep=os.path.sep)[-4]
-                    curr_ax.set_title(f'Session {curr_session} (Index {real_idx})')
+                        curr_ax.set_title(f'Session {real_idx+1} (Index {real_idx})')
 
     def draw_both_sides(ref_idx, targ_sess_idx):
         fig.clear()  # remove potential previous layouts

@@ -1024,3 +1024,57 @@ plt.plot(flag_dff[49], label='auto=False')
 plt.plot(pcf.cnmf.estimates.F_dff[49], label='auto=True')
 plt.legend()
 
+#%% Test with mean intensity and local correlation FOV shift for manual alignment tool
+import tifffile as tif
+from skimage.feature import register_translation
+from scipy.ndimage import zoom
+
+
+def piecewise_fov_shift(ref_img, tar_img, n_patch=8):
+    """
+    Calculates FOV-shift map between a reference and a target image. Images are split in n_patch X n_patch patches, and
+    shift is calculated for each patch separately with phase correlation. The resulting shift map is scaled up and
+    missing values interpolated to ref_img size to get an estimated shift value for each pixel.
+    :param ref_img: np.array, reference image
+    :param tar_img: np.array, target image to which FOV shift is calculated. Has to be same dimensions as ref_img
+    :param n_patch: int, root number of patches the FOV should be subdivided into for piecewise phase correlation
+    :return: two np.arrays containing estimated shifts per pixel (upscaled x_shift_map, upscaled y_shift_map)
+    """
+    img_dim = ref_img.shape
+    patch_size = int(img_dim[0]/n_patch)
+
+    shift_map_x = np.zeros((n_patch, n_patch))
+    shift_map_y = np.zeros((n_patch, n_patch))
+    for row in range(n_patch):
+        for col in range(n_patch):
+            curr_ref_patch = ref_img[row*patch_size:row*patch_size+patch_size, col*patch_size:col*patch_size+patch_size]
+            curr_tar_patch = tar_img[row*patch_size:row*patch_size+patch_size, col*patch_size:col*patch_size+patch_size]
+            patch_shift = register_translation(curr_ref_patch, curr_tar_patch, upsample_factor=100, return_error=False)
+            shift_map_x[row, col] = patch_shift[0]
+            shift_map_y[row, col] = patch_shift[1]
+    shift_map_x_big = zoom(shift_map_x, patch_size, order=3)
+    shift_map_y_big = zoom(shift_map_y, patch_size, order=3)
+    return shift_map_x_big, shift_map_y_big
+
+mean_int1 = tif.imread(r'W:\Neurophysiology-Storage1\Wahl\Jithin\Imaging\Batch 3\M31\Pre_Stroke\Session 1\Frontal\mean_intensity_image.tif')
+mean_int2 = tif.imread(r'W:\Neurophysiology-Storage1\Wahl\Jithin\Imaging\Batch 3\M31\Pre_Stroke\Session 2\Frontal\mean_intensity_image.tif')
+local_int1 = tif.imread(r'W:\Neurophysiology-Storage1\Wahl\Jithin\Imaging\Batch 3\M31\Pre_Stroke\Session 1\Frontal\local_correlation_image.tif')
+local_int2 = tif.imread(r'W:\Neurophysiology-Storage1\Wahl\Jithin\Imaging\Batch 3\M31\Pre_Stroke\Session 2\Frontal\local_correlation_image.tif')
+
+fig, ax = plt.subplots(2,3, sharex='row', sharey='row')
+ax[0,0].imshow(mean_int1)
+ax[0,1].imshow(mean_int2)
+shiftx, shifty = piecewise_fov_shift(mean_int1, mean_int2)
+im = ax[0,2].imshow(np.abs(shiftx)+np.abs(shifty))
+fig.colorbar(im, ax=ax[0,2])
+
+ax[1,0].imshow(local_int1)
+ax[1,1].imshow(local_int2)
+shiftx, shifty = piecewise_fov_shift(local_int1, local_int2)
+im = ax[1,2].imshow(np.abs(shiftx)+np.abs(shifty))
+fig.colorbar(im, ax=ax[1,2])
+
+with ScanImageTiffReader(r'W:\Neurophysiology-Storage1\Wahl\Jithin\Imaging\Batch 3\M31\Pre_Stroke\Session 1\Frontal\mean_intensty_image.tif') as tif:
+    print('yes')
+
+

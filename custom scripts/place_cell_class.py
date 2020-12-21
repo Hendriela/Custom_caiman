@@ -19,7 +19,7 @@ from manual_selection_gui import gui_without_movie as gui
 from caiman.utils import visualization
 import pandas as pd
 from statannot import add_stat_annotation
-from multisession_analysis.multisession_registration import draw_single_contour
+import multisession_analysis.multisession_registration as msr
 from scipy.ndimage.filters import gaussian_filter1d
 
 
@@ -60,6 +60,7 @@ class PlaceCellFinder:
         self.place_cells = []           # List of accepted place cells. Stored as tuples with (neuron_id,
                                         # place_field_bins, p-value)
         self.place_cells_reject = []    # List of place cells that passed all criteria, but with p > 0.05.
+        self.mean_intensity_image = None # Numpy array of mean intensity overview image of the current session
 
         # noinspection PyDictCreation
         self.params = {'root': None,            # main directory of that session
@@ -90,8 +91,10 @@ class PlaceCellFinder:
                        'bin_frame_count': None, # array[n_bins x n_trials], number of frames averaged in each bin
                        'place_results': None,   # array[n_neuron x criteria] that stores place cell finder results with
                                                 # order pre_screen - bin_size - dF/F - transients - p<0.05
-                       'mouse': None,
-                       'session': None}
+                       'mouse': None,           # current mouse ID
+                       'session': None,         # current session date
+                       'mean_intensity_image': None, # mean intensity overview image of current session
+                       'mean_intensity_path': None}  # path to mean intensity image
 
         def atoi(text):
             return int(text) if text.isdigit() else text
@@ -128,7 +131,15 @@ class PlaceCellFinder:
             raise Exception('Bin_length has to be a divisor of track_length!')
         self.params['min_bin_size'] = int(ceil(self.params['min_pf_size'] / self.params['bin_length']))
 
-        # find mouse number, session and network
+        # Load mean intensity image
+        self.params['mean_intensity_path'] = os.path.join(self.params['root'], 'mean_intensity_image.tif')
+        try:
+            with ScanImageTiffReader(self.params['mean_intensity_path']) as tif:
+                self.params['mean_intensity_image'] = tif
+        except:
+            print('Could not find mean intensity image in the root directory!')
+
+            # find mouse number, session and network
         if 'Batch2' in self.params['root']:
             try:
                 self.params['mouse'] = self.params['root'].split(os.sep)[-3]
@@ -1054,7 +1065,7 @@ class PlaceCellFinder:
             for col in range(n_cols):
                 if i < len(pc_idx):
                     curr_ax = ax[row, col]
-                    com = draw_single_contour(ax=curr_ax, spatial=self.cnmf.estimates.A[:, pc_idx[i]], template=lcm)
+                    com = msr.plot_single_contour(ax=curr_ax, spatial=self.cnmf.estimates.A[:, pc_idx[i]], template=lcm)
                     curr_ax.set_picker(True)
                     curr_ax.set_url(i)
                     i += 1
