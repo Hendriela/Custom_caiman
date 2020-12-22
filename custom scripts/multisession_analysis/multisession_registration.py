@@ -131,9 +131,10 @@ def save_alignment(directory, align_array, ref_sess_date, pcf_list, place_cell_m
     """
     Saves manual alignment array to a txt file with session dates as headers for each column. NaNs (no match found)
     are replaced by -10 to maintain visibility.
+    :param directory: str, path where alignment array should be saved
     :param align_array: data array, shape (n_placecells, n_sessions), from manual_place_cell_alignment()
     :param ref_sess_date: str, date of reference session (where place cells are from)
-    :param pcf_list: list of paths to session folders
+    :param pcf_list: list of PCF objects (for place_cell_mode) or list of session directory paths (for CNM mode)
     :param place_cell_mode: bool flag whether to load PCF objects or CNM objects (for Jithin)
     :return:
     """
@@ -145,10 +146,10 @@ def save_alignment(directory, align_array, ref_sess_date, pcf_list, place_cell_m
             sess_dates.append(pcf.params['session'])
             header = header + f'{pcf.params["session"]}\t'
     else:
-        mouse = pcf_list[0].mmap_file.split(sep=os.path.sep)[-3]
-        for cnm in pcf_list:
-            sess_dates.append(cnm.mmap_file.split(sep=os.path.sep)[-4])
-            header = header + f'{cnm.mmap_file.split(sep=os.path.sep)[-4]}\t'
+        mouse = pcf_list[0].split(sep=os.path.sep)[-4]
+        for sess in pcf_list:
+            sess_dates.append(sess.split(sep=os.path.sep)[-2])
+            header = header + f'{sess.split(sep=os.path.sep)[-2]}\t'
     file_name = f'pc_alignment_{mouse}_{ref_sess_date}.txt'
     file_path = os.path.join(directory, file_name)
     if os.path.isfile(file_path):
@@ -661,16 +662,19 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, cell_idx, alignme
     return alignment
 
 
-def show_whole_fov(reference_session, target_session, ref_cell_id, place_cell_mode=True, move_together=True):
+def show_whole_fov(reference_session_id, target_session_id, data_list, ref_cell_id, place_cell_mode=True,
+                   session_list=None, move_together=True):
     """
     Shows the whole FOV of the reference session with the contour of the reference cell, as well as the FOV of the
     target session with the contours and IDs of all cells.
     CAREFUL: Caiman starts labelling cells with 1, meaning that you have to subtract 1 from the ID plotted on the left
     graph if you want to use it for the alignment.
-    :param reference_session: PCF object of the reference session (from pcf_objects)
-    :param target_session: PCF object of the target session (from pcf_objects)
+    :param reference_session_id: int, index of PCF object of the reference session (from pcf_objects)
+    :param target_session_id: int, index of PCF object of the target session (from pcf_objects)
+    :param data_list: list of PCF objects (pcf_objects)
     :param ref_cell_id: ID number of the reference cell (from the title in the main figure)
     :param place_cell_mode: bool flag whether to load PCF objects or CNM objects (for Jithin)
+    :param session_list: list of session paths, only needed if place_cell_mode is False
     :param move_together: bool flag whether the reference and target FOVs should move together or independently
     :return:
     """
@@ -681,27 +685,27 @@ def show_whole_fov(reference_session, target_session, ref_cell_id, place_cell_mo
         fig, ax = plt.subplots(1, 2, figsize=(18, 8))
 
     if place_cell_mode:
-        reference = reference_session.cnmf
-        target = target_session.cnmf
-        ref_curr_session = reference_session.params['session']
-        tar_curr_session = target_session.params['session']
+        reference = data_list[reference_session_id].cnmf
+        target = data_list[target_session_id].cnmf
+        ref_curr_session = reference.params['session']
+        tar_curr_session = target.params['session']
     else:
-        reference = reference_session
-        target = target_session
-        ref_curr_session = reference.mmap_file.split(sep=os.path.sep)[-4]
-        tar_curr_session = target.mmap_file.split(sep=os.path.sep)[-4]
+        reference = data_list[reference_session_id]
+        target = data_list[target_session_id]
+        ref_curr_session = session_list[reference_session_id].split(sep=os.path.sep)[-2]
+        tar_curr_session = session_list[target_session_id].split(sep=os.path.sep)[-2]
 
     # Plot reference cell on the left side
     plt.sca(ax[0])
     out = visualization.plot_contours(reference.estimates.A[:, ref_cell_id], reference.estimates.Cn,
                                       display_numbers=False, colors='r', verbose=False)
-    ax[0].set_title('Session {}, reference neuron {}'.format(ref_curr_session, ref_cell_id))
+    ax[0].set_title('Reference session "{}", reference neuron {}'.format(ref_curr_session, ref_cell_id))
 
     # Plot all other cells on the right side
     plt.sca(ax[1])
     out = visualization.plot_contours(target.estimates.A, target.estimates.Cn,
                                       display_numbers=True, colors='r', verbose=False)
-    ax[1].set_title('Session {}, all other neurons'.format(tar_curr_session))
+    ax[1].set_title('Target session "{}", all other neurons'.format(tar_curr_session))
 
 
 def check_alignment(alignments, save=None):
