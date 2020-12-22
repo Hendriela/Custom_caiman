@@ -10,9 +10,11 @@ import numpy as np
 import seaborn as sns
 #import manual_neuron_selection_gui as selection_gui
 import multisession_analysis.dimensionality_reduction as dr
+import multisession_analysis.multisession_registration as msr
 from scipy.stats import ttest_ind
 import pandas as pd
 import pickle
+import multisession_analysis.batch_analysis as batch
 
 """
 Complete pipeline for place cell analysis, from motion correction to place cell finding
@@ -23,84 +25,73 @@ folders have to be grouped in one folder per field of view. Several FOVs can be 
 """
 c, dview, n_processes = cm.cluster.setup_cluster(
     backend='local', n_processes=None, single_thread=False)
-#%% Set parameters
+#%% Manual cell tracking tool
 
-# dataset dependent parameters
-fr = 30  # imaging rate in frames per second
-decay_time = 0.4  # length of a typical transient in seconds (0.4)
-dxy = (1.66, 1.52)  # spatial resolution in x and y in (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
-# note the lower than usual spatial resolution here
-max_shift_um = (50., 50.)  # maximum shift in um
-patch_motion_um = (100., 100.)  # patch size for non-rigid correction in um
+# Which sessions should be aligned?
+session_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200818',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200819',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200820',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200821',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200824',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200826',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200827',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200830',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200902',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200905',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200908',
+                r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33\20200911']
 
-# motion correction parameters
-pw_rigid = True  # flag to select rigid vs pw_rigid motion correction
-# maximum allowed rigid shift in pixels
-max_shifts = [int(a / b) for a, b in zip(max_shift_um, dxy)]
-# start a new patch for pw-rigid motion correction every x pixels
-strides = tuple([int(a / b) for a, b in zip(patch_motion_um, dxy)])
-# overlap between patches (size of patch in pixels: strides+overlaps)
-overlaps = (12, 12)
-# maximum deviation allowed for patch with respect to rigid shifts
-max_deviation_rigid = 3
+# This function loads the data of all sessions and stores it in the list "pcf_objects"
+spatial, templates, dim, pcf_objects = msr.load_multisession_data(session_list)
 
-mc_dict = {
-    'fnames': None,
-    'fr': fr,
-    'decay_time': decay_time,
-    'dxy': dxy,
-    'pw_rigid': pw_rigid,
-    'max_shifts': max_shifts,
-    'strides': strides,
-    'overlaps': overlaps,
-    'max_deviation_rigid': max_deviation_rigid,
-    'border_nan': 'copy',
-    'n_processes': n_processes
-}
+# Which session should be the reference (place cells from this session will be tracked)
+reference_session = '20200826'
 
-opts = cnmf.params.CNMFParams(params_dict=mc_dict)
+# This function prepares the data for the tracking process
+target_session_list, place_cell_indices, alignment_array, all_contours_list, all_shifts_list = msr.prepare_manual_alignment_data(
+                                                                                                          pcf_objects, reference_session)
 
+# If you started to align the place cells of this session, but saved the table incomplete and want to continue, you can
+# load the table here and pick up where you left. Note that the file path should include the file name and extension
+file_path = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_20200826.txt'
+alignment_array = msr.load_alignment(file_path)
 
-#%% Set working directory
+# This is the main function for the tracking. It creates the interactive plot and saves the results in the
+# alignment_array, which has one place cell for each row, one session in each column, and each entry is the neuron ID
+# that the reference cell has in each session.
+alignment_array = msr.manual_place_cell_alignment(pcf_sessions=pcf_objects,
+                                                  target_sessions=target_session_list,
+                                                  cell_idx=place_cell_indices,
+                                                  alignment=alignment_array,
+                                                  all_contours=all_contours_list,
+                                                  all_shifts=all_shifts_list,
+                                                  ref_sess=reference_session,
+                                                  dim=dim,
+                                                  show_neuron_id=True)
 
-root = pipe.set_file_paths()
+# In case the correct cell is not displayed in the alignment plot, you can show the whole FOVs of the reference as well
+# as the target session and look for the correct cell yourself. Use the indices displayed in the interactive graph to
+# access the correct session from the list and the correct cell ID.
+msr.show_whole_fov(reference_session=pcf_objects[5], target_session=pcf_objects[2], ref_cell_id=120)
 
-#%% Align behavioral data
-root = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200321'
-behavior.align_behavior(root, performance_check=False, verbose=False, overwrite=False)
+# Save the alignment array under the provided directory as a csv table. Every row is one place cell from the reference
+# session, every column is one session, and the entries are the IDs of each cell in the corresponding session.
+file_directory = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments'
+msr.save_alignment(file_directory, alignment_array, reference_session, pcf_objects)
 
-# evaluate behavior
-mouse_dir_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M18',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22',
-              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M25']
-date_0 = ['20191203', '20191204', '20191204', '20191204']
+count = 0
+for idx, i in enumerate(pcf.params['frame_list']):
+    count += i
+    print(f'Trial {idx+1}, Frame {count-i} to {count}')
 
-performance.multi_mouse_performance(mouse_list, precise_duration=False, separate_zones=True, date_0=date_0)
+align_list = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200818.txt',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200819.txt',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200820.txt',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200821.txt',
+              r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\pc_alignment_M33_20200824.txt']
 
-#%% Perform motion correction
+alignments = msr.load_alignment(align_list)
 
-roots = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\1\file_00001_corrected_els__d1_512_d2_472_d3_1_order_F_frames_3152_.mmap',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\2\file_00002_corrected_els__d1_512_d2_472_d3_1_order_F_frames_5677_.mmap',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\3\file_00003_corrected_els__d1_512_d2_472_d3_1_order_F_frames_5902_.mmap',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\4\file_00004_corrected_els__d1_512_d2_472_d3_1_order_F_frames_2783_.mmap',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\5\file_00005_corrected_els__d1_512_d2_472_d3_1_order_F_frames_2769_.mmap',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\6\file_00006_corrected_els__d1_512_d2_472_d3_1_order_F_frames_3229_.mmap',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\7\file_00007_corrected_els__d1_512_d2_472_d3_1_order_F_frames_6186_.mmap',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\8\file_00008_corrected_els__d1_512_d2_472_d3_1_order_F_frames_2485_.mmap',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\9\file_00009_corrected_els__d1_512_d2_472_d3_1_order_F_frames_3361_.mmap',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\10\file_00010_corrected_els__d1_512_d2_472_d3_1_order_F_frames_4210_.mmap',
-         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37\20200429\11\file_00011_corrected_els__d1_512_d2_472_d3_1_order_F_frames_2342_.mmap']
-
-for root in roots:
-    motion_file, dview = pipe.motion_correction(root, opts, dview, remove_f_order=True, remove_c_order=True,
-                                                get_images=True, overwrite=True)
-
-
-
-
-#%% CaImAn source extraction
-mmap_file, images = pipe.load_mmap(root)
 
 #%% whole pipeline
 
@@ -195,7 +186,7 @@ pcf_params = {'root': None,                  # main directory of this session
                                          # from difference between max and baseline dF/F
           'min_pf_size': 15,             # minimum size in cm for a place field (should be 15-20 cm)
           'fluo_infield': 7,             # factor above which the mean DF/F in the place field should lie compared to outside the field
-          'trans_time': 0.2,             # fraction of the (unbinned!) signal while the mouse is located in
+          'trans_time': 0.15,             # fraction of the (unbinned!) signal while the mouse is located in
                                          # the place field that should consist of significant transients
           'track_length': 400,           # length in cm of the virtual reality corridor
           'split_size': 50}              # size in frames of bootstrapping segments
@@ -322,7 +313,7 @@ cnm.estimates.view_components(img=cnm.estimates.Cn)
 #%% Initialize PlaceCellFinder object
 
 #cnm = pipe.load_cnmf(root)
-params = {'root': root,                  # main directory of this session
+params = {'root': step[0],                  # main directory of this session
           'trans_length': 0.5,           # minimum length in seconds of a significant transient
           'trans_thresh': 4,             # factor of sigma above which a transient is significant
           'bin_length': 5,               # length in cm VR distance of each bin in which to group the dF/F traces (has to be divisor of track_length
@@ -332,7 +323,7 @@ params = {'root': root,                  # main directory of this session
                                          # from difference between max and baseline dF/F
           'min_pf_size': 15,          # minimum size in cm for a place field (should be 15-20 cm)
           'fluo_infield': 7,             # factor above which the mean DF/F in the place field should lie compared to outside the field
-          'trans_time': 0.2,             # fraction of the (unbinned!) signal while the mouse is located in
+          'trans_time': 0.15,             # fraction of the (unbinned!) signal while the mouse is located in
                                          # the place field that should consist of significant transients
           'track_length': 400,           # length in cm of the virtual reality corridor
           'split_size': 10}              # size in frames of bootstrapping segments
@@ -413,15 +404,13 @@ for root in roots:
 
 #%% Performance evaluation
 
-path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M32',
-        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33',
-        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M35',
-        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M36',
-        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M37',
+path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M33',
         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M38',
         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M39',
-        r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M40',
         r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41']
+
+path = [r'W:\Neurophysiology-Storage1\Wahl\Jithin\VR data\M2',
+        r'W:\Neurophysiology-Storage1\Wahl\Jithin\VR data\M7']
 
 path = [r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3']
 
@@ -429,30 +418,63 @@ stroke = ['M32', 'M40', 'M41']
 control = ['M33', 'M38', 'M39']
 
 data = performance.load_performance_data(roots=path, norm_date='20200513', stroke=stroke)
+data = data[data['session_date'] != '20200826']
+data = performance.normalize_performance(data, ('20200818', '20200824'))
 
-performance.plot_all_mice_avg(data, rotate_labels=False, session_range=(26, 37), scale=2)
-performance.plot_all_mice_avg(data, rotate_labels=False, scale=2)
 
-performance.plot_all_mice_separately(data, field='licking_binned', rotate_labels=False,
-                                     session_range=(26, 37), scale=1.75)
+performance.plot_all_mice_avg(data, rotate_labels=False, field='licking_binned_norm',
+                              session_range=(60, 73), scale=2)
+
+performance.plot_all_mice_separately(data, field='licking_binned', x_axis='session_date', rotate_labels=True, scale=1.75, vlines=[8.5])
 sns.set_context('talk')
-axis = performance.plot_single_mouse(data, 'M41', field='licking_binned', session_range=(26, 37))
+axis = performance.plot_single_mouse(data, 'M41', field='licking', session_range=(26, 47))
 axis = performance.plot_single_mouse(data, 'M32', session_range=(10, 15), scale=2, ax=axis)
 
-# plot red lines at strokes
-plt.axvline(30.5, color='r')
-plt.axvline(37.5, color='r')
-plt.axvline(42.5, color='r')
-plt.axvline(45.5, color='r')
+# Filter data to exclude sessions and mice
+filter_data = data[data['session_date'] != '20200826']
+filter_data = data[data['sess_norm'] >= -8]
+filter_data = filter_data[filter_data['sess_norm'] <= 31]
+filter_data = filter_data[filter_data['mouse'] != 'M40']
+filter_data = filter_data[filter_data['mouse'] != 'M35']
+
+# Exclude days with changed VR from Jithins endothelin
+m2_data = data[(data['mouse'] == 'M2') & (data['session_date'] != '20200728')]
+m2_data = m2_data[(m2_data['mouse'] == 'M2') & (m2_data['session_date'] != '20200730')]
+m2_data = m2_data[(m2_data['mouse'] == 'M2') & (m2_data['session_date'] != '20200731')]
+m2_data = m2_data[(m2_data['mouse'] == 'M2') & (m2_data['session_date'] != '20200804')]
+m7_data = data[(data['mouse'] == 'M7') & (data['session_date'] != '20200728')]
+filter_data = pd.concat((m2_data, m7_data))
+
+performance.plot_all_mice_separately(filter_data, field='licking_binned', x_axis='session_date',
+                                     rotate_labels=True, scale=1.75, vlines=[8.5])
+
+
+# Get performance baselines
+df = performance.normalize_performance(filter_data, ('20200507', '20200511'))
+
+# Export in prism format
+batch.exp_to_prism_mouse_avg(filter_data, 'licking_binned_norm')
 
 plt.figure()
-filter_data = data[data['sess_norm'] >= -7]
+filter_data = data[data['session_date'] != '20200826']
+filter_data = data[data['sess_norm'] >= -4]
+filter_data = filter_data[filter_data['sess_norm'] <= 31]
 sns.set()
-sns.lineplot(x='sess_norm', y='licking', hue='group', data=filter_data)
+sns.lineplot(x='sess_norm', y='licking_binned', hue='group', data=filter_data)
 plt.axvline(-1, color='r')
 plt.axvline(7, color='r')
-plt.axvline(13, color='r')
+plt.axvline(69, color='r')
 plt.axvline(21, color='r')
+
+# Plot simple data
+simple_data = pd.read_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing'
+                             r'\simple_data_first_stroke.pickle')
+
+plt.figure()
+sns.lineplot(x='sess_norm', y='pvc_slope_norm', data=simple_data, hue='group', palette=['red', 'black'])
+plt.axvline(5, color='red')
+plt.ylabel('normalized max PVC slope')
+plt.xlabel('days')
 
 from scipy.stats import ttest_ind
 stroke_lick = np.array(data[(data['group'] == 'stroke') & (data['session_date'] == '20200507')]['licking'])
@@ -540,11 +562,13 @@ for root in roots:
 
     # Initialize PCF object with the raw data (CNM object) and the parameter dict
     pcf = pc.PlaceCellFinder(cnm, pcf_params)
+    old_pcf = pipe.load_pcf(root, 'pcf_results_save.pickle')
 
     # If necessary, perform Peters spike prediction
+    pcf.cnmf.estimates.spikes = old_pcf.cnmf.estimates.spikes
     pcf.cnmf.estimates.spikes = predict_spikes(pcf.cnmf.estimates.F_dff)
 
-    # split traces into trials'
+    # split traces into trials
     pcf.split_traces_into_trials()
 
     # Import behavior and align traces to it, while removing resting frames
@@ -836,16 +860,221 @@ for row in range(2):
 # load t-SNE results
 tsne = pd.read_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\t-SNE\tsne_results.pickle')
 
-#%%
-import grasping.alignment as Ga
-camera_frames = [[582,681],[328],[3405],[1629],[711],[2872],[2715],[950,2142,3396],[1005,3232],[62,430,1537,3153]]
-cnm = pipe.load_cnmf(r'W:\Neurophysiology-Storage1\Wahl\Jithin\imaging\M12_Pre_Stroke_Frontal\24\Frontal')
-Aligned_traces, single_grasp = Ga.align_traces(cnm.estimates.F_dff,camera_frames)
 
-np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Jithin\imaging\M12_Pre_Stroke_Frontal\24\Frontal\aligned.csv', Aligned_traces, delimiter=',')
+#%% Simple data plotting
 
-modulated_cells = Ga.get_modulated_cells(Aligned_traces)
+df = pd.read_pickle(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\\Batch3\batch_processing\simple_data.pickle')
+
+
+norm_fields = ['n_cells', 'n_place_cells', 'ratio', 'mean_spikerate', 'median_spikerate', 'pvc_slope',
+               'min_pvc', 'sec_peak_ratio']
+norm_range = (20200507, 20200511)
+for field in norm_fields:
+    # Find indices of correct rows (pre-stroke sessions for the specific animal)
+    df[field + '_norm'] = -1.0
+    for mouse in df.mouse.unique():
+        norm_factor = df.loc[(df.mouse == mouse) &
+                             ((df.session >= norm_range[0]) & (df.session <= norm_range[1])), field].mean()
+        df.loc[df.mouse == mouse, field + '_norm'] = df.loc[df.mouse == mouse, field] / norm_factor
+
+strokes = [11.5, 18.5, 23.5, 26.5]
+target = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\laser_stroke_plots'
+for field in norm_fields:
+    batch.plot_simple_data_single_mice(data, field=field, stroke_sess=strokes)
+    plt.savefig(os.path.join(target, f'{field}_sep_notnorm.png'))
+    plt.close()
+    batch.plot_simple_data_group_avg(data, field=field, stroke_sess=strokes)
+    plt.savefig(os.path.join(target, f'{field}_avg_notnorm.png'))
+    plt.close()
+
+# Filter for microsphere data
+df = df.loc[(df['mouse'] != 'M35')]
+data = df.loc[(df['session'] >= 20200507) & (df['session'] <= 20200611)]
+
+filter_data['group'] = 'lesion'
+# Saves plots of all normed data
+target = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\microsphere_plots'
+for field in norm_fields:
+    batch.plot_simple_data_single_mice(filter_data, field=field, stroke_sess=[45.5])
+    plt.savefig(os.path.join(target, f'{field}_sep_notnorm.png'))
+    plt.close()
+    batch.plot_simple_data_group_avg(filter_data, field=field, stroke_sess=[45.5])
+    plt.savefig(os.path.join(target, f'{field}_avg_notnorm.png'))
+    plt.close()
+
+
+# Plot PVC curves
+mice = filter_data['mouse'].unique()
+sessions = np.sort(filter_data['session'].unique())
+fig, axes = plt.subplots(4, 12, sharex='all', sharey='all', figsize=(18,12))
+
+for i, mouse in enumerate(mice):
+    for j, session in enumerate(sessions):
+        curve = filter_data.loc[(filter_data['mouse'] == mouse) & (filter_data['session'] ==session), 'pvc_curve']
+        if len(curve) > 0:
+            axes[i, j].plot(np.linspace(0,150,31), curve.iloc[0])
+
+
+for ax, col in zip(axes[0], sessions):
+    ax.set_title(col)
+
+for ax, row in zip(axes[:,0], mice):
+    ax.set_ylabel(row, rotation=0, size='large')
+
+plt.tight_layout()
+
+#%% Plot comparison graphs between different trace datasets
+fr = 30 # frame rate, set to 1 to plot traces against frame counts
+cell = 49
+fig, ax = plt.subplots(2, 3)
+ax[0,2].plot(np.arange(len(cnm.estimates.F_dff[cell]))/fr, cnm.estimates.F_dff[cell])
+ax[0,2].set_title('estimates.F_dff')
+ax[0,2].axvline(5000/fr, color='r')
+ax[0,2].axvline(5800/fr, color='r')
+ax[0,1].plot(np.arange(len(cnm.estimates.F_dff[cell]))/fr, cnm.estimates.C[cell])
+ax[0,1].set_title('estimates.C (inferred trace)')
+ax[0,1].axvline(5000/fr, color='r')
+ax[0,1].axvline(5800/fr, color='r')
+ax[0,0].plot(np.arange(len(cnm.estimates.F_dff[cell]))/fr, cnm.estimates.C[cell]+cnm.estimates.R[cell])
+ax[0,0].set_title('estimates.C + residuals ("filtered raw trace")')
+ax[0,0].axvline(5000/fr, color='r')
+ax[0,0].axvline(5800/fr, color='r')
+ax[1,2].plot(np.arange(5000,5800)/fr, cnm.estimates.F_dff[cell, 5000:5800])
+# ax[1,0].set_title('estimates.F_dff zoom')
+ax[1,1].plot(np.arange(5000,5800)/fr, cnm.estimates.C[cell, 5000:5800])
+# ax[1,1].set_title('estimates.C zoom')
+ax[1,0].plot(np.arange(5000,5800)/fr, cnm.estimates.C[cell, 5000:5800]+cnm.estimates.R[cell, 5000:5800])
+# ax[1,2].set_title('estimates.S zoom')
+ax[1,0].set_xlabel('frames')
+ax[1,1].set_xlabel('frames')
+ax[1,2].set_xlabel('frames')
+
+# Plotting background components
+fig, ax = plt.subplots(2, 2)
+ax[0,0].imshow(np.reshape(pcf.cnmf.estimates.b[:,0],pcf.cnmf.dims, order='F'))
+ax[0,1].imshow(np.reshape(pcf.cnmf.estimates.b[:,1],pcf.cnmf.dims, order='F'))
+ax[1,0].plot(np.arange(len(pcf.cnmf.estimates.f[0]))/fr, pcf.cnmf.estimates.f[0])
+ax[1,1].plot(np.arange(len(pcf.cnmf.estimates.f[1]))/fr, pcf.cnmf.estimates.f[1])
+ax[0,0].set_title('Background component 1')
+ax[0,1].set_title('Background component 2')
+ax[1,0].set_xlabel('time [s]')
+ax[1,1].set_xlabel('time [s]')
+
+# Zoomed-in temporal components
+fig, ax = plt.subplots(2, 1)
+ax[0].plot(np.arange(14700, 15300)/fr, pcf.cnmf.estimates.f[0, 14700:15300])
+ax[1].plot(np.arange(14700, 15300)/fr, pcf.cnmf.estimates.f[1, 14700:15300])
+ax[0].set_title('Zoom background comp 1')
+ax[1].set_title('Zoom Background comp 2')
+ax[0].set_xlabel('time [s]')
+ax[1].set_xlabel('time [s]')
+
+# Residuals and (reconstructed) raw data
+fr = 30 # frame rate, set to 1 to plot traces against frame counts
+cell = 49
+fig, ax = plt.subplots(2, 3)
+ax[0,0].plot(np.arange(len(pcf.cnmf.estimates.F_dff[cell]))/fr, pcf.cnmf.estimates.C[cell])
+ax[0,0].set_title('denoised (inferred) temporal trace C')
+ax[0,0].axvline(5000/fr, color='r')
+ax[0,0].axvline(5800/fr, color='r')
+ax[0,1].plot(np.arange(len(pcf.cnmf.estimates.F_dff[cell]))/fr, pcf.cnmf.estimates.R[cell])
+ax[0,1].set_title('residual temporal trace R')
+ax[0,1].axvline(5000/fr, color='r')
+ax[0,1].axvline(5800/fr, color='r')
+ax[0,2].plot(np.arange(len(pcf.cnmf.estimates.F_dff[cell]))/fr, pcf.cnmf.estimates.C[cell]+pcf.cnmf.estimates.R[cell])
+ax[0,2].set_title('"filtered raw trace" (C + R)')
+ax[0,2].axvline(5000/fr, color='r')
+ax[0,2].axvline(5800/fr, color='r')
+ax[1,0].plot(np.arange(5000,5800)/fr, pcf.cnmf.estimates.C[cell, 5000:5800])
+# ax[1,0].set_title('estimates.F_dff zoom')
+ax[1,1].plot(np.arange(5000,5800)/fr, pcf.cnmf.estimates.R[cell, 5000:5800])
+# ax[1,1].set_title('estimates.C zoom')
+ax[1,2].plot(np.arange(5000,5800)/fr, pcf.cnmf.estimates.C[cell, 5000:5800]+pcf.cnmf.estimates.R[cell, 5000:5800])
+# ax[1,2].set_title('estimates.S zoom')
+ax[1,0].set_xlabel('time [s]')
+ax[1,1].set_xlabel('time [s]')
+ax[1,2].set_xlabel('time [s]')
+
+
+big_string = ''
+for substring in my_list:
+    big_string = big_string + ' ' + substring
+
+A = pcf.cnmf.estimates.A
+F =  pcf.cnmf.estimates.C +  pcf.cnmf.estimates.YrA
+b = pcf.cnmf.estimates.b
+f= pcf.cnmf.estimates.f
+B = A.T.dot(b).dot(f)
+import scipy.ndimage as nd
+Df = nd.percentile_filter(B, 10, (1000,1))
+plt.figure(); plt.plot(B[49]+pcf.cnmf.estimates.C[49]+pcf.cnmf.estimates.R[49])
+
+#%% Flag auto as False, how does dFF look
+import caiman.source_extraction.cnmf.utilities as ut
+flag_dff = ut.detrend_df_f(A, b, pcf.cnmf.estimates.C, f, YrA=pcf.cnmf.estimates.YrA, quantileMin=8,
+                           frames_window=500, flag_auto=False, use_fast=False, detrend_only=False)
+slow_dff = ut.extract_DF_F(Yr, A, C, bl, quantileMin=8, frames_window=200, block_size=400, dview=None)
+
+fig, ax = plt.subplots(2)
+ax[0].plot(pcf.cnmf.estimates.F_dff[49])
+ax[1].plot(flag_dff[49])
 
 plt.figure()
-for grasp in range(neuron.shape[1]):
-    plt.plot(neuron[:, grasp])
+plt.plot(flag_dff[49], label='auto=False')
+plt.plot(pcf.cnmf.estimates.F_dff[49], label='auto=True')
+plt.legend()
+
+#%% Test with mean intensity and local correlation FOV shift for manual alignment tool
+import tifffile as tif
+from skimage.feature import register_translation
+from scipy.ndimage import zoom
+
+
+def piecewise_fov_shift(ref_img, tar_img, n_patch=8):
+    """
+    Calculates FOV-shift map between a reference and a target image. Images are split in n_patch X n_patch patches, and
+    shift is calculated for each patch separately with phase correlation. The resulting shift map is scaled up and
+    missing values interpolated to ref_img size to get an estimated shift value for each pixel.
+    :param ref_img: np.array, reference image
+    :param tar_img: np.array, target image to which FOV shift is calculated. Has to be same dimensions as ref_img
+    :param n_patch: int, root number of patches the FOV should be subdivided into for piecewise phase correlation
+    :return: two np.arrays containing estimated shifts per pixel (upscaled x_shift_map, upscaled y_shift_map)
+    """
+    img_dim = ref_img.shape
+    patch_size = int(img_dim[0]/n_patch)
+
+    shift_map_x = np.zeros((n_patch, n_patch))
+    shift_map_y = np.zeros((n_patch, n_patch))
+    for row in range(n_patch):
+        for col in range(n_patch):
+            curr_ref_patch = ref_img[row*patch_size:row*patch_size+patch_size, col*patch_size:col*patch_size+patch_size]
+            curr_tar_patch = tar_img[row*patch_size:row*patch_size+patch_size, col*patch_size:col*patch_size+patch_size]
+            patch_shift = register_translation(curr_ref_patch, curr_tar_patch, upsample_factor=100, return_error=False)
+            shift_map_x[row, col] = patch_shift[0]
+            shift_map_y[row, col] = patch_shift[1]
+    shift_map_x_big = zoom(shift_map_x, patch_size, order=3)
+    shift_map_y_big = zoom(shift_map_y, patch_size, order=3)
+    return shift_map_x_big, shift_map_y_big
+
+mean_int1 = tif.imread(r'W:\Neurophysiology-Storage1\Wahl\Jithin\Imaging\Batch 3\M31\Pre_Stroke\Session 1\Frontal\mean_intensity_image.tif')
+mean_int2 = tif.imread(r'W:\Neurophysiology-Storage1\Wahl\Jithin\Imaging\Batch 3\M31\Pre_Stroke\Session 2\Frontal\mean_intensity_image.tif')
+local_int1 = tif.imread(r'W:\Neurophysiology-Storage1\Wahl\Jithin\Imaging\Batch 3\M31\Pre_Stroke\Session 1\Frontal\local_correlation_image.tif')
+local_int2 = tif.imread(r'W:\Neurophysiology-Storage1\Wahl\Jithin\Imaging\Batch 3\M31\Pre_Stroke\Session 2\Frontal\local_correlation_image.tif')
+
+fig, ax = plt.subplots(2,3, sharex='row', sharey='row')
+ax[0,0].imshow(mean_int1)
+ax[0,1].imshow(mean_int2)
+shiftx, shifty = piecewise_fov_shift(mean_int1, mean_int2)
+im = ax[0,2].imshow(np.abs(shiftx)+np.abs(shifty))
+fig.colorbar(im, ax=ax[0,2])
+
+ax[1,0].imshow(local_int1)
+ax[1,1].imshow(local_int2)
+shiftx, shifty = piecewise_fov_shift(local_int1, local_int2)
+im = ax[1,2].imshow(np.abs(shiftx)+np.abs(shifty))
+fig.colorbar(im, ax=ax[1,2])
+
+with ScanImageTiffReader(r'W:\Neurophysiology-Storage1\Wahl\Jithin\Imaging\Batch 3\M31\Pre_Stroke\Session 1\Frontal\mean_intensty_image.tif') as tif:
+    print('yes')
+
+
