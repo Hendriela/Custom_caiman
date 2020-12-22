@@ -2,7 +2,7 @@ import os
 from glob import glob
 import shutil
 from pathlib import Path
-from standard_pipeline.place_cell_pipeline import progress
+from standard_pipeline.behavior_import import progress
 
 
 def transfer_raw_movies(source, target, basename='file', recovery=False):

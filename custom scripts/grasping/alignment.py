@@ -51,6 +51,7 @@ def align_traces(data, camera_frames, window_size=2):
         window_start = frame - window
         window_end = frame + window
         if window_start < 0:
+            break
             window_trace = data[:, :frame+window]                               # Get the first available data points
             nan_padding = np.empty((len(data), abs(window_start)))              # Create empty array of missing frames
             nan_padding[:] = np.nan                                             # Fill it with NaNs to ignore them later
@@ -91,7 +92,7 @@ def get_modulated_cells(data, threshold=4, pre_window=None, post_window=None):
     if pre_window is None:
         pre_window = (0, int(data.shape[1]/4))                 # Defaults to the first half of the pre-grasp period
     if post_window is None:
-        post_window = (int(data.shape[1]/2), data.shape[1])   # Defaults to the whole post-grasp period
+        post_window = (int(data.shape[1]/4), int(data.shape[1]-30))   # Defaults to the whole post-grasp period
 
     # Get pre-grasp mean and standard deviation
     pre_mean = np.mean(data[:, pre_window[0]:pre_window[1]], axis=1)
@@ -107,21 +108,21 @@ def get_modulated_cells(data, threshold=4, pre_window=None, post_window=None):
 
 
 #%% Demo functions
+def random():
+    cnm = pipe.load_cnmf(r'W:\Neurophysiology-Storage1\Wahl\Jithin\imaging\M12_Pre_Stroke_Frontal\24\Frontal')
+    data_full = cnm.estimates.F_dff
+    timestamps = []
 
-cnm = pipe.load_cnmf(r'W:\Neurophysiology-Storage1\Wahl\Jithin\imaging\M12_Pre_Stroke_Caudal\25\Caudal')
-data_full = cnm.estimates.F_dff
-timestamps = [[1192, 1915], [560]]
+    align = align_traces(data_full, timestamps)
 
-align = align_traces(data, timestamps)
+    plt.pcolormesh(align)
 
-plt.pcolormesh(align)
+    mod_cells = get_modulated_cells(align)
 
-mod_cells = get_modulated_cells(align)
+    plt.figure()
+    for cell in range(len(mod_cells)):
+        plt.plot(mod_cells[cell] + cell*0.08)
 
-plt.figure()
-for cell in range(len(mod_cells)):
-    plt.plot(mod_cells[cell] + cell*0.08)
-
-cell = mod_cells[2]
-plt.figure()
-plt.plot(cell)
+    cell = mod_cells[2]
+    plt.figure()
+    plt.plot(cell)
