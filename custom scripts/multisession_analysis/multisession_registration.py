@@ -564,13 +564,13 @@ def manual_place_cell_alignment(pcf_sessions, target_sessions, cell_idx, alignme
                     curr_ax.tick_params(labelbottom=False, labelleft=False)
                     counter += 1
 
-                # if there are no more candidates to plot, make plot into a "no matches" button and mark it with -1
+                # if there are no more candidates to plot, make plot into a "no matches" button and mark it with -10
                 except IndexError:
                     dummy = np.ones(dim)
                     dummy[0, 0] = 0
                     curr_ax.imshow(dummy, cmap='gray')
                     t = curr_ax.text(0.5, 0.5, 'No Matches', va='center', ha='center',  transform=curr_ax.transAxes)
-                    plt.setp(curr_ax, url=(ref_cell_idx, real_idx, -1))
+                    plt.setp(curr_ax, url=(ref_cell_idx, real_idx, -10))
                     curr_ax.tick_params(labelbottom=False, labelleft=False)
                 if row == 0 and column == int(n_cols/2):
                     if place_cell_mode:
