@@ -145,12 +145,13 @@ def save_alignment(directory, align_array, ref_sess_date, pcf_list, place_cell_m
         for pcf in pcf_list:
             sess_dates.append(pcf.params['session'])
             header = header + f'{pcf.params["session"]}\t'
+        file_name = f'pc_alignment_{mouse}_{ref_sess_date}.txt'
     else:
         mouse = pcf_list[0].split(sep=os.path.sep)[-4]
         for sess in pcf_list:
             sess_dates.append(sess.split(sep=os.path.sep)[-2])
             header = header + f'{sess.split(sep=os.path.sep)[-2]}\t'
-    file_name = f'pc_alignment_{mouse}_{ref_sess_date}.txt'
+        file_name = f'cell_alignment_{mouse}_{ref_sess_date}.txt'
     file_path = os.path.join(directory, file_name)
     if os.path.isfile(file_path):
         answer = None
