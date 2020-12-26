@@ -953,9 +953,17 @@ def plot_all_mice_separately(input, field='licking_binned', x_axis='sess_norm', 
 
     # Plot red vertical lines (signalling stroke) if provided
     if vlines is not None:
+        x = np.sort(input[x_axis].unique()).astype(float)
         for line in vlines:
-            for ax in grid.axes.ravel():
-                ax.axvline(line, color='r')
+            # Find actual x-axis value of the vline based on current x-axis labels
+            curr_x = int(line)
+            adj_x = np.where(x == curr_x)[0]
+            if len(adj_x) == 1:
+                for ax in grid.axes.ravel():
+                    # Draw line and offset actual x-value by x-label
+                    ax.axvline(adj_x[0]+(line-curr_x), color='r')
+            else:
+                raise ValueError(f'Provided vline position {line} is not a label on the X-axis!')
 
     # Plot green horizontal line (signaling baseline) if provided (one per mouse/axes)
     if hlines is not None:
