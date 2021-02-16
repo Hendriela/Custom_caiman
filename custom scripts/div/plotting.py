@@ -54,7 +54,36 @@ plt.tight_layout()
 ax = plt.gca()
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
-#%%
+#%% normalize data
+import standard_pipeline.place_cell_pipeline as pipe
+import statsmodels.api as sm
 
+# Load example session
+pcf = pipe.load_pcf(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200627')
 
-mean_licks = np.mean(data, axis=0)
+# Get dF/F from mobile frames for example neuron
+neuron = 369
+all_mask = np.concatenate(pcf.params["resting_mask"]) # merge all trials
+all_act = np.concatenate(pcf.session_spikes[neuron]) # merge all trials
+trace = all_act[all_mask]
+
+# plotting
+plt.figure()
+ax = plt.subplot(2,3,1)
+sm.qqplot(trace, ax=ax, line="s")
+ax.set_title("Peters spike prediction")
+ax = plt.subplot(2,3,4)
+sm.qqplot(trace, ax=ax, line="45")
+
+ax = plt.subplot(2,3,2)
+sm.qqplot(np.log(trace), ax=ax, line="s")
+ax.set_title("log(x)")
+ax = plt.subplot(2,3,5)
+sm.qqplot(np.log(trace), ax=ax, line="45")
+
+ax = plt.subplot(2,3,3)
+sm.qqplot(np.sqrt(trace), ax=ax, line="s")
+ax.set_title("sqrt(x)")
+ax = plt.subplot(2,3,6)
+sm.qqplot(np.sqrt(trace), ax=ax, line="45")
+
