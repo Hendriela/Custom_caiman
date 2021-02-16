@@ -193,7 +193,7 @@ def export_tif(root, target_folder=None):
     movie_int = None   # save memory
 
     # Save movie to the specified path
-    tif.imwrite(os.path.join(root, file_name), data=toSave_cOrder)
+    tif.imsave(os.path.join(root, file_name), data=toSave_cOrder)
     print('Done!')
 
 #%% CNMF wrapper functions
