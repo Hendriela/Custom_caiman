@@ -799,6 +799,9 @@ def quick_screen_session(path, valid=False):
         except OSError:
             perf_old = 'NaN'
             perf_new = 'NaN'
+        except IndexError:
+            perf_old = int(10000 * np.mean(np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))[0]))/100
+            perf_new = int(10000 * np.mean(np.nan_to_num(np.loadtxt(os.path.join(path, 'performance.txt')))[1]))/100
         # plotting
         bad_trials = []
         nrows = ceil(len(data_list)/3)
@@ -840,7 +843,9 @@ def quick_screen_session(path, valid=False):
                     # show reward zone location
                     for zone in zones_idx:
                         ax2.axvspan(min(zone), max(zone), color='grey', alpha=0.2)
-
+                    # mark valve openings
+                    for valve in np.where(curr_trial[:,6]==1.0)[0]:
+                        ax2.axvline(valve, c='yellow', linewidth=2)
                     count += 1
 
     def onpick(event):
