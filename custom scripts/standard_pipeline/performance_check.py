@@ -200,7 +200,7 @@ def set_xlabels(axis, x_labels, date_0):
         out = axis.set_xlabel('days after stroke')
 
 
-def load_performance_data(roots, norm_date, stroke=None):
+def load_performance_data(roots, norm_date, stroke=None, ignore=None):
     """
     Collects licking and stopping data from merged_behavior.txt files for a list of mice.
     :param roots: str, path to the batch folder (which contains folders for each mouse)
@@ -208,6 +208,7 @@ def load_performance_data(roots, norm_date, stroke=None):
                         'None' = no normalization (dates labelled with session folder name),
                         '0' = normalization to the first session,
                         str in format 'YYYYMMDD' = norm. to the session of the respective day (neg for previous days).
+    :param ignore: optional, list of strings of mice IDs that should be ignored during plotting
     """
     data = []
     for root in roots:
@@ -235,8 +236,10 @@ def load_performance_data(roots, norm_date, stroke=None):
                 sess = step[0].split(os.path.sep)[-1]
                 mouse = step[0].split(os.path.sep)[-2]
                 # store data of this session and this mouse in a temporary DataFrame which is added to the global list
-                data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'licking_binned': lick_bin, 'mouse': mouse,
-                                          'session_date': sess, 'novel_corr': is_session_novel(step[0])}))
+                if (ignore is None) or (ignore is not None and mouse not in ignore):
+                    data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'licking_binned': lick_bin,
+                                              'mouse': mouse, 'session_date': sess,
+                                              'novel_corr': is_session_novel(step[0])}))
                 # data.append(pd.DataFrame({'licking': lick, 'stopping': stop, 'mouse': mouse, 'session_date': sess}))
 
     df = pd.concat(data, ignore_index=True)
@@ -321,11 +324,12 @@ def save_multi_performance(path, overwrite=False):
     print('Everything processed!')
 
 
-def save_performance_data(session, validation=False):
+def save_performance_data(session, validation=False, use_valve=False):
     """
     Calculates and saves licking and stopping ratios of a session.
     :param session: str, path to the session folder that holds behavioral txt files
     :param validation: bool flag whether to use RZ positions of validation trials (shifted RZs in training corridor)
+    :param use_valve:
     :return:
     """
 
@@ -356,10 +360,11 @@ def save_performance_data(session, validation=False):
             if validation and i > 4:
                 session_performance[i, 0], session_performance[i, 1],  session_performance[i, 2] = \
                     extract_performance_from_merged(pd.read_csv(file, sep='\t'), novel=is_session_novel(session),
-                                                    valid=validation, buffer=0)
+                                                    valid=validation, buffer=0, use_reward=use_valve)
             else:
                 session_performance[i, 0], session_performance[i, 1],  session_performance[i, 2] = \
-                    extract_performance_from_merged(pd.read_csv(file, sep='\t'), novel=is_session_novel(session), buffer=2)
+                    extract_performance_from_merged(pd.read_csv(file, sep='\t'), novel=is_session_novel(session),
+                                                    buffer=2, use_reward=use_valve)
 
         file_path = os.path.join(session, f'performance.txt')
         np.savetxt(file_path, session_performance, delimiter='\t',  fmt=['%.4f', '%.4f', '%.4f'],
@@ -426,7 +431,7 @@ def extract_performance_from_merged(data, novel, buffer=2, valid=False, bin_size
     :param valid: bool, flag whether trial was a RZ position validation trial (training corridor with shifted RZs)
     :param bin_size: int, bin size in VR units for binned licking performance analysis (divisible by zone borders)
     :param use_reward: bool flag whether to use valve openings to calculate number of passed reward zones. More
-                        more sensitive for well performing mice, but vulnerable against manual valve openings and
+                        sensitive for well performing mice, but vulnerable against manual valve openings and
                         useless for autoreward trials.
     :returns lick_ratio: float, ratio between individual licking bouts that occurred in reward zones div. by all licks
     :returns stop_ratio: float, ratio between stops in reward zones divided by total number of stops
@@ -930,13 +935,14 @@ def plot_all_mice_avg(input, field='licking', rotate_labels=False, session_range
     sns.set(font_scale=scale)
 
 
-def plot_all_mice_separately(input, field='licking_binned', x_axis='sess_norm', rotate_labels=False, session_range=None,
-                             scale=1, hlines=None, vlines=None, columns=3):
+def plot_all_mice_separately(input, field='licking_binned', x_axis='sess_norm', frac=None, rotate_labels=False,
+                             session_range=None, scale=1, hlines=None, vlines=None, columns=3):
     """
     Plots the performance in % licks in RZ per session of all mice in separate graphs.
     :param input: pandas DataFrame from load_performance_data()
     :param field: column of the input DataFrame that should be plotted on the y-axis
     :param x_axis: column of the input DataFrame that should be plotted on the x-axis
+    :param fract: int, shows first and last 1/fract of trials separately per mouse
     :param rotate_labels: bool flag whether x-axis labels should be rotated by 45°
     :param session_range: optional tuple or list, restricted range of sessions to be displayed (from input['sess_id'])
     :param scale: int, scaling factor of axis and tick labels applied by seaborn
@@ -945,15 +951,42 @@ def plot_all_mice_separately(input, field='licking_binned', x_axis='sess_norm', 
     :param columns: int, number of columns of the figure
     :return:
     """
-    sns.set()
-    sns.set_style('whitegrid')
+
     data = deepcopy(input)
     data[field] = data[field] * 100
+    data["licking"] = data["licking"] * 100
+    # Give each trial a label, whether its in the first or last fraction of the session
+    if frac is not None:
+        data["fraction"]="all"
+        for mouse in data.mouse.unique():
+            for sess in data.session_date.unique():
+                # Get indices of the current session
+                curr_sess = data[(data.mouse == mouse) & (data.session_date == sess)]
+                # Get indices of first and last fraction of the session
+                quant = int(np.ceil(len(curr_sess.index)/frac))
+                if quant < 2:
+                    quant = 2
+                # set label of corresponding rows
+                data.iloc[curr_sess.index[:quant], data.columns.get_loc("fraction")] = "first"
+                data.iloc[curr_sess.index[-quant:], data.columns.get_loc("fraction")] = "last"
+        # duplicate rows with "first" and "last", set "fraction" to "all" so that it is displayed in the "all" hue
+        rows = data.loc[data.fraction != "all"]
+        rows["fraction"] = "all"
+        data = pd.concat([data, rows])
+
+
+    sns.set()
+    sns.set_style('whitegrid')
     sessions = np.array(np.sort(data[x_axis].unique()), dtype=int)
     if len(data['mouse'].unique()) < columns:
         columns = len(data['mouse'].unique())
-    grid = sns.FacetGrid(data, col='mouse', col_wrap=columns, height=3, aspect=2)
-    grid.map(sns.lineplot, 'sess_id', field)
+    if frac is not None:
+        grid = sns.FacetGrid(data, col='mouse', hue="fraction", col_wrap=columns, height=3, aspect=2, legend_out=False)
+        grid.map(sns.lineplot, 'sess_id', field).add_legend()
+    else:
+        grid = sns.FacetGrid(data, col='mouse', col_wrap=columns, height=3, aspect=2)
+
+    # grid.map(sns.lineplot, 'sess_id', field, hue="fraction")
     grid.set_axis_labels('session', 'licks in reward zone [%]')
 
     # Plot red vertical lines (signalling stroke) if provided
