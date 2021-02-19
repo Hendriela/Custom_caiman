@@ -985,7 +985,7 @@ def plot_all_mice_separately(input, field='licking_binned', x_axis='sess_norm', 
         grid.map(sns.lineplot, 'sess_id', field).add_legend()
     else:
         grid = sns.FacetGrid(data, col='mouse', col_wrap=columns, height=3, aspect=2)
-
+        grid.map(sns.lineplot, 'sess_id', field)
     # grid.map(sns.lineplot, 'sess_id', field, hue="fraction")
     grid.set_axis_labels('session', 'licks in reward zone [%]')
 
