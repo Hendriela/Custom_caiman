@@ -174,7 +174,7 @@ class PlaceCellFinder:
         zone_borders = zone_borders + 10                                # Change scaling from -10-110 to 0-120 VR coords
         zone_borders = zone_borders / (120 / self.params['n_bins'])     # Apply scale from VR coordinates to bins
         zone_length = int(np.round(zone_borders[0, 1] - zone_borders[0, 0]))    # Get length of reward zones
-        zone_borders[:, 0] = np.array(zone_borders[:, 0], dtype=int)            # Round down first zone bin
+        zone_borders[:, 0] = np.array(np.round(zone_borders[:, 0]), dtype=int)  # Round down start of each zone
         zone_borders[:, 1] = zone_borders[:, 0] + zone_length                   # Add RZ length to first bin idx
         self.params['zone_borders'] = np.array(zone_borders, dtype=int)         # Transform to int and save param
 
@@ -1240,7 +1240,7 @@ class PlaceCellFinder:
         :param save: bool flag whether the figure should be automatically saved in the root and closed afterwards.
         :param show_neuron_id: bool flag whether neuron ID should be plotted next to the line graphs
         :param show_place_fields: bool flag whether place fields should be marked red in the line graph
-        :param sort: str, how should the place cells be sorted? 'Max' sorts them for the earliest location of the
+        :param sort: str, how should the place cells be sorted? 'max' sorts them for the earliest location of the
         maximum in each trace, 'field' sorts them for the earliest place field.
         :param show_reward_zones: bool flag whether reward zones should be shown as a grey shaded area in the line graph
         :param fname: str, file name of the .png file if save=True.
@@ -1322,6 +1322,7 @@ class PlaceCellFinder:
                 if show_reward_zones:
                     for zone in self.params['zone_borders']:
                         trace_ax[i, 0].axvspan(zone[0], zone[1], facecolor='grey', alpha=0.2)
+                        trace_ax[i, 1].axvspan(zone[0], zone[1], facecolor='grey', alpha=0.6)
 
                 # clean up axes
                 # if i == trace_ax[:, 0].size - 1:

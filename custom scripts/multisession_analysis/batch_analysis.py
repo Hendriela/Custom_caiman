@@ -203,7 +203,6 @@ def correlate_behavior_with_simple(simple, field, ylabel='', nrows=2, plot_lin_f
         ax = fig.add_subplot(nrows, ncols, m_idx+1)
         x = simple.loc[simple.mouse == mouse, behav].astype(float)
         y = simple.loc[simple.mouse == mouse, field].astype(float)
-
         # Plot scatter plot
         ax.plot(x, y, 'o')
 

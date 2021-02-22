@@ -5,6 +5,7 @@ from datetime import datetime as dt
 from datetime import timedelta as delta
 from itertools import compress
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 import pandas as pd
 from glob import glob
 from math import ceil
@@ -395,6 +396,14 @@ def is_session_novel(path):
     else:
         print(f'Could not determine context in session {path}!\n')
 
+def get_track_length(path):
+    log_path = glob(path + '\\TDT LOG*')[0]
+    with open(log_path, 'r') as log:
+        lines = log.readlines()
+        for curr_line in lines:
+            line = curr_line.split('\t')
+            if "VR Task start, Animal:" in line[-1]:
+                return int(line[-1][-4:-1])
 
 def get_binned_licking(data, bin_size=2, normalized=True):
     """
@@ -764,7 +773,7 @@ def normalize_performance(data, session_range):
 # todo make vertical line or something to signify stroke sessions
 
 
-def quick_screen_session(path, valid=False):
+def quick_screen_session(path, valid=False, bin_size=1):
     """
     Plots the binned running speed and licking of each trial in a session for a quick screening.
     TODO: fix vlines of RZs when mouse is running backwards (e.g. M57 20201126)
@@ -793,8 +802,11 @@ def quick_screen_session(path, valid=False):
     file_list.sort(key=natural_keys)       # order files according to trial number (otherwise 11 is before 2)
 
     data_list = []
-    for file in file_list:
+    binned_data = np.zeros((len(file_list), int(120 / bin_size)))
+    for idx, file in enumerate(file_list):
         data_list.append(np.loadtxt(file))
+        binned_data[idx] = get_binned_licking(data_list[-1], bin_size=bin_size, normalized=False)
+
     if len(data_list) == 0:
         return print(f'No trials found at {path}.')
     else:
@@ -811,27 +823,51 @@ def quick_screen_session(path, valid=False):
         bad_trials = []
         nrows = ceil(len(data_list)/3)
         ncols = 3
-        fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8))
+        fig = plt.figure(figsize=(15, 8))
+        gs = GridSpec(nrows=nrows+1, ncols=ncols, figure=fig)
         count = 0
-        for row in range(nrows):
+        for row in range(nrows+1):
             for col in range(ncols):
-                if count < len(data_list):
-                    curr_trial = data_list[count]
+                if count < len(data_list) or (row == nrows and col == 0):
 
+                    if row == nrows and col == 0:        # last row is occupied by one plot (histogram)
+                        curr_ax = fig.add_subplot(gs[row, :])
+
+                        binned_data[binned_data > 0] = 1
+                        track_len = get_track_length(path)
+                        curr_ax.hist(np.linspace(0, track_len, binned_data.shape[1]), bins=binned_data.shape[1],
+                                 weights=(np.sum(binned_data, axis=0) / len(binned_data)) * 100,
+                                 facecolor='black', edgecolor='black')
+
+                        # Zone borders have to be adjusted for the unbinned x axis
+                        for zone in (zone_borders+10) * (track_len / 120):
+                            curr_ax.axvspan(zone[0], zone[1], color='red', alpha=0.3)
+
+                        curr_ax.set_ylim(0, 105)
+                        curr_ax.set_xlim(0, track_len)
+                        curr_ax.set_xlabel('VR position')
+                        curr_ax.set_ylabel('Licks [%]')
+                        curr_ax.spines['top'].set_visible(False)
+                        curr_ax.spines['right'].set_visible(False)
+                        continue
+                    else:
+                        curr_ax = fig.add_subplot(gs[row, col])
+
+                    curr_trial = data_list[count]
                     # plot behavior
                     color = 'tab:red'
                     if nrows == 1:
-                        ax[col].plot(-curr_trial[:, 4], color=color)       # plot running
-                        ax[col].spines['top'].set_visible(False)
-                        ax[col].spines['right'].set_visible(False)
-                        ax[col].set_xticks([])
-                        ax2 = ax[col].twinx()       # instantiate a second axes that shares the same x-axis
+                        curr_ax.plot(-curr_trial[:, 4], color=color)       # plot running
+                        curr_ax.spines['top'].set_visible(False)
+                        curr_ax.spines['right'].set_visible(False)
+                        curr_ax.set_xticks([])
+                        ax2 = curr_ax.twinx()       # instantiate a second axes that shares the same x-axis
                     else:
-                        ax[row, col].plot(-curr_trial[:, 4], color=color)  # plot running
-                        ax[row, col].spines['top'].set_visible(False)
-                        ax[row, col].spines['right'].set_visible(False)
-                        ax[row, col].set_xticks([])
-                        ax2 = ax[row, col].twinx()  # instantiate a second axes that shares the same x-axis
+                        curr_ax.plot(-curr_trial[:, 4], color=color)  # plot running
+                        curr_ax.spines['top'].set_visible(False)
+                        curr_ax.spines['right'].set_visible(False)
+                        curr_ax.set_xticks([])
+                        ax2 = curr_ax.twinx()  # instantiate a second axes that shares the same x-axis
                     ax2.set_picker(True)
                     color = 'tab:blue'
                     ax2.plot(curr_trial[:, 2], color=color)       # plot licking
@@ -865,8 +901,8 @@ def quick_screen_session(path, valid=False):
 
     fig.canvas.mpl_connect('close_event', closed)
     fig.canvas.mpl_connect('pick_event', onpick)
-    plt.tight_layout()
     fig.suptitle(f'Performance: {perf_old}% (old), {perf_new}% (new)', fontsize=14)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
 
 
