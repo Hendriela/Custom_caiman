@@ -373,6 +373,11 @@ def save_performance_data(session, validation=False, use_valve=False):
 
 
 def is_session_novel(path):
+    """
+    Checks whether the current session is in the novel corridor (from VR zone borders)
+    :param path: str, path to the session
+    :return: True if session is in novel, False if in training corridor
+    """
     # check whether the current session is in the novel corridor
     context = None
     if len(glob(path + '\\TDT LOG*')) > 0:
@@ -397,6 +402,11 @@ def is_session_novel(path):
         print(f'Could not determine context in session {path}!\n')
 
 def get_track_length(path):
+    """
+    Extract length of the corridor from the session's LOG file.
+    :param path: str, path to the session
+    :return: int, track length in cm
+    """
     log_path = glob(path + '\\TDT LOG*')[0]
     with open(log_path, 'r') as log:
         lines = log.readlines()
@@ -777,7 +787,9 @@ def quick_screen_session(path, valid=False, bin_size=1):
     """
     Plots the binned running speed and licking of each trial in a session for a quick screening.
     TODO: fix vlines of RZs when mouse is running backwards (e.g. M57 20201126)
-    :param path:
+    :param path: str, path to the session folder
+    :param valid: bool, whether this session used validation RZs (offset from normal)
+    :param bin_size: int, how many VR units should be binned together for lick histogram, default 1
     :return:
     """
 
@@ -1160,46 +1172,20 @@ def plot_validation_performance(path, change_trial=5, bin_size=1, normalized=Tru
         plt.close()
 
 
-def plot_binned_licking(path, bin_size=2, novel=False):
+def plot_lick_histogram_single_session(path, bin_size=1):
     """
     Plots the licking of a single session as a histogram binned over VR positions.
     :param path: str, path of session
-    :param bin_size: int, amount of binning
+    :param bin_size: int, how many VR units should be binned together, default 1
     :param novel: bool flag whether session was in the novel corridor
     :return:
     """
 
-    def atoi(text):
-        return int(text) if text.isdigit() else text
-
-    def natural_keys(text):
-        return [atoi(c) for c in re.split('(\d+)', text)]
-
-    if novel:
-        zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]])
-    else:
-        zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]]) + 10
-
     mouse = path.split(sep=os.path.sep)[-2]
     session = path.split(sep=os.path.sep)[-1]
 
-    file_list = glob(path + '\\*\\merged_behavior*.txt')
-    if len(file_list) == 0:
-        file_list = glob(path + '\\merged_behavior*.txt')
-    file_list.sort(key=natural_keys)
-
-    data = np.zeros((len(file_list), int(120 / bin_size)))
-    for idx, file in enumerate(file_list):
-        data[idx] = get_binned_licking(np.loadtxt(file), bin_size=bin_size, normalized=False)
-
-    data[data > 0] = 1
-
-    plt.figure(figsize=(8, 4))
-    plt.hist(np.linspace(0, 400, 60), bins=60, weights=(np.sum(data, axis=0) / len(data)) * 100,
-             facecolor='black', edgecolor='black')
-
-    for zone in zone_borders:
-        plt.axvspan(zone[0] * (10 / 3), zone[1] * (10 / 3), color='red', alpha=0.3)
+    plt.figure()
+    plot_lick_histogram_in_figure(path, plt.gca(), bin_size, label_axes=False)
 
     plt.xticks(fontsize=16)
     plt.yticks(fontsize=16)
@@ -1211,3 +1197,90 @@ def plot_binned_licking(path, bin_size=2, novel=False):
     ax = plt.gca()
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
+
+def plot_lick_histogram_in_figure(path, ax, bin_size=1, label_axes=True):
+    """
+    Plots the licking of a single session as a histogram binned over VR positions.
+    :param path: str, path of session
+    :param bin_size: int, how many VR units should be binned together, default 1
+    :param label_axes: bool, whether axis labels should be set or not
+    :return:
+    """
+
+    if is_session_novel(path):
+        zone_borders = np.array([[9, 19], [34, 44], [59, 69], [84, 94]]) + 10
+    else:
+        zone_borders = np.array([[-6, 4], [26, 36], [58, 68], [90, 100]]) + 10
+
+    session = path.split(sep=os.path.sep)[-1]
+
+    file_list = glob(path + '\\*\\merged_behavior*.txt')
+    perf_file = glob(path + '\\*\\performance.txt')
+    if len(file_list) == 0:  # no imaging session
+        file_list = glob(path + '\\merged_behavior*.txt')
+        perf_file = glob(path + '\\performance.txt')[0]
+
+    perf = np.loadtxt(perf_file)
+    try:
+        avg_performance_new = np.mean(perf[:, 1])*100
+        avg_performance_old = np.mean(perf[:, 0])*100
+    except IndexError:
+        avg_performance_new = np.mean(perf[1])*100
+        avg_performance_old = np.mean(perf[0])*100
+    data = np.zeros((len(file_list), int(120 / bin_size)))
+    for idx, file in enumerate(file_list):
+        data[idx] = get_binned_licking(np.loadtxt(file), bin_size=bin_size, normalized=False)
+    data[data > 0] = 1
+
+    track_len = get_track_length(path)
+    ax.hist(np.linspace(0, track_len, data.shape[1]), bins=data.shape[1],
+            weights=(np.sum(data, axis=0) / len(data)) * 100,
+            facecolor='black', edgecolor='black')
+
+    # Zone borders have to be adjusted for the unbinned x axis
+    for zone in zone_borders * (track_len / 120):
+        ax.axvspan(zone[0], zone[1], color='red', alpha=0.3)
+
+    ax.set_ylim(0, 105)
+    ax.set_xlim(0, track_len)
+    if label_axes:
+        ax.set_xlabel('VR position')
+        ax.set_ylabel('Licks [%]')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    ax.set_title("Session {}, {:.2f}% (new) / {:.2f}% (old)".format(session, avg_performance_new, avg_performance_old))
+
+
+def plot_lick_histograms(path, bin_size=1, sess_range=None):
+    """
+    Wrapper function to plot lick histograms for many sessions of a single mouse.
+    :param path: str, path to the mouse folder containing only session subdirectories
+    :param bin_size: int, how many VR units should be binned together, default 1
+    :param sess_range: tuple, optional; first and last session to be displayed
+    :return:
+    """
+    mouse = path.split(sep=os.path.sep)[-1]
+    # Get a list of all session folders for this mouse
+    sessions = [f.path for f in os.scandir(path) if f.is_dir()]
+    # Exclude out-of-range sessions if necessary
+    if sess_range is not None:
+        sessions = [x for x in sessions if (sess_range[0] <= int(x.split(sep=os.path.sep)[-1]) <= sess_range[1])]
+
+    nrows = ceil(len(sessions) / 3)
+    ncols = 3
+    count = 0
+
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 8))
+    for row in range(nrows):
+        for col in range(ncols):
+            if count < len(sessions):
+                if row == nrows-1:
+                    label_axes = True
+                else:
+                    label_axes = False
+                plot_lick_histogram_in_figure(path=sessions[count], ax=axes[row, col], bin_size=bin_size,
+                                              novel=is_session_novel(sessions[count]), label_axes=label_axes)
+                count += 1
+    fig.canvas.set_window_title(f"Mouse {mouse}: Binned licking per session")
+    fig.tight_layout()
