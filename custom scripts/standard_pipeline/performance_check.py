@@ -1002,7 +1002,6 @@ def plot_all_mice_separately(input, field='licking_binned', x_axis='sess_norm', 
 
     data = deepcopy(input)
     data[field] = data[field] * 100
-    data["licking"] = data["licking"] * 100
     # Give each trial a label, whether its in the first or last fraction of the session
     if frac is not None:
         data["fraction"]="all"
@@ -1215,12 +1214,15 @@ def plot_lick_histogram_in_figure(path, ax, bin_size=1, label_axes=True):
     session = path.split(sep=os.path.sep)[-1]
 
     file_list = glob(path + '\\*\\merged_behavior*.txt')
-    perf_file = glob(path + '\\*\\performance.txt')
+    perf_file = glob(path + '\\performance.txt')
     if len(file_list) == 0:  # no imaging session
         file_list = glob(path + '\\merged_behavior*.txt')
-        perf_file = glob(path + '\\performance.txt')[0]
-
-    perf = np.loadtxt(perf_file)
+    if len(perf_file) > 1:
+        raise ValueError(f"More than one performance files found at {path}!")
+    elif len(perf_file) == 0:
+        raise ValueError(f"No performance file found at {path}!")
+    else:
+        perf = np.loadtxt(perf_file[0])
     try:
         avg_performance_new = np.mean(perf[:, 1])*100
         avg_performance_old = np.mean(perf[:, 0])*100
@@ -1280,7 +1282,7 @@ def plot_lick_histograms(path, bin_size=1, sess_range=None):
                 else:
                     label_axes = False
                 plot_lick_histogram_in_figure(path=sessions[count], ax=axes[row, col], bin_size=bin_size,
-                                              novel=is_session_novel(sessions[count]), label_axes=label_axes)
+                                              label_axes=label_axes)
                 count += 1
     fig.canvas.set_window_title(f"Mouse {mouse}: Binned licking per session")
     fig.tight_layout()

@@ -143,6 +143,9 @@ for cell in range(len(pcf.session)):
     all_act = np.concatenate(pcf.session[cell]) # merge all trials
     cell_act[cell] = all_act[all_mask]
 
+
+#%% own simple correlation
+
 # compute correlation between speed and activity of all neurons
 import scipy.stats as st
 spear = np.zeros((len(cell_act), 2))*np.nan
@@ -152,7 +155,7 @@ for cell in range(len(cell_act)):
     spear[cell, 1] = p*len(cell_act)
 
 # COMPUTE CORRELATION FOR SINGLE TRIALS AND AVERAGE
-for trial in range(len(pcf.behavior)):
+# for trial in range(len(pcf.behavior)):
 
 
 spear = pd.DataFrame(spear, columns=("corr", "p"))
@@ -169,3 +172,61 @@ for i in range(1,10):
     ax.axhline(y=0, c="black")
     ax.set_title("Cell {:d}, rho={:.2f}, p={:.1e}".format(curr_cell.name, curr_cell["corr"], curr_cell["p"]))
 plt.suptitle("Highest corr")
+
+
+#%% Speed cell method from Iwase et al. 2020
+
+import scipy.ndimage as nd
+import scipy.stats as st
+import time
+
+def shuffle(data, sp, n, min_dur, max_dur, fps):
+    min_sample, max_sample = np.array([min_dur, max_dur], dtype=int)*fps
+    corr_shuf = np.zeros((data.shape[0], n))*np.nan
+    for cell in range(data.shape[0]):
+        for i in range(n):
+            shift = np.random.randint(min_sample, max_sample)
+            data_shuf = np.roll(data[cell], shift)
+            corr_shuf[cell, i], _ = st.spearmanr(a=data_shuf, b=sp)
+
+    perc1, perc99 = np.percentile(corr_shuf, 1), np.percentile(corr_shuf, 99)
+    return perc1, perc99
+
+window = 0.25        # window size in seconds of Gaussian filter
+shift = 60           # multiple of fps that should be allowed for temporal bias of speed cells
+
+fps = pcf.cnmf.params.data["fr"]
+# apply Gaussian filter (0.5s window)
+sd = window*fps
+speed_f = nd.gaussian_filter1d(speed, sd)
+
+# filter out periods with running speeds < 2 cm/s
+mask = speed_f >= 2
+speed_f = speed_f[mask]
+act_f = cell_act[:,mask]
+
+# Produce shuffled correlation distribution of ALL cells
+p1, p99 = shuffle(cell_act, speed_f, n=100, min_dur=30, max_dur=cell_act.shape[1] / fps - 30, fps=fps)
+
+# Get Spearman's rank correlation for each cell and determine if its a speed cell
+spear = np.zeros((len(cell_act), 3))*np.nan
+for cell in range(len(cell_act)):
+    # Calculate speed score (correlation) of current cell
+    corr, p = st.spearmanr(a=cell_act[cell], b=speed_f)
+    spear[cell, 0] = corr
+    spear[cell, 1] = p*len(cell_act)
+    if corr < p1:
+        spear[cell, 2] = -1     # negative speed cell (marked as -1)
+    elif corr > p99:
+        spear[cell, 2] = 1      # positive speed cell (marked as +1)
+    else:
+        spear[cell, 2] = 0      # no speed cell (marked as 0)
+
+# Get temporal bias of positive speed cells
+pos_cells = spear[:,2] == 1
+shifts = np.
+
+idx = 0
+plt.figure(); plt.plot(speed_f, cell_act[np.where(pos_cells)[0][idx]], ".")
+plt.figure(); plt.plot(cell_act[np.where(pos_cells)[0][idx]])
+
