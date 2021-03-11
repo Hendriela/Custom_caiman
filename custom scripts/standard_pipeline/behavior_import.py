@@ -575,6 +575,9 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     # transform the integer time stamps plus the date from the TDT file into datetime objects
     time_format = '%Y%m%d%H%M%S%f'
     date = trig_path.split('_')[-2]
+    for f in data:
+        if str(int(f[0, 0]))[4:] == '60000':
+            f[0, 0] -= 1
     start_times = np.array([datetime.strptime(date+str(int(x[0, 0])), time_format) for x in data])
 
     # calculate absolute difference in seconds between the start times
