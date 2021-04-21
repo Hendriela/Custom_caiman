@@ -15,7 +15,7 @@ path = r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\histology\Batc
 
 
 def fix_order(point_path):
-
+    return
 
 def load_points(point_path):
     """
