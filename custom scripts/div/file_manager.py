@@ -31,11 +31,16 @@ def transfer_raw_movies(source, target, basename='file', restore=False):
         for parent in targ.parents.__reversed__():
             if not os.path.isdir(parent):
                 os.mkdir(parent)
-        # Transfer the file to the new location
-        shutil.copy(src=source+file, dst=target+file)
+
+        # Transfer the file to the new location if it does not exist already there
+        if not os.path.isfile(target+file):
+            shutil.copy(src=source+file, dst=target+file)
+        else:
+            print('File {} already exists in target directory, copying skipped.'.format(file))
         # If the files were transferred from the server to the backup hard drive, delete the files from the server after
         # successful transfer.
     if not restore:
+        print('Removing files at the source directory...')
         [os.remove(source+fname) for fname in tif_list]
     print('\nDone!')
 
