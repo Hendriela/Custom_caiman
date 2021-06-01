@@ -552,11 +552,17 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     trigger = load_file(trig_path)
     raw_trig = trigger.copy()
 
-    # Separate licking and trigger signals (different start times)
-    licking = trigger[:, :2].copy()
-    licking[0, 0] = licking[0, 1]
-    licking[0, 1] = encoder[0, 1]
-    trigger = np.delete(trigger, 1, axis=1)
+    try:
+        # Separate licking and trigger signals (different start times)
+        licking = trigger[:, :2].copy()
+        licking[0, 0] = licking[0, 1]
+        licking[0, 1] = encoder[0, 1]
+        trigger = np.delete(trigger, 1, axis=1)
+    except IndexError:
+        # catch error if a file is empty
+        print('File seems to be empty, alignment skipped.')
+        return None
+
 
     data = [trigger, licking, encoder, position]
 
