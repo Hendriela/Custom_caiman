@@ -292,14 +292,16 @@ def exp_to_prism_mouse_avg(df, field='lick_bin_norm', fname=None, grouping=True,
         tab = np.zeros((len(df.session_date.unique()), len(df.group.unique())*max_mice_per_group))
         tab[:] = np.nan
 
-        for row, session in enumerate(df.session_date.unique()):
+        for row, session in enumerate(np.sort(df.session_date.unique())):
             for group_count, group in enumerate(df.group.unique()):
                 # This iterates through all the mice of one group each session and puts avg value into tab
-                for mouse_count, mouse in enumerate(df[df.group == group].mouse.unique()):
+                for mouse_count, mouse in enumerate(np.sort(df[df.group == group].mouse.unique())):
+                    if row==1:
+                        print(mouse)
                     col = group_count*max_mice_per_group+mouse_count
                     tab[row, col] = df.loc[(df.mouse == mouse) & (df.session_date == session), field].mean()
 
-        tab = np.insert(tab, 0, df.session_date.unique(), 1)
+        tab = np.insert(tab, 0, np.sort(df.session_date.unique()), 1)
 
         if fname is None:
             fname = f'{field}_grouped_mice_avg.txt'
@@ -311,11 +313,11 @@ def exp_to_prism_mouse_avg(df, field='lick_bin_norm', fname=None, grouping=True,
         tab = np.zeros((len(df.session_date.unique()), len(df.mouse.unique())))
         tab[:] = np.nan
 
-        for row, session in enumerate(df.session_date.unique()):
-            for mouse_count, mouse in enumerate(df.mouse.unique()):
+        for row, session in enumerate(np.sort(df.session_date.unique())):
+            for mouse_count, mouse in enumerate(np.sort(df.mouse.unique())):
                 tab[row, mouse_count] = df.loc[(df.mouse == mouse) & (df.session_date == session), field].mean()
 
-        tab = np.insert(tab, 0, df.session_date.unique(), 1)
+        tab = np.insert(tab, 0, np.sort(df.session_date.unique()), 1)
 
         if fname is None:
             fname = f'{field}_grouped_mice_avg.txt'
