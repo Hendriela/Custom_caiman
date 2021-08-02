@@ -1284,5 +1284,5 @@ def plot_lick_histograms(path, bin_size=1, sess_range=None):
                 plot_lick_histogram_in_figure(path=sessions[count], ax=axes[row, col], bin_size=bin_size,
                                               label_axes=label_axes)
                 count += 1
-    fig.canvas.set_window_title(f"Mouse {mouse}: Binned licking per session")
+    fig.canvas.set_window_title(f"Mouse {mouse} Binned licking per session")
     fig.tight_layout()

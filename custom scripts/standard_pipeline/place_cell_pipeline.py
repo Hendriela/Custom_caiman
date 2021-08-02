@@ -730,6 +730,223 @@ def perform_whole_pipeline(root):
 
             cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
 
+        elif mouse == 'M83':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (0.83, 0.76)  # spatial resolution (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 3  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 20  # amount of overlap between the patches in pixels (20)
+            K = 12  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 6  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 3
+            rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.9  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.2  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M89':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (0.83, 0.76)  # spatial resolution (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 2  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 10  # amount of overlap between the patches in pixels (20)
+            K = 23  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 8  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 4.1
+            rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.9  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.22  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M91':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66, 1.52)  # spatial resolution (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 3  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 20  # amount of overlap between the patches in pixels (20)
+            K = 12  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 8  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 4.1
+            rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.9  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.22  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M93':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66, 1.52)  # spatial resolution (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 3  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 20  # amount of overlap between the patches in pixels (20)
+            K = 12  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 8  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 4.1
+            rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.9  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.22  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M94':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66, 1.52)  # spatial resolution (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 3  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 20  # amount of overlap between the patches in pixels (20)
+            K = 12  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 8  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 4.1
+            rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.9  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.22  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+        elif mouse == 'M95':
+            # dataset dependent parameters
+            fr = 30  # imaging rate in frames per second
+            decay_time = 0.4  # length of a typical transient in seconds (0.4)
+            dxy = (1.66, 1.52)  # spatial resolution (um per pixel) [(1.66, 1.52) for 1x, (0.83, 0.76) for 2x]
+
+            # extraction parameters
+            p = 1  # order of the autoregressive system
+            gnb = 3  # number of global background components (3)
+            merge_thr = 0.75  # merging threshold, max correlation allowed (0.86)
+            rf = 25  # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
+            stride_cnmf = 20  # amount of overlap between the patches in pixels (20)
+            K = 12  # number of components per patch (10)
+            gSig = [5, 5]  # expected half-size of neurons in pixels [X, Y] (has to be int, not float!)
+            method_init = 'greedy_roi'  # initialization method (if analyzing dendritic data using 'sparse_nmf')
+            ssub = 2  # spatial subsampling during initialization
+            tsub = 2  # temporal subsampling during intialization
+
+            # evaluation parameters
+            min_SNR = 8  # signal to noise ratio for accepting a component (default 2)
+            SNR_lowest = 4.1
+            rval_thr = 0.85  # space correlation threshold for accepting a component (default 0.85)
+            rval_lowest = -1
+            cnn_thr = 0.9  # threshold for CNN based classifier (default 0.99)
+            cnn_lowest = 0.22  # neurons with cnn probability lower than this value are rejected (default 0.1)
+
+            opts_dict = {'fnames': None, 'fr': fr, 'decay_time': decay_time, 'dxy': dxy, 'nb': gnb, 'rf': rf,
+                         'K': K,
+                         'gSig': gSig, 'stride': stride_cnmf, 'method_init': method_init, 'rolling_sum': True,
+                         'merge_thr': merge_thr, 'only_init': True, 'ssub': ssub, 'tsub': tsub,
+                         'SNR_lowest': SNR_lowest, 'cnn_lowest': cnn_lowest, 'min_SNR': min_SNR,
+                         'min_cnn_thr': cnn_thr,
+                         'rval_lowest': rval_lowest, 'rval_thr': rval_thr, 'use_cnn': True}
+
+            cnm_params = cnmf.params.CNMFParams(params_dict=opts_dict)
+
+
         else:
             return None
 
