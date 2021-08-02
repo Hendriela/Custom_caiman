@@ -45,7 +45,7 @@ def transfer_raw_movies(source, target, basename='file', restore=False):
     print('\nDone!')
 
 
-def remove_mmap_after_analysis(root):
+def remove_mmap_after_analysis(root, remove_all=False):
     """
     Removes mmap files in all subdirectories that are completely analysed (PCF file exists in the same directory).
     :param root: parent directory from whose subdirectories mmap files should be removed
@@ -58,26 +58,31 @@ def remove_mmap_after_analysis(root):
     for step in os.walk(root):
         mmap_file = glob(step[0]+'\\memmap__*')
         ana_file = glob(step[0] + '\\pcf_result*')
-        if len(mmap_file) > 0 and len(ana_file) > 0:
+        if (len(mmap_file) > 0 and len(ana_file) > 0) or remove_all:
             for file in mmap_file:
                 free_mem += os.path.getsize(file)/1073741824    # Remember size of deleted file for later report
                 n_files += 1
                 del_files.append(file)
 
-    print(f'Found {len(del_files)} files to be deleted:')
-    print(*del_files, sep='\n')
-    answer = None
-    while answer not in ("y", "n", 'yes', 'no'):
-        answer = input(f'These files would free up {int(free_mem*100)/100} GB. Do you want to delete them? [y/n]')
-        if answer == "yes" or answer == 'y':
-            print('Deleting...')
-            for file in del_files:
-                os.remove(file)
-            print('Done!')
-        elif answer == "no" or answer == 'n':
-            print('Deleting cancelled.')
-        else:
-            print("Please enter yes or no.")
+    if len(del_files) == 0:
+        print('No mmap files found!')
+    else:
+        if remove_all:
+            print('WARNING! remove_all = True, which means that also half-processed session`s .mmap will be deleted!')
+        print(f'Found {len(del_files)} files to be deleted:')
+        print(*del_files, sep='\n')
+        answer = None
+        while answer not in ("y", "n", 'yes', 'no'):
+            answer = input(f'These files would free up {int(free_mem*100)/100} GB. Do you want to delete them? [y/n]')
+            if answer == "yes" or answer == 'y':
+                print('Deleting...')
+                for file in del_files:
+                    os.remove(file)
+                print('Done!')
+            elif answer == "no" or answer == 'n':
+                print('Deleting cancelled.')
+            else:
+                print("Please enter yes or no.")
 
 
 def clean_cnm_files(dir=r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data",
