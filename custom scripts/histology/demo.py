@@ -51,10 +51,10 @@ czi.read_subblock_rect(S=1, M=100)
 
 #%% Open OME TIFF
 
-path = r"Z:\data\h.heiser\slidescanner_transfer_20210209_0901\M41_01.ome.tiff"
-path = r"Z:\data\h.heiser\slidescanner_transfer_20210209_0901\M41_01_DAPI_8bit.ome.tiff"
+path = r"W:\Neurophysiology-Storage1\Wahl\Victor\M11_1.czi - Scene #0.ome.tif"
+# path = r"Z:\data\h.heiser\slidescanner_transfer_20210209_0901\M41_01_DAPI_8bit.ome.tiff"
 ome = tiff.imread(path)
-plt.imshow(ome)
+plt.imshow(ome[0])
 
 
 #%% Try to read .flat file from QuickNII to get atlas identifier data

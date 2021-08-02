@@ -74,15 +74,19 @@ def main():
               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191208\N1\5\file_00007.tif',
               r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M22\20191208\N1\6\file_00008.tif']
 
+    fnames = ['Sue_2x_3000_40_-46.tif']  # filename to be processed
+    if fnames[0] in ['Sue_2x_3000_40_-46.tif', 'demoMovie.tif']:
+        fnames = [download_demo(fnames[0])]
+
 #%% First setup some parameters for data and motion correction
 
     # dataset dependent parameters
     fr = 30             # imaging rate in frames per second
-    decay_time = 0.4    # length of a typical transient in seconds (0.4)
-    dxy = (1, 1)      # spatial resolution in x and y in (um per pixel)
+    decay_time = 0.4    # length of a typical transient in seconds
+    dxy = (2., 2.)      # spatial resolution in x and y in (um per pixel)
     # note the lower than usual spatial resolution here
-    max_shift_um = (20., 20.)       # maximum shift in um
-    patch_motion_um = (40., 40.)  # patch size for non-rigid correction in um
+    max_shift_um = (12., 12.)       # maximum shift in um
+    patch_motion_um = (100., 100.)  # patch size for non-rigid correction in um
 
     # motion correction parameters
     pw_rigid = True       # flag to select rigid vs pw_rigid motion correction
@@ -91,7 +95,7 @@ def main():
     # start a new patch for pw-rigid motion correction every x pixels
     strides = tuple([int(a/b) for a, b in zip(patch_motion_um, dxy)])
     # overlap between pathes (size of patch in pixels: strides+overlaps)
-    overlaps = (12, 12)
+    overlaps = (24, 24)
     # maximum deviation allowed for patch with respect to rigid shifts
     max_deviation_rigid = 3
 
@@ -158,7 +162,7 @@ def main():
     fname_new = r'E:\PhD\Data\DG\M14_20191014\N1\memmap__d1_512_d2_512_d3_1_order_C_frames_34939_.mmap'
 
     # memory map the file in order 'C'
-    fname_new = cm.save_memmap(mmap_file, base_name='memmap_', order='C',
+    fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C',
                                border_to_0=0)  # exclude borders
 
     # now load the file
@@ -173,18 +177,18 @@ def main():
         backend='local', n_processes=None, single_thread=False)
 
 #%%  parameters for source extraction and deconvolution
-    p = 1                       # order of the autoregressive system
-    gnb = 3                     # number of global background components (3)
-    merge_thr = 0.70            # merging threshold, max correlation allowed (0.86)
-    rf = 25
+    p = 1                    # order of the autoregressive system
+    gnb = 2                  # number of global background components
+    merge_thr = 0.85         # merging threshold, max correlation allowed
+    rf = 15
     # half-size of the patches in pixels. e.g., if rf=25, patches are 50x50
-    stride_cnmf = 10            # amount of overlap between the patches in pixels (20)
-    K = 20                      # number of components per patch (10)
-    gSig = [13, 11]             # expected half size of neurons in pixels (13,11)
+    stride_cnmf = 6          # amount of overlap between the patches in pixels
+    K = 4                    # number of components per patch
+    gSig = [4, 4]            # expected half size of neurons in pixels
     # initialization method (if analyzing dendritic data using 'sparse_nmf')
     method_init = 'greedy_roi'
-    ssub = 2                    # spatial subsampling during initialization
-    tsub = 2                    # temporal subsampling during intialization
+    ssub = 2                     # spatial subsampling during initialization
+    tsub = 2                     # temporal subsampling during intialization
 
     # parameters for component evaluation
     opts_dict = {'fnames': fnames,
@@ -262,14 +266,12 @@ def main():
     #   a) the shape of each component must be correlated with the data
     #   b) a minimum peak SNR is required over the length of a transient
     #   c) each shape passes a CNN based classifier
-    min_SNR = 6  # signal to noise ratio for accepting a component (default 2)
-    SNR_lowest = 3
-    rval_thr = 0.7 # space correlation threshold for accepting a component (default 0.85)
-    cnn_thr = 0.6  # threshold for CNN based classifier (default 0.99)
-    cnn_lowest = 0.1 # neurons with cnn probability lower than this value are rejected (default 0.1)
+    min_SNR = 2  # signal to noise ratio for accepting a component
+    rval_thr = 0.85  # space correlation threshold for accepting a component
+    cnn_thr = 0.99  # threshold for CNN based classifier
+    cnn_lowest = 0.1  # neurons with cnn probability lower than this value are rejected
 
     cnm2.params.set('quality', {'decay_time': decay_time,
-                               'SNR_lowest': SNR_lowest,
                                'min_SNR': min_SNR,
                                'rval_thr': rval_thr,
                                'use_cnn': True,
@@ -291,7 +293,7 @@ def main():
     #### -> will delete rejected components!
     cnm2.estimates.select_components(use_object=True)
 #%% Extract DF/F values
-    cnm2.estimates.detrend_df_f(quantileMin=8, frames_window=500)
+    cnm2.estimates.detrend_df_f(quantileMin=8, frames_window=250)
 
 #%% Show final traces
     cnm2.estimates.view_components(img=Cn)
@@ -313,7 +315,7 @@ def main():
 
     dirname = fnames[0][:-4] + "_results.hdf5"
     cnm2.estimates.Cn = Cn
-    cnm2.save(r'E:\PhD\Data\DG\M14_20191014\N1\cnm_results.hdf5')
+    cnm2.save(dirname)
 
     #load results
     cnm2 = cnmf.load_CNMF(dirname)
