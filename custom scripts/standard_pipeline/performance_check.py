@@ -782,7 +782,6 @@ def normalize_performance(data, session_range):
 
 # todo make vertical line or something to signify stroke sessions
 
-
 def quick_screen_session(path, valid=False, bin_size=1):
     """
     Plots the binned running speed and licking of each trial in a session for a quick screening.
@@ -880,12 +879,18 @@ def quick_screen_session(path, valid=False, bin_size=1):
                         curr_ax.spines['right'].set_visible(False)
                         curr_ax.set_xticks([])
                         ax2 = curr_ax.twinx()  # instantiate a second axes that shares the same x-axis
-                    ax2.set_picker(True)
+                    curr_ax.set_url(file_list[count])
+                    curr_ax.set_picker(True)
                     color = 'tab:blue'
                     ax2.plot(curr_trial[:, 2], color=color)       # plot licking
                     ax2.set_ylim(-0.1, 1.1)
-                    ax2.set_ylabel(file_list[count])
+                    ax2.set_url('ax2')
                     ax2.axis('off')
+
+                    curr_ax.set_zorder(ax2.get_zorder() + 1)
+                    curr_ax.set_facecolor((0, 0, 0, 0))
+                    # fig.canvas.draw()
+
 
                     # find samples inside reward zones
                     zones_idx = []
@@ -902,10 +907,20 @@ def quick_screen_session(path, valid=False, bin_size=1):
                     count += 1
 
     def onpick(event):
-        this_plot = event.artist  # save artist (axis) where the pick was triggered
-        trial = this_plot.get_ylabel()
+        this_ax = event.artist  # save artist (axis) where the pick was triggered
+        trial = this_ax.get_url()
         if trial not in bad_trials:
+            # print("Added {}".format(trial))
             bad_trials.append(trial)
+            this_ax.set_facecolor((1,0,0,0.3))
+            fig.canvas.draw()
+        else:
+            # print("Removed {}".format(trial))
+            bad_trials.remove(trial)
+            this_ax.set_facecolor((0,0,0,0))
+            fig.canvas.draw()
+
+
 
     def closed(event):
         sort = sorted(bad_trials)
@@ -915,7 +930,10 @@ def quick_screen_session(path, valid=False, bin_size=1):
     fig.canvas.mpl_connect('pick_event', onpick)
     fig.suptitle(f'Performance: {perf_old}% (old), {perf_new}% (new)', fontsize=14)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    plt.show()
+    fig.canvas.flush_events()
+    plt.show(block=True)
+
+    return bad_trials
 
 
 def plot_single_mouse(input, mouse, field='licking', rotate_labels=False, session_range=None, scale=1, ax=None):
@@ -1196,6 +1214,7 @@ def plot_lick_histogram_single_session(path, bin_size=1):
     ax = plt.gca()
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
+
 
 def plot_lick_histogram_in_figure(path, ax, bin_size=1, label_axes=True):
     """
