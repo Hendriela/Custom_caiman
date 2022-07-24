@@ -1,11 +1,22 @@
 import os
+import platform
+import ctypes
 from glob import glob
 import shutil
 from pathlib import Path
 from standard_pipeline.behavior_import import progress
 
+def get_free_space_gb(dirname):
+    """Return folder/drive free space (in gigabytes)."""
+    if platform.system() == 'Windows':
+        free_bytes = ctypes.c_ulonglong(0)
+        ctypes.windll.kernel32.GetDiskFreeSpaceExW(ctypes.c_wchar_p(dirname), None, None, ctypes.pointer(free_bytes))
+        return free_bytes.value / 1024 / 1024 / 1024
+    else:
+        st = os.statvfs(dirname)
+        return st.f_bavail * st.f_frsize / 1024 / 1024 / 1024
 
-def transfer_raw_movies(source, target, basename='file', restore=False):
+def transfer_raw_movies(source, target, basename='file', restore=False, move_all=False):
     """
     Transfers all raw TIFF movies in the source directory and its subdirectories to the target directory while
     maintaining the source directory structure and creating new directories in the target if necessary.
@@ -15,40 +26,55 @@ def transfer_raw_movies(source, target, basename='file', restore=False):
     :param restore: bool flag whether the function is used to recover raw files back to the working directory. If True,
                         no PCF object has to be in the parent directory of transfer TIFF files. If False, raw files in
                         the source directory are deleted after successful transfer to make room on the server.
+    :param move_all: bool flag whether TIF files should be moved, even if no PCF file is in the session folder.
     :return:
     """
     tif_list = []
     # Find movie files that are part of a completely analysed session (PCF file exists)
+    use_mem = 0
     for step in os.walk(source):
         if len(glob(step[0] + f'\\{basename}_00???.tif')) == 1:
-            if len(glob(step[0].rsplit(os.sep, 1)[0] + r'\\pcf*')) > 0 or restore:
-                tif_list.append(glob(step[0] + f'\\{basename}_00???.tif')[0][len(source):])
+            if (len(glob(step[0].rsplit(os.sep, 1)[0] + r'\\pcf*')) > 0) or restore or move_all:
+                fname = glob(step[0] + f'\\{basename}_00???.tif')[0]
+                use_mem += os.path.getsize(fname) / 1073741824
+                tif_list.append(fname[len(source):])    # remove source directory to get relative path
 
-    for idx, file in enumerate(tif_list):
-        # Check the path to the current TIFF file and create any non-existing directories
-        progress(idx, len(tif_list)-1, status=f'Moving files to target directory...({idx+1}/{len(tif_list)})')
-        targ = Path(target+file)
-        for parent in targ.parents.__reversed__():
-            if not os.path.isdir(parent):
-                os.mkdir(parent)
+    if use_mem > get_free_space_gb(target):
+        raise MemoryError(f'Not enough space on {target}! {get_free_space_gb(target)} GB available, {use_mem} GB needed.')
 
-        # Transfer the file to the new location if it does not exist already there
-        if not os.path.isfile(target+file):
-            shutil.copy(src=source+file, dst=target+file)
-        else:
-            print('File {} already exists in target directory, copying skipped.'.format(file))
-        # If the files were transferred from the server to the backup hard drive, delete the files from the server after
-        # successful transfer.
-    if not restore:
-        print('Removing files at the source directory...')
-        [os.remove(source+fname) for fname in tif_list]
-    print('\nDone!')
+    answer = input(f'Found {len(tif_list)} files.\nThey would free up {int(use_mem * 100) / 100} GB. Do you want to transfer them? [y/n]')
+    if answer == "yes" or answer == 'y':
+        for idx, file in enumerate(tif_list):
+            # Check the path to the current TIFF file and create any non-existing directories
+            if len(tif_list) > 1:
+                progress(idx, len(tif_list)-1, status=f'Transferring files to target directory...({idx+1}/{len(tif_list)})')
+            targ = Path(target+file)
+            for parent in targ.parents.__reversed__():
+                if not os.path.isdir(parent):
+                    os.mkdir(parent)
+
+            # Transfer the file to the new location if it does not exist already there
+            if not os.path.isfile(target+file):
+                shutil.copy(src=source+file, dst=target+file)
+            else:
+                print('File {} already exists in target directory, copying skipped.'.format(file))
+            # If the files were transferred from the server to the backup hard drive, delete the files from the server after
+            # successful transfer.
+        if not restore:
+            print('Removing files at the source directory...')
+            [os.remove(source+fname) for fname in tif_list]
+        print('\nDone!')
+    elif answer == "no" or answer == 'n':
+        print('Transfer cancelled.')
+    else:
+        print("Please enter yes or no.")
 
 
-def remove_mmap_after_analysis(root, remove_all=False):
+def remove_mmap_after_analysis(root, basename='memmap__', remove_all=False):
     """
     Removes mmap files in all subdirectories that are completely analysed (PCF file exists in the same directory).
     :param root: parent directory from whose subdirectories mmap files should be removed
+    :param remove_all: bool flag whether mmap files should be moved, even if no PCF file is in the session folder.
     :return:
     """
     free_mem = 0
@@ -56,9 +82,9 @@ def remove_mmap_after_analysis(root, remove_all=False):
 
     del_files = []
     for step in os.walk(root):
-        mmap_file = glob(step[0]+'\\memmap__*')
+        mmap_file = glob(step[0]+f'\\{basename}*')
         ana_file = glob(step[0] + '\\pcf_result*')
-        if (len(mmap_file) > 0 and len(ana_file) > 0) or remove_all:
+        if len(mmap_file) > 0 and (len(ana_file) > 0 or remove_all):
             for file in mmap_file:
                 free_mem += os.path.getsize(file)/1073741824    # Remember size of deleted file for later report
                 n_files += 1
@@ -68,9 +94,14 @@ def remove_mmap_after_analysis(root, remove_all=False):
         print('No mmap files found!')
     else:
         if remove_all:
-            print('WARNING! remove_all = True, which means that also half-processed session`s .mmap will be deleted!')
+            print(f'WARNING! remove_all = True, which means that also half-processed session`s .{basename} will be deleted!\n')
         print(f'Found {len(del_files)} files to be deleted:')
-        print(*del_files, sep='\n')
+        if len(del_files) < 50:
+            print(*del_files, sep='\n')
+        else:
+            print(*del_files[:49], sep='\n')
+            print(f'... + {len(del_files)-49} more files')
+
         answer = None
         while answer not in ("y", "n", 'yes', 'no'):
             answer = input(f'These files would free up {int(free_mem*100)/100} GB. Do you want to delete them? [y/n]')
