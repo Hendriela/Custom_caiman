@@ -81,17 +81,20 @@ mean_performance.to_csv(r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Posters\Z
 # Example sessions from M63: 20210214, 20210302, 20210306, 20210317 (no recovery)
 
 # Set session paths
-paths = [r"E:\Batch5\M63\20210214",
-         r"E:\Batch5\M63\20210302",
-         r"E:\Batch5\M63\20210306",
-         r"E:\Batch5\M63\20210317"]
+paths = [r"F:\Batch5\M63\20210214",
+         r"F:\Batch5\M63\20210302",
+         r"F:\Batch5\M63\20210306",
+         r"F:\Batch5\M63\20210317"]
+
+# np.savetxt(r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Posters\ZNZ Symposium 2021\lick_histogram_20210317.txt", out[0], fmt="%.5f")
 
 import matplotlib
+matplotlib.use('TkAgg')
 matplotlib.rcParams['font.sans-serif'] = "Arial"
 matplotlib.rcParams['font.family'] = "sans-serif"
 
 # Create figure
-fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(19, 12))
+fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(29.4, 12.8))
 
 # Plot histograms in subplots
 performance.plot_lick_histogram_in_figure(path=paths[0], ax=axes[0], label_axes=False)
@@ -100,15 +103,15 @@ performance.plot_lick_histogram_in_figure(path=paths[2], ax=axes[2], label_axes=
 performance.plot_lick_histogram_in_figure(path=paths[3], ax=axes[3], label_axes=False)
 
 # Fix formatting
-title_fontsize = 34
-y_tick_labelsize = 26
+title_fontsize = 30
+y_tick_labelsize = 28
 
 plt.subplots_adjust(hspace=0.5)
 
-axes[0].set_title("Naive", fontsize=title_fontsize)
-axes[1].set_title("Expert", fontsize=title_fontsize)
-axes[2].set_title("3 days post microlesions", fontsize=title_fontsize)
-axes[3].set_title("21 days post microlesions", fontsize=title_fontsize)
+axes[0].set_title("Naïve", fontsize=title_fontsize, weight='bold')
+axes[1].set_title("Expert", fontsize=title_fontsize, weight='bold')
+axes[2].set_title("3 days post microlesions", fontsize=title_fontsize, weight='bold')
+axes[3].set_title("21 days post microlesions", fontsize=title_fontsize, weight='bold')
 
 axes[0].tick_params(axis='y', which='major', labelsize=y_tick_labelsize)
 axes[1].tick_params(axis='y', which='major', labelsize=y_tick_labelsize)
@@ -119,19 +122,29 @@ axes[0].set_xticks([])
 axes[1].set_xticks([])
 axes[2].set_xticks([])
 
-axes[3].set_xlabel("VR corridor position bin [cm]", fontsize=36)
+axes[3].set_xlabel("VR corridor position bin [cm]", fontsize=36, weight='bold')
 
 axes[3].tick_params(axis='x', which='major', labelsize=y_tick_labelsize)
+axes[3].set_xticklabels(axes[3].get_xticks(), weight='bold')
 
 props = {'ha': 'center', 'va': 'center', 'rotation': 90, 'fontsize': 40}
-axes[1].text(-25, 0, "Licks per position bin [%]", props)
+axes[1].text(-25, 0, "Licks per position bin [%]", props, fontweight='bold')
 
 axes[3].text(32, 82, "RZ", color='red', fontsize=y_tick_labelsize, fontweight='bold')
 axes[3].text(139, 82, "RZ", color='red', fontsize=y_tick_labelsize, fontweight='bold')
 axes[3].text(245, 82, "RZ", color='red', fontsize=y_tick_labelsize, fontweight='bold')
 axes[3].text(353, 82, "RZ", color='red', fontsize=y_tick_labelsize, fontweight='bold')
 
-plt.tight_layout()
+# Make axis lines thicker
+for ax in axes:
+    for axis in ['bottom', 'left']:
+        ax.spines[axis].set_linewidth(4)
+    # increase tick width
+    ax.tick_params(width=4)
+    ax.set_yticklabels(ax.get_yticks(), weight='bold')
+
+plt.savefig(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Posters\FENS 2022\lick_histogram.png')
+# plt.tight_layout()
 
 
 #%% Correlation Performance - Place Cells (only batch 3 is analyzed for now)
