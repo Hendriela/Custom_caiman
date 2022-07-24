@@ -100,7 +100,7 @@ def main():
     max_deviation_rigid = 3
 
     mc_dict = {
-        'fnames': fnames,
+        # 'fnames': fnames,
         'fr': fr,
         'decay_time': decay_time,
         'dxy': dxy,
@@ -159,7 +159,10 @@ def main():
                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2\5\file_00005_els__d1_512_d2_512_d3_1_order_F_frames_2677_.mmap',
                  r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch2\M19\20191219\N2\6\file_00006_els__d1_512_d2_512_d3_1_order_F_frames_3685_.mmap']
 
-    fname_new = r'E:\PhD\Data\DG\M14_20191014\N1\memmap__d1_512_d2_512_d3_1_order_C_frames_34939_.mmap'
+    fname_new = r'C:\Users\hheise\caiman_data\example_movies\mmap__d1_170_d2_170_d3_1_order_C_frames_3000_shifts.mmap'
+    fname_new = r'C:\Users\hheise\Datajoint\mmap__d1_452_d2_452_d3_1_order_C_frames_25439_shifts.mmap'
+    fname_new = r'C:\Users\hheise\Datajoint\mmap__d1_452_d2_452_d3_1_order_C_frames_25439_shiftsnooffset.mmap'
+    fname_new = r'C:\Users\hheise\Datajoint\temp\mmap__d1_488_d2_488_d3_1_order_C_frames_25439_.mmap'
 
     # memory map the file in order 'C'
     fname_new = cm.save_memmap(mc.mmap_file, base_name='memmap_', order='C',
@@ -191,7 +194,7 @@ def main():
     tsub = 2                     # temporal subsampling during intialization
 
     # parameters for component evaluation
-    opts_dict = {'fnames': fnames,
+    opts_dict = {#'fnames': fnames,
                  'fr': fr,
                  'nb': gnb,
                  'rf': rf,
@@ -201,7 +204,7 @@ def main():
                  'method_init': method_init,
                  'rolling_sum': True,
                  'merge_thr': merge_thr,
-                 'n_processes': n_processes,
+                 # 'n_processes': n_processes,
                  'only_init': True,
                  'ssub': ssub,
                  'tsub': tsub}
@@ -312,7 +315,7 @@ def main():
         os.remove(log_file)
 
 #%% save results
-
+    dirname = r"C:\Users\hheise\Datajoint\M93_20170708_shifts_nooffset_results.hdf5"
     dirname = fnames[0][:-4] + "_results.hdf5"
     cnm2.estimates.Cn = Cn
     cnm2.save(dirname)

@@ -57,6 +57,57 @@ np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_proc
 np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\spikerate_pc.txt', spikerate_pc, fmt='%.4f', delimiter='\t')
 np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\spikerate_non_pc.txt', spikerate_non_pc, fmt='%.4f', delimiter='\t')
 
+#%% Plot activity of all unique cells across sessions
+
+n_rows = 2
+n_cols = 5
+
+# Extract place cell IDs before
+pc_ids = {sess_idx: [pc[0] for pc in sess.place_cells] for sess_idx, sess in data.items()}
+
+# Plot sessions for every unique cell (rows in DF)
+for idx, row in unique.iterrows():
+
+    # Create new figure for each neuron
+    fig, ax = plt.subplots(n_rows, n_cols, sharey="all", sharex="all", figsize=(20, 6))
+    ax_row = 0
+    ax_col = 0
+
+    ax[0, 0].set_ylabel('Prestroke', fontsize=18)
+    ax[1, 0].set_ylabel('Poststroke', fontsize=18)
+
+    # Plot data for every session
+    for session_idx in row.index:
+        # Skip session of poststroke day 1 because mouse was not running, data is meaningless
+        if session_idx != '20200826':
+            # -10 means that cell was not found in that session
+            if not int(row[session_idx]) == -10:
+                # Plot data
+                ax[ax_row, ax_col].plot(data[session_idx].bin_avg_activity[int(row[session_idx])])
+
+                # If the current cell is a place cell in the current session, draw place fields red
+                if int(row[session_idx]) in pc_ids[session_idx]:
+                    pc_idx = pc_ids[session_idx].index(int(row[session_idx]))
+                    for pf in data[session_idx].place_cells[pc_idx][1]:
+                        ax[ax_row, ax_col].axvspan(pf[0], pf[-1], color='r', alpha=0.3)
+
+            # Set session date as subplot title
+            ax[ax_row, ax_col].set_title(f"{session_idx} - Idx {int(row[session_idx])}")
+            ax[ax_row, ax_col].spines['top'].set_visible(False)
+            ax[ax_row, ax_col].spines['right'].set_visible(False)
+
+            # Figure out coordinates of next axes
+            if ax_col + 1 == n_cols:
+                ax_row += 1
+                ax_col = 0
+            else:
+                ax_col += 1
+
+    plt.tight_layout()
+    plt.savefig(r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\batch_processing\cell_alignments\activity_plots" + f"\\unique_cell_{idx}.png")
+    plt.close(fig)
+
+
 #%% Load pcf files into a dict for better indexing
 
 pcf_dict = {}

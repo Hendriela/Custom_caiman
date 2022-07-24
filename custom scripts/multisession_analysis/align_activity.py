@@ -2,6 +2,8 @@ import standard_pipeline.place_cell_pipeline as pipe
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy
+import seaborn as sns
 
 session = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch3\M41\20200627'
 window_size = (2, 4)
@@ -172,6 +174,57 @@ for i in range(1,10):
     ax.axhline(y=0, c="black")
     ax.set_title("Cell {:d}, rho={:.2f}, p={:.1e}".format(curr_cell.name, curr_cell["corr"], curr_cell["p"]))
 plt.suptitle("Highest corr")
+
+# Example cell: 257
+cell_id=783
+
+speed_smooth = scipy.ndimage.gaussian_filter1d(speed, sigma=3)
+act_smooth = scipy.ndimage.gaussian_filter1d(cell_act[cell_id], sigma=3)
+
+fig, ax = plt.subplots(2, 1, sharex="all")
+ax[0].plot(speed_smooth)
+ax[1].plot(act_smooth)
+
+# Avg activity per speed bin
+n_bins = 15
+bin_borders = np.linspace(np.min(speed_smooth),np.max(speed_smooth), n_bins)
+speed_bins = np.digitize(speed_smooth, bin_borders)
+act_bins = []
+bin_names = []
+for i in range(1, n_bins):
+    act_bins.append(act_smooth[speed_bins==i])
+    bin_names.append([i]*len(act_smooth[speed_bins==i]))
+
+data = pd.DataFrame(dict(signal=np.concatenate(act_bins), bin=np.concatenate(bin_names)))
+plt.figure()
+sns.stripplot(x="bin", y="signal", data=data)
+sns.boxplot(x="bin", y="signal", data=data, fliersize=0)
+
+x_bar = bin_borders
+y_bar = [np.mean(x) for x in act_bins]
+plt.figure()
+plt.bar(x_bar, y_bar)
+
+# Export data for prism
+# example traces
+start = 5870
+end = 6480
+n_samples = end-start
+x = np.linspace(0, n_samples/30, n_samples)
+y_speed = speed_smooth[start:end]
+y_act = cell_act[cell_id, start:end]
+
+np.savetxt(r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Presentations\ERC Grant\speed_cell_x.txt", x.T, delimiter='\t', fmt='%.5f')
+np.savetxt(r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Presentations\ERC Grant\speed_cell_y_speed.txt", y_speed.T, delimiter='\t', fmt='%.5f')
+np.savetxt(r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Presentations\ERC Grant\speed_cell_y_act.txt", y_act.T, delimiter='\t', fmt='%.5f')
+
+# binned data
+np.savetxt(r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Presentations\ERC Grant\speed_cell_bin_x.txt", x_bar.T, delimiter='\t', fmt='%.5f')
+np.savetxt(r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Presentations\ERC Grant\speed_cell_bin_y.txt", np.array(y_bar).T, delimiter='\t', fmt='%.5f')
+
+# Get 95% confidence interval
+std = np.array([np.std(bin) for bin in act_bins])
+np.savetxt(r"W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Presentations\ERC Grant\speed_cell_bin_std.txt", std.T, delimiter='\t', fmt='%.5f')
 
 
 #%% Speed cell method from Iwase et al. 2020

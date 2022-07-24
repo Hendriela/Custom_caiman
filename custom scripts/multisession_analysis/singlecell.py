@@ -60,6 +60,19 @@ def correlate_activity(traces, alignment, stroke='20200825', ignore=None, title=
 
         # Divide by number of cells to get mean correlation
         mat /= n_sess
+
+        # Print sample size (number of neurons over which average was drawn)
+        n_sess[n_sess == 0] = -2    # temporarily turn neuron count for sessions with actually 0 neurons to -2
+        n_sess_tri = np.tril(n_sess, k=-1)
+        n_sess_tri[n_sess_tri == 0] = -1    # make upper triangle -1 to filter it out later
+        n_sess_tri[n_sess_tri == -2] = 0    # turn previously saved "empty" sessions back to 0 for proper statistics
+        n_sess_tri[n_sess_tri == 0] = -1    # turn previously saved "empty" sessions back to 0 for proper statistics
+        print("All session pairs: ", n_sess_tri)
+        print("Lowest number of cells: ", np.min(n_sess_tri[n_sess_tri != -1]))
+        print("Highest number of cells: ", np.max(n_sess_tri[n_sess_tri != -1]))
+        print("Average number of cells: ", np.mean(n_sess_tri[n_sess_tri != -1]))
+        print("St-dev number of cells: ", np.std(n_sess_tri[n_sess_tri != -1]))
+
         return mat
 
     dates = alignment.columns
@@ -70,6 +83,7 @@ def correlate_activity(traces, alignment, stroke='20200825', ignore=None, title=
     date_diff = dates.astype(int) - int(stroke)
     stroke_idx = np.where(date_diff > 0, date_diff, np.inf).argmin()
 
+    # print(len(traces))
     corr_mat = get_corr_matrix(traces, dates)
 
     if title is not None:
