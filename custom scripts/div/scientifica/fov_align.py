@@ -33,9 +33,9 @@ fov = tiff.imread(fov_name)
 try:
     # frames_per_stack = int(stack_name.split('_')[-3])       # Number of frames per slice, which will be averaged
     # n_slices = stack.shape[0]//frames_per_stack             # Number of slices in the stack
-    z_dist = int(stack_name.split('_')[-2][:-2])            # Distance between slices (thickness) in um
-    target_slice = int(stack_name.split('_')[-4]) - 1       # Index of the slice which is the imaging plane
-    zoom = int(stack_name.split('_')[-1].split('.')[0][0])  # Zoom of the stack and FOV
+    z_dist = int(stack_name.split('_')[-2][:-2])              # Distance between slices (thickness) in um
+    target_slice = int(stack_name.split('_')[-4]) - 1         # Index of the slice which is the imaging plane
+    zoom = int(stack_name.split('_')[-1].split('.')[0][0])    # Zoom of the stack and FOV
 except:
     messagebox.showerror('Failed to interpret stack info', 'Failed to interpret stack info.\n'
                                                            'The stack file name has to follow this pattern:\n'
@@ -55,7 +55,12 @@ else:
 
 # Average stacks
 # stack_avg = [np.mean(stack[i*frames_per_stack:i*frames_per_stack+frames_per_stack], axis=0) for i in range(n_slices)]
-fov_avg = np.mean(fov, axis=0)
+if len(fov.shape) == 3:
+    fov_avg = np.mean(fov, axis=0)
+elif len(fov.shape) == 2:
+    fov_avg = fov
+else:
+    raise IndexError('Provide 2D or 3D FOV image.')
 
 # Compute phase cross correlation and pixel offset for each frame in the stack
 shifts = []
@@ -71,14 +76,18 @@ best_slice = np.argmin(errors)      # The best fitting slice is the one with the
 z_shift = (best_slice - target_slice) * z_dist  # The z-shift is the distance between the target and the best slice
 x_shift = shifts[best_slice][0]     # Separate X and Y shifts for plotting
 y_shift = shifts[best_slice][1]
+z = np.arange(start=-(target_slice*z_dist), stop=(len(stack)-target_slice)*z_dist, step=z_dist)
 
 # Plot results
 fig = plt.figure()
-x_line, y_line = plt.plot(shifts)   # Plot x and y shifts against stack depth
+x_line, y_line = plt.plot(z, shifts)   # Plot x and y shifts against stack depth
+plt.xlabel('depth from target plane[um]')
+plt.ylabel('X/Y shifts')
 plt.twinx()                         # Plot error on a secondary Y-axis
-error_line = plt.plot(errors, color='green')
-plt.legend([x_line, y_line, error_line[0]], ['x (left-right)', 'y (top-bottom)', 'error'],
-           loc='lower right')       # Create legend with appropriate labels
+plt.axvline(z[target_slice], color='red')
+plt.ylabel('Correlation error')
+error_line = plt.plot(z, errors, color='green')
+plt.legend([x_line, y_line, error_line[0]], ['x (left-right)', 'y (top-bottom)', 'error'], loc='lower right')
 
 # Print out shift results in a textbox in the current axes
 ax = fig.gca()
@@ -86,4 +95,5 @@ results = 'Recommended stage corrections:\nx={:6.2f} um\ny={:6.2f} um\nz={:7d} u
 if z_shift > 20:
     results += '\nWarning: Large z-shift!\nX and Y shifts may be unreliable.\nCorrect Z and take new image.'
 plt.text(0.95, 0.25, results, horizontalalignment='right', verticalalignment='bottom', transform=ax.transAxes)
+plt.tight_layout()
 plt.show()
