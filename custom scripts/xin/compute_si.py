@@ -277,7 +277,7 @@ def spatial_info(traces: np.ndarray, bin_frame_count: List[np.ndarray], deconv: 
     Place cell classification using spatial information in deconvolved spikerates. Adapted from Shuman (2020).
 
     Args:
-        traces: Array with shape (n_neurons, n_bins), containing spatial activity maps of all neurons. From bin_activity_to_vr().
+        traces: Array with shape (n_neurons, n_bins, n_trials), containing spatial activity maps of all neurons. From bin_activity_to_vr().
         bin_frame_count: Frame numbers per position bin for all trials. From align_frames_with_vr().
         deconv: Unbinned spikerates with shape (n_neurons, n_frames). From run_cascade().
         tr_mask: 1D array with length n_frames_in_session, from get_trial_mask().
@@ -515,6 +515,7 @@ def run_pipeline() -> None:
     # Save data in the session directory
     print('Saving files...')
     np.save(os.path.join(session_dir, 'decon.npy'), decon, allow_pickle=False)
+    np.save(os.path.join(session_dir, 'bin_act.npy'), bin_spikes, allow_pickle=False)
     np.save(os.path.join(session_dir, 'spatial_info.npy'), data.to_numpy(), allow_pickle=False)
 
     print('Done!')
