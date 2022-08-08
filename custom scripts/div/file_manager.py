@@ -33,13 +33,14 @@ def transfer_raw_movies(source, target, basename='file', restore=False, move_all
     # Find movie files that are part of a completely analysed session (PCF file exists)
     use_mem = 0
     for step in os.walk(source):
-        if len(glob(step[0] + f'\\{basename}_00???.tif')) == 1:
+        tif_files = glob(step[0] + f'\\{basename}_00???.tif')
+        if len(tif_files) > 0:
             if (len(glob(step[0].rsplit(os.sep, 1)[0] + r'\\pcf*')) > 0) or restore or move_all:
-                fname = glob(step[0] + f'\\{basename}_00???.tif')[0]
-                use_mem += os.path.getsize(fname) / 1073741824
-                tif_list.append(fname[len(source):])    # remove source directory to get relative path
+                for fname in tif_files:
+                    use_mem += os.path.getsize(fname) / 1073741824
+                    tif_list.append(fname[len(source):])    # remove source directory to get relative path
 
-    if use_mem > get_free_space_gb(target):
+    if use_mem > get_free_space_gb(os.path.splitdrive(target)[0]):
         raise MemoryError(f'Not enough space on {target}! {get_free_space_gb(target)} GB available, {use_mem} GB needed.')
 
     answer = input(f'Found {len(tif_list)} files.\nThey would free up {int(use_mem * 100) / 100} GB. Do you want to transfer them? [y/n]')
