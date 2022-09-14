@@ -271,6 +271,57 @@ def bin_activity_to_vr(spikes: np.ndarray, tr_mask: np.ndarray, running_masks: l
     return binned_spikerate
 
 
+def compute_pvc_curve(traces: np.ndarray, max_offset: int = 150) -> np.ndarray:
+    """
+    Compute population vector correlation curves across VR corridor offset distances.
+
+    For each position bin, the correlation is computed between the activity of all neurons at that position versus the
+    activity at a position a certain offset further. E.g. for an offset of 15cm with a bin width of 5cm, we compare
+    bin 0 with bin 5, bin 1 with bin 6, bin 2 with bin 7, etc. The mean of these values is taken as the similarity of
+    population activity at any two points in the corridor 15cm apart. This is repeated for all offsets until max_offset.
+
+    The resulting array are the mean PVC values for all position offsets and can be plotted in a curve. The slope of the
+    curves shows the position specificity of the population: A steeper slope means more distinct firing patterns with
+    increasing distance, thus higher position specificity. A flatter curve means more similar firing patterns across
+    the corridor, thus lower position specificity.
+
+    Args:
+        traces: Array with shape (n_neurons, n_bins, n_trials), containing spatial activity maps of all neurons. From bin_activity_to_vr().
+        max_offset: Maximum position offset in cm for which the PVC should be computed.
+
+    Returns:
+        2D array containing the mean PVC values across offsets in row 0, and their standard deviation across the
+            corridor position pairs in row 1.
+    """
+    max_delta_bins = max_offset // BIN_LENGTH  # Convert max_offset in cm to bins
+
+    # Average activity map across trials, and flip axes (function requires bins to be first axis)
+    avg_traces = np.mean(traces, axis=2).T
+
+    num_bins = np.size(avg_traces, 0)
+    num_neurons = np.size(traces, 1)
+    curve_yvals = np.empty(max_delta_bins + 1)
+    curve_stdev = np.empty(max_delta_bins + 1)
+    for delta_bin in range(max_delta_bins + 1):  # Loop through all possible offset distances
+        pvc_vals = []
+        for offset in range(num_bins - delta_bin):  # Apply the distance to every position bin
+            idx_x = offset
+            idx_y = offset + delta_bin
+            pvc_xy_num = pvc_xy_den_term1 = pvc_xy_den_term2 = 0
+            for neuron in range(num_neurons):  # Correlate across neurons
+                pvc_xy_num += traces[idx_x][neuron] * traces[idx_y][neuron]
+                pvc_xy_den_term1 += traces[idx_x][neuron] * traces[idx_x][neuron]
+                pvc_xy_den_term2 += traces[idx_y][neuron] * traces[idx_y][neuron]
+            pvc_xy = pvc_xy_num / (np.sqrt(pvc_xy_den_term1 * pvc_xy_den_term2))
+            pvc_vals.append(pvc_xy)
+        mean_pvc_delta_bin = np.mean(pvc_vals)
+        stdev_delta_bin = np.std(pvc_vals)
+        curve_yvals[delta_bin] = mean_pvc_delta_bin
+        curve_stdev[delta_bin] = stdev_delta_bin
+
+    return np.vstack((curve_yvals, curve_stdev))
+
+
 def spatial_info(traces: np.ndarray, bin_frame_count: List[np.ndarray], deconv: np.ndarray, tr_mask: np.ndarray,
                  run_masks: List[np.ndarray], frame_rate: float) -> pd.DataFrame:
     """
