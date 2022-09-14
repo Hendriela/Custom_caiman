@@ -16,6 +16,7 @@ from glob import glob
 import os
 import numpy as np
 from copy import deepcopy
+from pathlib import Path
 
 import pandas as pd
 from caiman.source_extraction.cnmf import cnmf
@@ -35,7 +36,7 @@ MODEL_NAME = 'Global_EXC_30Hz_smoothing50ms'  # Name of the model for deconvolut
 THRESHOLD = 0  # Whether deconvoluted trace should be thresholded at the height of 1 spike or not.
 
 
-def get_session_dir() -> str:
+def get_session_dir() -> Path:
     """
     Open a prompt on top of all other windows which asks the user for the session folder that has to contain the
     cnm_results.hdf5 file and merge_behavior.txt files of all trials of the session to be processed.
@@ -46,8 +47,9 @@ def get_session_dir() -> str:
     root = tk.Tk()
     root.wm_attributes('-topmost', 1)
     root.withdraw()
-    return filedialog.askdirectory(parent=root, title='Choose session directory containing the CNM and merge_behavior '
-                                                      'files.')
+    return Path(
+        filedialog.askdirectory(parent=root, title='Choose session directory containing the CNM and merge_behavior '
+                                                   'files.'))
 
 
 def load_data(sess_dir: str) -> Tuple[Any, list]:
@@ -533,6 +535,58 @@ def spatial_info(traces: np.ndarray, bin_frame_count: List[np.ndarray], deconv: 
                              is_pc=place_cell))
 
 
+def run_context_specific(curr_decon: np.ndarray, curr_trial_mask: np.ndarray, curr_running_mask: list,
+                         curr_bf_count: list, framerate: float) -> dict:
+    """
+    Run the context-specific analysis steps, possibly with a subset of trials from the main session.
+
+    Args:
+        curr_decon: Spike prediction, with shape (n_neurons, n_frames_in_context).
+        curr_trial_mask: 1D array with length n_frames_in_context, from get_trial_mask().
+        curr_running_mask: One element per trial, from align_frames_with_vr().
+        curr_bf_count: Same as running_masks, from align_frames_with_vr().
+        framerate: From CNM object.
+
+    Returns:
+        Dictionary with results: binned spikes, spatial info data, PVC curves for all neurons and only place cells.
+    """
+    # Bin traces to VR position
+    curr_bin_spikes = bin_activity_to_vr(curr_decon, curr_trial_mask, curr_running_mask, curr_bf_count, framerate)
+
+    # Compute spatial information content and classify place cells
+    curr_data = spatial_info(traces=curr_bin_spikes, bin_frame_count=curr_bf_count, deconv=curr_decon,
+                             tr_mask=curr_trial_mask, run_masks=curr_running_mask, frame_rate=framerate)
+
+    # Compute PVC curves for whole population and place-cells only
+    curr_pvc_all = compute_pvc_curve(curr_bin_spikes)
+    curr_pvc_place = compute_pvc_curve(curr_bin_spikes[curr_data['is_pc']])
+
+    return dict(bin_spikes=curr_bin_spikes, data=curr_data, curr_pvc_all=curr_pvc_all, curr_pvc_place=curr_pvc_place)
+
+def save_results(sess_dir, result_dict, suffix=None):
+    """
+    Save analysis results as NPY files. If a suffix is given, the results are context specific, and non-context specific
+    data (deconvolution, binned spikes) are not saved.
+
+    Args:
+        sess_dir: Directory of the session (or context) where the files should be saved.
+        result_dict: Dictionary containing all the data (from run_context_specific()).
+        suffix: Optional, suffix to append to the end of the filename to differentiate contexts.
+    """
+    if suffix is not None:
+        print(f'Saving files for context {suffix}...')
+        np.save(os.path.join(sess_dir, f'spatial_info_{suffix}.npy'), result_dict['data'].to_numpy(), allow_pickle=False)
+        np.save(os.path.join(sess_dir, f'pvc_all_{suffix}.npy'), result_dict['pvc_all'], allow_pickle=False)
+        np.save(os.path.join(sess_dir, f'pvc_place_{suffix}.npy'), result_dict['pvc_place'], allow_pickle=False)
+    else:
+        print('Saving files...')
+        np.save(os.path.join(sess_dir, 'decon.npy'), result_dict['decon'], allow_pickle=False)
+        np.save(os.path.join(sess_dir, 'bin_act.npy'), result_dict['bin_spikes'], allow_pickle=False)
+        np.save(os.path.join(sess_dir, 'spatial_info.npy'), result_dict['data'].to_numpy(), allow_pickle=False)
+        np.save(os.path.join(sess_dir, 'pvc_all.npy'), result_dict['pvc_all'], allow_pickle=False)
+        np.save(os.path.join(sess_dir, 'pvc_place.npy'), result_dict['pvc_place'], allow_pickle=False)
+
+
 def run_pipeline() -> None:
     """
     Main function that runs all functions for the spatial information pipeline in order. This function can be called
@@ -555,19 +609,43 @@ def run_pipeline() -> None:
     # Perform deconvolution with Peter's CASCADE on the dF/F traces from CaImAn
     decon = run_cascade(cnm.estimates.F_dff)
 
-    # Bin traces to VR position
-    bin_spikes = bin_activity_to_vr(decon, trial_mask, running_mask, bf_count, cnm.params.data['fr'])
+    # Check if there are different contexts in this session
+    if len(os.listdir(session_dir)) > 0:
+        # Count TIFF files
+        n_trials = []
+        for subdir in os.listdir(session_dir):
+            n_trials.append(len(glob(os.path.join(session_dir, subdir, '*.tif'))))
+        if np.sum(n_trials) != len(behavior):
+            raise IndexError(f'Trial numbers in subfolders {n_trials} do not match the trials '
+                             f'of the whole session ({len(behavior)} trials).')
 
-    # Compute spatial information content and classify place cells
-    print('Running spatial information algorithm...')
-    data = spatial_info(traces=bin_spikes, bin_frame_count=bf_count, deconv=decon, tr_mask=trial_mask,
-                        run_masks=running_mask, frame_rate=cnm.params.data['fr'])
+        # Make trial mask of the contexts
+        con_masks = []
+        for i, n_trial in enumerate(n_trials):
+            con_masks.extend([i] * n_trial)
+        con_masks = np.asarray(con_masks)
+
+        # Process contexts separately
+        for con in np.unique(con_masks):
+            # The trial mask has to be reset to start from 0
+            curr_trial_mask = trial_mask[np.isin(trial_mask, np.where(con_masks == con)[0])]
+            curr_trial_mask = curr_trial_mask - np.min(curr_trial_mask)
+
+            results = run_context_specific(decon[np.isin(trial_mask, np.where(con_masks == con)[0])],
+                                           curr_trial_mask,
+                                           list(np.asarray(running_mask)[con_masks == con]),
+                                           list(np.asarray(bf_count)[con_masks == con]),
+                                           cnm.params.data['fr'])
+
+            # Save results
+            save_results(sess_dir=os.path.join(session_dir, os.listdir(session_dir)[con]),
+                         result_dict=results, suffix=os.listdir(session_dir)[con])
+
+    # Afterwards, process both contexts together
+    results = run_context_specific(decon, trial_mask, running_mask, bf_count, cnm.params.data['fr'])
 
     # Save data in the session directory
-    print('Saving files...')
-    np.save(os.path.join(session_dir, 'decon.npy'), decon, allow_pickle=False)
-    np.save(os.path.join(session_dir, 'bin_act.npy'), bin_spikes, allow_pickle=False)
-    np.save(os.path.join(session_dir, 'spatial_info.npy'), data.to_numpy(), allow_pickle=False)
+    save_results(sess_dir=session_dir, result_dict=results)
 
     print('Done!')
 
