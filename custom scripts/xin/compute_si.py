@@ -52,7 +52,7 @@ def get_session_dir() -> Path:
                                                    'files.'))
 
 
-def load_data(sess_dir: str) -> Tuple[Any, list]:
+def load_data(sess_dir: Path) -> Tuple[Any, list]:
     """
     Load CNM results file (cnm_results.hdf5) as well as all merged_behavior.txt files for the session.
     The CNM file has to be in sess_dir, the behavior files can be in one subdirectory.
@@ -74,9 +74,10 @@ def load_data(sess_dir: str) -> Tuple[Any, list]:
         cnm_obj = cnmf.load_CNMF(cnm_file[0])
 
     ### Load behavior files
-    trial_list = glob(
-        sess_dir + '\\merged_behavior*.txt')  # Get a list of all merged_behavior.txt files in the session directory and one subdirectory
-    trial_list.extend(glob(sess_dir + '\\*\\merged_behavior*.txt'))
+    # Get a list of all merged_behavior.txt files in the session directory and one subdirectory
+    trial_list = glob(sess_dir.as_posix() + '\\merged_behavior*.txt')
+    trial_list.extend(glob(sess_dir.as_posix() + '\\*\\merged_behavior*.txt'))
+    trial_list.extend(glob(sess_dir.as_posix() + '\\*\\*\\merged_behavior*.txt'))
     trial_list.sort(key=lambda x: int(x.split('.')[-2].split('_')[-1]))  # Sort trials by their timestamp
 
     # Load the behavior data as numpy arrays
@@ -324,6 +325,30 @@ def compute_pvc_curve(traces: np.ndarray, max_offset: int = 150) -> np.ndarray:
     return np.vstack((curve_yvals, curve_stdev))
 
 
+def compute_sparsity(act_map: np.ndarray) -> np.ndarray:
+    """
+    Compute sparsity (ranging from 0-1) of the spatial activity maps of all neurons across trials. Formula from
+    Ravassard et al. (2013).
+
+    Args:
+        act_map: 3D array of spatially binned spikes in shape (n_neurons, n_bins, n_trials), from bin_activity_to_vr().
+
+    Returns:
+        1D array with shape (n_neurons,) holding sparsity value for each neuron.
+    """
+
+    num_bins = act_map.shape[1]
+    s = []
+    for neuron in act_map:
+        neuron_spars = []
+        for trial_idx in range(neuron.shape[1]):
+            neuron_spars.append((1 - (np.sum(neuron[:, trial_idx])**2/np.sum(neuron[:, trial_idx]**2)) / num_bins) *
+                                (num_bins/(num_bins-1)))
+        s.append(np.mean(neuron_spars))
+
+    return np.array(s)
+
+
 def spatial_info(traces: np.ndarray, bin_frame_count: List[np.ndarray], deconv: np.ndarray, tr_mask: np.ndarray,
                  run_masks: List[np.ndarray], frame_rate: float) -> pd.DataFrame:
     """
@@ -535,6 +560,35 @@ def spatial_info(traces: np.ndarray, bin_frame_count: List[np.ndarray], deconv: 
                              is_pc=place_cell))
 
 
+def compute_pvc_contexts(act_a, act_b):
+    """
+    Compute PVC between two contexts
+
+    Args:
+        act_a: 3D array of spatially binned spikes in shape (n_neurons, n_bins, n_trials) in context A, from bin_activity_to_vr().
+        act_b: same as act_a, but for context B. Has to have same dimensions as act_a.
+
+    Returns:
+        2D array with shape (n_bins, n_bins) with PVC for each position pair between context A (axis 0) and B (axis 1).
+    """
+
+    mean_act_a = np.mean(act_a, axis=2)
+    mean_act_b = np.mean(act_b, axis=2)
+
+    pvc_vals = np.zeros((mean_act_a.shape[1], mean_act_a.shape[1]))
+    for a, pos_a in enumerate(mean_act_a.T):
+        for b, pos_b in enumerate(mean_act_b.T):
+            pvc_xy_num = pvc_xy_den_term1 = pvc_xy_den_term2 = 0
+            for neuron in range(mean_act_a.shape[0]):   # Summarize across neurons
+                pvc_xy_num += pos_a[neuron] * pos_b[neuron]
+                pvc_xy_den_term1 += pos_a[neuron] * pos_a[neuron]
+                pvc_xy_den_term2 += pos_b[neuron] * pos_b[neuron]
+            pvc_xy = pvc_xy_num / (np.sqrt(pvc_xy_den_term1 * pvc_xy_den_term2))
+            pvc_vals[a, b] = pvc_xy
+
+    return pvc_vals
+
+
 def run_context_specific(curr_decon: np.ndarray, curr_trial_mask: np.ndarray, curr_running_mask: list,
                          curr_bf_count: list, framerate: float) -> dict:
     """
@@ -557,11 +611,15 @@ def run_context_specific(curr_decon: np.ndarray, curr_trial_mask: np.ndarray, cu
     curr_data = spatial_info(traces=curr_bin_spikes, bin_frame_count=curr_bf_count, deconv=curr_decon,
                              tr_mask=curr_trial_mask, run_masks=curr_running_mask, frame_rate=framerate)
 
+    curr_spars = compute_sparsity(curr_bin_spikes)
+
     # Compute PVC curves for whole population and place-cells only
     curr_pvc_all = compute_pvc_curve(curr_bin_spikes)
     curr_pvc_place = compute_pvc_curve(curr_bin_spikes[curr_data['is_pc']])
 
-    return dict(bin_spikes=curr_bin_spikes, data=curr_data, curr_pvc_all=curr_pvc_all, curr_pvc_place=curr_pvc_place)
+    return dict(bin_spikes=curr_bin_spikes, data=curr_data, pvc_all=curr_pvc_all, pvc_place=curr_pvc_place,
+                sparsity=curr_spars)
+
 
 def save_results(sess_dir, result_dict, suffix=None):
     """
@@ -575,16 +633,25 @@ def save_results(sess_dir, result_dict, suffix=None):
     """
     if suffix is not None:
         print(f'Saving files for context {suffix}...')
+        np.save(os.path.join(sess_dir, f'decon_{suffix}.npy'), result_dict['decon'], allow_pickle=False)
+        np.save(os.path.join(sess_dir, f'bin_spikes_{suffix}.npy'), result_dict['bin_spikes'], allow_pickle=False)
         np.save(os.path.join(sess_dir, f'spatial_info_{suffix}.npy'), result_dict['data'].to_numpy(), allow_pickle=False)
         np.save(os.path.join(sess_dir, f'pvc_all_{suffix}.npy'), result_dict['pvc_all'], allow_pickle=False)
         np.save(os.path.join(sess_dir, f'pvc_place_{suffix}.npy'), result_dict['pvc_place'], allow_pickle=False)
+        np.save(os.path.join(sess_dir, f'sparsity_{suffix}.npy'), result_dict['sparsity'], allow_pickle=False)
+
     else:
         print('Saving files...')
         np.save(os.path.join(sess_dir, 'decon.npy'), result_dict['decon'], allow_pickle=False)
-        np.save(os.path.join(sess_dir, 'bin_act.npy'), result_dict['bin_spikes'], allow_pickle=False)
+        np.save(os.path.join(sess_dir, 'bin_spikes.npy'), result_dict['bin_spikes'], allow_pickle=False)
         np.save(os.path.join(sess_dir, 'spatial_info.npy'), result_dict['data'].to_numpy(), allow_pickle=False)
         np.save(os.path.join(sess_dir, 'pvc_all.npy'), result_dict['pvc_all'], allow_pickle=False)
         np.save(os.path.join(sess_dir, 'pvc_place.npy'), result_dict['pvc_place'], allow_pickle=False)
+        np.save(os.path.join(sess_dir, 'sparsity.npy'), result_dict['sparsity'], allow_pickle=False)
+
+        if 'pvc_context_all' in result_dict:
+            np.save(os.path.join(sess_dir, 'pvc_context_all.npy'), result_dict['pvc_context_all'], allow_pickle=False)
+            np.save(os.path.join(sess_dir, 'pvc_context_place.npy'), result_dict['pvc_context_place'], allow_pickle=False)
 
 
 def run_pipeline() -> None:
@@ -609,8 +676,10 @@ def run_pipeline() -> None:
     # Perform deconvolution with Peter's CASCADE on the dF/F traces from CaImAn
     decon = run_cascade(cnm.estimates.F_dff)
 
+    bin_act_maps = []  # Binned activity maps have to be stored for PVC cross-context analysis
+
     # Check if there are different contexts in this session
-    if len(os.listdir(session_dir)) > 0:
+    if len(os.listdir(session_dir)) > 1:
         # Count TIFF files
         n_trials = []
         for subdir in os.listdir(session_dir):
@@ -631,18 +700,31 @@ def run_pipeline() -> None:
             curr_trial_mask = trial_mask[np.isin(trial_mask, np.where(con_masks == con)[0])]
             curr_trial_mask = curr_trial_mask - np.min(curr_trial_mask)
 
+            # Compute context-specific data
             results = run_context_specific(decon[np.isin(trial_mask, np.where(con_masks == con)[0])],
                                            curr_trial_mask,
                                            list(np.asarray(running_mask)[con_masks == con]),
                                            list(np.asarray(bf_count)[con_masks == con]),
                                            cnm.params.data['fr'])
+            results['decon'] = decon[np.isin(trial_mask, np.where(con_masks == con)[0])]
+
+            bin_act_maps.append(results['bin_spikes'])  # Store spatial activity map for later cross-context PVC
 
             # Save results
             save_results(sess_dir=os.path.join(session_dir, os.listdir(session_dir)[con]),
                          result_dict=results, suffix=os.listdir(session_dir)[con])
 
-    # Afterwards, process both contexts together
+    # Afterwards, process all contexts together
     results = run_context_specific(decon, trial_mask, running_mask, bf_count, cnm.params.data['fr'])
+
+    # Compute PVC between contexts
+    if len(bin_act_maps) == 2:
+        pvc_context_all = compute_pvc_contexts(bin_act_maps[0], bin_act_maps[1])
+        pvc_context_place = compute_pvc_contexts(bin_act_maps[0][results['is_pc']], bin_act_maps[1][results['is_pc']])
+        results['pvc_context_all'] = pvc_context_all
+        results['pvc_context_place'] = pvc_context_place
+    else:
+        print(f'Found {len(bin_act_maps)}, not 2 contexts. PVC across context skipped.')
 
     # Save data in the session directory
     save_results(sess_dir=session_dir, result_dict=results)
