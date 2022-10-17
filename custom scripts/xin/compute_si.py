@@ -21,6 +21,7 @@ from pathlib import Path
 import pandas as pd
 from caiman.source_extraction.cnmf import cnmf
 from scipy.ndimage import gaussian_filter1d
+from scipy.io import savemat
 
 # USER-CHOSEN PARAMETERS
 RUNNING_THR = 5.0  # Number of encoder ticks per frame above which a frame counts as "running"
@@ -206,7 +207,7 @@ def run_cascade(dff: np.ndarray) -> np.ndarray:
         2D np.ndarray with same shape as input, containing deconvolved spike probability per frame.
     """
 
-    from cascade2p import checks, cascade
+    from xin.cascade2p import checks, cascade
     # To run deconvolution, tensorflow, keras and ruaml.yaml must be installed
     checks.check_packages()
 
@@ -635,7 +636,8 @@ def save_results(sess_dir, result_dict, suffix=None):
         print(f'Saving files for context {suffix}...')
         np.save(os.path.join(sess_dir, f'decon_{suffix}.npy'), result_dict['decon'], allow_pickle=False)
         np.save(os.path.join(sess_dir, f'bin_spikes_{suffix}.npy'), result_dict['bin_spikes'], allow_pickle=False)
-        np.save(os.path.join(sess_dir, f'spatial_info_{suffix}.npy'), result_dict['data'].to_numpy(), allow_pickle=False)
+        # np.save(os.path.join(sess_dir, f'spatial_info_{suffix}.npy'), result_dict['data'].to_numpy(), allow_pickle=False)
+        savemat(os.path.join(sess_dir, f'spatial_info_{suffix}.mat'), {name: col.values for name, col in result_dict['data'].items()})
         np.save(os.path.join(sess_dir, f'pvc_all_{suffix}.npy'), result_dict['pvc_all'], allow_pickle=False)
         np.save(os.path.join(sess_dir, f'pvc_place_{suffix}.npy'), result_dict['pvc_place'], allow_pickle=False)
         np.save(os.path.join(sess_dir, f'sparsity_{suffix}.npy'), result_dict['sparsity'], allow_pickle=False)
@@ -644,7 +646,8 @@ def save_results(sess_dir, result_dict, suffix=None):
         print('Saving files...')
         np.save(os.path.join(sess_dir, 'decon.npy'), result_dict['decon'], allow_pickle=False)
         np.save(os.path.join(sess_dir, 'bin_spikes.npy'), result_dict['bin_spikes'], allow_pickle=False)
-        np.save(os.path.join(sess_dir, 'spatial_info.npy'), result_dict['data'].to_numpy(), allow_pickle=False)
+        # np.save(os.path.join(sess_dir, 'spatial_info.npy'), result_dict['data'].to_numpy(), allow_pickle=False)
+        savemat(os.path.join(sess_dir, f'spatial_info.mat'), {name: col.values for name, col in result_dict['data'].items()})
         np.save(os.path.join(sess_dir, 'pvc_all.npy'), result_dict['pvc_all'], allow_pickle=False)
         np.save(os.path.join(sess_dir, 'pvc_place.npy'), result_dict['pvc_place'], allow_pickle=False)
         np.save(os.path.join(sess_dir, 'sparsity.npy'), result_dict['sparsity'], allow_pickle=False)
@@ -679,11 +682,10 @@ def run_pipeline() -> None:
     bin_act_maps = []  # Binned activity maps have to be stored for PVC cross-context analysis
 
     # Check if there are different contexts in this session
-    if len(os.listdir(session_dir)) > 1:
+    subfolders = glob((os.path.join(session_dir.as_posix(), '*\\')))
+    if len(subfolders) > 1:
         # Count TIFF files
-        n_trials = []
-        for subdir in os.listdir(session_dir):
-            n_trials.append(len(glob(os.path.join(session_dir, subdir, '*.tif'))))
+        n_trials = [len(glob(os.path.join(subdir, '*\\*.tif'))) for subdir in subfolders]
         if np.sum(n_trials) != len(behavior):
             raise IndexError(f'Trial numbers in subfolders {n_trials} do not match the trials '
                              f'of the whole session ({len(behavior)} trials).')
@@ -696,25 +698,27 @@ def run_pipeline() -> None:
 
         # Process contexts separately
         for con in np.unique(con_masks):
+            context_name = subfolders[con].split(os.path.sep)[-2]
+            print(f'Processing {context_name}...')
             # The trial mask has to be reset to start from 0
             curr_trial_mask = trial_mask[np.isin(trial_mask, np.where(con_masks == con)[0])]
             curr_trial_mask = curr_trial_mask - np.min(curr_trial_mask)
 
             # Compute context-specific data
-            results = run_context_specific(decon[np.isin(trial_mask, np.where(con_masks == con)[0])],
+            results = run_context_specific(decon[:, np.isin(trial_mask, np.where(con_masks == con)[0])],
                                            curr_trial_mask,
                                            list(np.asarray(running_mask)[con_masks == con]),
                                            list(np.asarray(bf_count)[con_masks == con]),
                                            cnm.params.data['fr'])
-            results['decon'] = decon[np.isin(trial_mask, np.where(con_masks == con)[0])]
+            results['decon'] = decon[:, np.isin(trial_mask, np.where(con_masks == con)[0])]
 
             bin_act_maps.append(results['bin_spikes'])  # Store spatial activity map for later cross-context PVC
 
             # Save results
-            save_results(sess_dir=os.path.join(session_dir, os.listdir(session_dir)[con]),
-                         result_dict=results, suffix=os.listdir(session_dir)[con])
+            save_results(sess_dir=subfolders[con], result_dict=results, suffix=context_name)
 
     # Afterwards, process all contexts together
+    print('Processing all contexts...')
     results = run_context_specific(decon, trial_mask, running_mask, bf_count, cnm.params.data['fr'])
 
     # Compute PVC between contexts
