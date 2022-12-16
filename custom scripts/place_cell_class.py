@@ -18,9 +18,15 @@ import tifffile as tiff
 from manual_selection_gui import gui_without_movie as gui
 from caiman.utils import visualization
 import pandas as pd
-from statannot import add_stat_annotation
 from multisession_analysis import multisession_registration as msr
 from scipy.ndimage.filters import gaussian_filter1d
+
+try:
+    from statannot import add_stat_annotation
+except ModuleNotFoundError:
+    print('Could not find module statannot, place_cell_class.py might not work.')
+
+
 
 
 #todo: create a class "data" that includes all data trace arrays (session, session_trans, bin_act, bin_avg_act) and
