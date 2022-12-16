@@ -8,13 +8,17 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as grid
 from skimage.registration import phase_cross_correlation
 from math import ceil
-from point2d import Point2D
 from scipy.ndimage import zoom
 import os
 import pandas as pd
 from div import file_manager as fm
 from copy import deepcopy
 import tifffile as tiff
+
+try:
+    from point2d import Point2D
+except ModuleNotFoundError:
+    print('Could not import point2d, multisession_registration.py might not work.')
 
 #%% LOADING AND AUTOMATICALLY ALIGNING MULTISESSION DATA
 
