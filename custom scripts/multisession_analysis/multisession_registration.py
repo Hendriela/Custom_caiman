@@ -6,7 +6,7 @@ from caiman.utils import visualization
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as grid
-from skimage.feature import register_translation
+from skimage.registration import phase_cross_correlation
 from math import ceil
 from point2d import Point2D
 from scipy.ndimage import zoom
@@ -253,7 +253,7 @@ def piecewise_fov_shift(ref_img, tar_img, n_patch=8):
         for col in range(n_patch):
             curr_ref_patch = ref_img[row*patch_size:row*patch_size+patch_size, col*patch_size:col*patch_size+patch_size]
             curr_tar_patch = tar_img[row*patch_size:row*patch_size+patch_size, col*patch_size:col*patch_size+patch_size]
-            patch_shift = register_translation(curr_ref_patch, curr_tar_patch, upsample_factor=100, return_error=False)
+            patch_shift = phase_cross_correlation(curr_ref_patch, curr_tar_patch, upsample_factor=100, return_error=False)
             shift_map_x[row, col] = patch_shift[0]
             shift_map_y[row, col] = patch_shift[1]
     shift_map_x_big = zoom(shift_map_x, patch_size, order=3)
