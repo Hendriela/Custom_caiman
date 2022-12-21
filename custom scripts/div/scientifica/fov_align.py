@@ -39,7 +39,7 @@ try:
 except:
     messagebox.showerror('Failed to interpret stack info', 'Failed to interpret stack info.\n'
                                                            'The stack file name has to follow this pattern:\n'
-                                                           '*_{imaging plane slice idx}_{slice thickness}um_{frames/slice}_{zoom}.tif')
+                                                           '*_{imaging plane slice idx (base 1)}_{slice thickness}um_{frames/slice}_{zoom}.tif')
     raise ValueError('Failed to interpret stack info')
 
 # Convert resolution

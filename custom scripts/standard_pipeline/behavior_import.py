@@ -136,7 +136,7 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
         Finds a file with the same timestamp from a list of files.
         """
         time_format = '%H%M%S'
-        time_stamp = datetime.strptime(str(tstamp), time_format)
+        time_stamp = datetime.strptime(tstamp, time_format)
         matched_file = []
         for filename in file_list:
             curr_stamp = datetime.strptime(filename.split('_')[-1][:-4], time_format)
@@ -170,7 +170,7 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
     counter = 1
 
     for file in enc_files:
-        timestamp = int(os.path.basename(file).split('_')[1][:-4])   # here the 0 in front of early times is removed
+        timestamp = os.path.basename(file).split('_')[1][:-4]
         pos_file = find_file(timestamp, pos_files)
         trig_file = find_file(timestamp, trig_files)
         if pos_file is None or trig_file is None:
@@ -212,9 +212,9 @@ def align_files(root, imaging, verbose=False, enc_unit='speed'):
         if merge is not None:
             # save file (4 decimal places for time (0.5 ms), 2 dec for position, ints for lick, trigger, encoder)
             if imaging:
-                file_path = os.path.join(str(Path(file).parents[0]), f'merged_behavior_{str(timestamp)}.txt')
+                file_path = os.path.join(str(Path(file).parents[0]), f'merged_behavior_{timestamp}.txt')
             else:
-                file_path = os.path.join(root, f'merged_behavior_{str(timestamp)}.txt')
+                file_path = os.path.join(root, f'merged_behavior_{timestamp}.txt')
             np.savetxt(file_path, merge, delimiter='\t',
                        fmt=['%.5f', '%.3f', '%1i', '%1i', '%1i', '%.2f', '%1i'],
                        header='Time\tVR pos\tlicks\tframe\tencoder\tcm/s\treward')
@@ -582,9 +582,10 @@ def align_behavior_files(enc_path, pos_path, trig_path, log_path, imaging=False,
     time_format = '%Y%m%d%H%M%S%f'
     date = trig_path.split('_')[-2]
     for f in data:
-        if str(int(f[0, 0]))[4:] == '60000':
+        start_time = f'{int(f[0, 0]):09}'
+        if start_time[4:] == '60000':
             f[0, 0] -= 1
-    start_times = np.array([datetime.strptime(date+str(int(x[0, 0])), time_format) for x in data])
+    start_times = np.array([datetime.strptime(date+f'{int(x[0, 0]):09}', time_format) for x in data])
 
     # calculate absolute difference in seconds between the start times
     max_diff = np.max(np.abs(start_times[:, None] - start_times)).total_seconds()

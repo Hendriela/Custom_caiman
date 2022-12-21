@@ -1216,7 +1216,7 @@ def plot_lick_histogram_single_session(path, bin_size=1):
     ax.spines['right'].set_visible(False)
 
 
-def plot_lick_histogram_in_figure(path, ax, bin_size=1, label_axes=True):
+def plot_lick_histogram_in_figure(path, ax, bin_size=1, label_axes=True, rz_color='red'):
     """
     Plots the licking of a single session as a histogram binned over VR positions.
     :param path: str, path of session
@@ -1260,7 +1260,7 @@ def plot_lick_histogram_in_figure(path, ax, bin_size=1, label_axes=True):
 
     # Zone borders have to be adjusted for the unbinned x axis
     for zone in zone_borders * (track_len / 120):
-        ax.axvspan(zone[0], zone[1], color='red', alpha=0.3)
+        ax.axvspan(zone[0], zone[1], color=rz_color, alpha=0.3)
 
     ax.set_ylim(0, 105)
     ax.set_xlim(0, track_len)

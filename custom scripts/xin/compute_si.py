@@ -619,7 +619,7 @@ def run_context_specific(curr_decon: np.ndarray, curr_trial_mask: np.ndarray, cu
     curr_pvc_place = compute_pvc_curve(curr_bin_spikes[curr_data['is_pc']])
 
     return dict(bin_spikes=curr_bin_spikes, data=curr_data, pvc_all=curr_pvc_all, pvc_place=curr_pvc_place,
-                sparsity=curr_spars)
+                sparsity=curr_spars, decon=curr_decon)
 
 
 def save_results(sess_dir, result_dict, suffix=None):
@@ -724,7 +724,7 @@ def run_pipeline() -> None:
     # Compute PVC between contexts
     if len(bin_act_maps) == 2:
         pvc_context_all = compute_pvc_contexts(bin_act_maps[0], bin_act_maps[1])
-        pvc_context_place = compute_pvc_contexts(bin_act_maps[0][results['is_pc']], bin_act_maps[1][results['is_pc']])
+        pvc_context_place = compute_pvc_contexts(bin_act_maps[0][results['data']['is_pc']], bin_act_maps[1][results['data']['is_pc']])
         results['pvc_context_all'] = pvc_context_all
         results['pvc_context_place'] = pvc_context_place
     else:
