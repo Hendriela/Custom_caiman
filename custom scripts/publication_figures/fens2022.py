@@ -22,10 +22,18 @@ from hheise_scripts import hheise_util
 from util import helper
 
 # Group mice by their task performance response to microspheres
-no_deficit = [91, 94, 95]
+no_deficit = [69, 91, 94, 95]
 recovery = [33, 38, 83, 85, 86, 89, 90]
-no_recovery = [41, 63, 69, 93]
+no_recovery = [41, 93]
 mice = [*no_deficit, *recovery, *no_recovery]
+
+# With Batch 8:
+no_deficit = [93, 91, 94, 95, 109, 123, 120]
+no_deficit_flicker = [111, 114, 116]
+recovery = [33, 38, 83, 85, 86, 89, 90, 113]
+deficit_no_flicker = [41, 63, 69, 121]
+deficit_flicker = [108, 110, 112]
+sham_injection = [115, 122]
 
 #%% MANUALLY CHECK LICKING BEHAVIOR FOR CLASSIFICATION
 dir = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\analysis\behavior\manual_screening_for_grouping'
@@ -87,7 +95,7 @@ np.savetxt(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Posters\FENS 2022\hist
 #%% FIGURE 4: NEURAL-PERFORMANCE-CORRELATIONS #####
 
 # Select mice that should be part of the analysis (only mice that had successful microsphere surgery)
-mice = [33, 38, 41, 83, 85, 86, 89, 90, 91, 93, 94, 95]
+mice = [33, 38, 41, 69, 83, 85, 86, 89, 90, 91, 93, 94, 95]
 
 # Get data from each mouse separately
 dfs = []
@@ -112,9 +120,9 @@ for mouse in mice:
     median_fr = [np.median(x) for x in curr_rate]
 
     # Get place cell ratio (Bartos and SI criteria)
-    pc_bartos = (hheise_placecell.PlaceCell & f'mouse_id={mouse}' & 'corridor_type=0' &
-                 f'day in {helper.in_query(dates)}').fetch('place_cell_ratio')
-    pc_si = (hheise_placecell.SpatialInformation & f'mouse_id={mouse}' & 'corridor_type=0' &
+    # pc_bartos = (hheise_placecell.PlaceCell & f'mouse_id={mouse}' & 'corridor_type=0' &
+    #              f'day in {helper.in_query(dates)}').fetch('place_cell_ratio')
+    pc_si = (hheise_placecell.SpatialInformation & f'mouse_id={mouse}' & 'corridor_type=0' & f'place_cell_id=0' &
              f'day in {helper.in_query(dates)}').fetch('place_cell_ratio')
 
     # Get within-session stability
@@ -126,11 +134,15 @@ for mouse in mice:
 
     # Build DataFrame
     data = dict(mouse_id=[mouse] * len(dates), date=dates, is_pre=is_pre, performance=perf, mean_fr=mean_fr,
-                median_fr=median_fr, pc_bartos=pc_bartos, pc_si=pc_si, mean_stab=mean_stab, median_stab=median_stab,
-                sd_stab=sd_stab)
+                median_fr=median_fr, pc_si=pc_si, mean_stab=mean_stab, median_stab=median_stab,
+                sd_stab=sd_stab,
+                # pc_bartos=pc_bartos
+                )
     dfs.append(pd.DataFrame(data))
 
 data = pd.concat(dfs)
+
+data_group = data.merge(grouping)
 
 # Plot correlations
 # for metric in ['mean_fr', 'median_fr', 'pc_bartos', 'pc_si']:
@@ -143,3 +155,7 @@ for metric in ['mean_stab', 'pc_si']:
 # Export for Prism
 data.to_csv(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Posters\FENS 2022\perf_neur_corr.csv', sep='\t', index=False,
             columns=['mouse_id', 'performance', 'pc_si', 'mean_stab'])
+
+import seaborn as sns
+sns.stripplot(data=data_group, x='group', y='pc_si', order=['no_deficit', 'recovery', 'no_recovery'], hue='mouse_id')
+

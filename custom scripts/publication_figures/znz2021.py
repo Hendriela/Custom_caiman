@@ -97,10 +97,10 @@ matplotlib.rcParams['font.family'] = "sans-serif"
 fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(29.4, 12.8))
 
 # Plot histograms in subplots
-performance.plot_lick_histogram_in_figure(path=paths[0], ax=axes[0], label_axes=False)
-performance.plot_lick_histogram_in_figure(path=paths[1], ax=axes[1], label_axes=False)
-performance.plot_lick_histogram_in_figure(path=paths[2], ax=axes[2], label_axes=False)
-performance.plot_lick_histogram_in_figure(path=paths[3], ax=axes[3], label_axes=False)
+performance.plot_lick_histogram_in_figure(path=paths[0], ax=axes[0], label_axes=False, rz_color='green')
+performance.plot_lick_histogram_in_figure(path=paths[1], ax=axes[1], label_axes=False, rz_color='green')
+performance.plot_lick_histogram_in_figure(path=paths[2], ax=axes[2], label_axes=False, rz_color='green')
+performance.plot_lick_histogram_in_figure(path=paths[3], ax=axes[3], label_axes=False, rz_color='green')
 
 # Fix formatting
 title_fontsize = 30
@@ -125,15 +125,15 @@ axes[2].set_xticks([])
 axes[3].set_xlabel("VR corridor position bin [cm]", fontsize=36, weight='bold')
 
 axes[3].tick_params(axis='x', which='major', labelsize=y_tick_labelsize)
-axes[3].set_xticklabels(axes[3].get_xticks(), weight='bold')
+axes[3].set_xticklabels(axes[3].get_xticks().astype(int), weight='bold')
 
 props = {'ha': 'center', 'va': 'center', 'rotation': 90, 'fontsize': 40}
 axes[1].text(-25, 0, "Licks per position bin [%]", props, fontweight='bold')
 
-axes[3].text(32, 82, "RZ", color='red', fontsize=y_tick_labelsize, fontweight='bold')
-axes[3].text(139, 82, "RZ", color='red', fontsize=y_tick_labelsize, fontweight='bold')
-axes[3].text(245, 82, "RZ", color='red', fontsize=y_tick_labelsize, fontweight='bold')
-axes[3].text(353, 82, "RZ", color='red', fontsize=y_tick_labelsize, fontweight='bold')
+axes[3].text(32, 82, "RZ", color='green', fontsize=y_tick_labelsize, fontweight='bold')
+axes[3].text(139, 82, "RZ", color='green', fontsize=y_tick_labelsize, fontweight='bold')
+axes[3].text(245, 82, "RZ", color='green', fontsize=y_tick_labelsize, fontweight='bold')
+axes[3].text(353, 82, "RZ", color='green', fontsize=y_tick_labelsize, fontweight='bold')
 
 # Make axis lines thicker
 for ax in axes:
@@ -143,7 +143,7 @@ for ax in axes:
     ax.tick_params(width=4)
     ax.set_yticklabels(ax.get_yticks(), weight='bold')
 
-plt.savefig(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Posters\FENS 2022\lick_histogram.png')
+plt.savefig(r'W:\Neurophysiology-Storage1\Wahl\various_demos\example_VR_behavior.png')
 # plt.tight_layout()
 
 

@@ -9,6 +9,7 @@ from statistics import mean, stdev
 # params to set
 MD = yaml.load(open("custom scripts/metadata.yaml"), Loader=yaml.FullLoader) #metadata
 
+
 def plot_pvc_curve(y_vals, session_stdev, bin_size=5, show=False):
     """Plots the pvc curve
 
@@ -63,10 +64,10 @@ def pvc_curve(activity_matrix, plot=True, max_delta_bins=30):
                 pvc_xy_num += activity_matrix[idx_x][neuron] * activity_matrix[idx_y][neuron]
                 pvc_xy_den_term1 += activity_matrix[idx_x][neuron]*activity_matrix[idx_x][neuron]
                 pvc_xy_den_term2 += activity_matrix[idx_y][neuron]*activity_matrix[idx_y][neuron]
-            pvc_xy = pvc_xy_num / (math.sqrt(pvc_xy_den_term1*pvc_xy_den_term2))
+            pvc_xy = pvc_xy_num / (np.sqrt(pvc_xy_den_term1*pvc_xy_den_term2))
             pvc_vals.append(pvc_xy)
-        mean_pvc_delta_bin = mean(pvc_vals)
-        stdev_delta_bin = stdev(pvc_vals)
+        mean_pvc_delta_bin = np.mean(pvc_vals)
+        stdev_delta_bin = np.std(pvc_vals)
         curve_yvals[delta_bin] = mean_pvc_delta_bin
         curve_stdev[delta_bin] = stdev_delta_bin
 
