@@ -19,11 +19,12 @@ from datetime import timedelta
 from scipy.ndimage import gaussian_filter1d
 import tifffile as tif
 import standard_pipeline.performance_check as performance
+from itertools import combinations
 import pandas as pd
 import seaborn as sns
 from scipy import stats
 import numpy as np
-from schema import hheise_behav, common_mice, hheise_placecell, common_img
+from schema import hheise_behav, common_mice, hheise_placecell, common_img, common_match
 from util import helper
 
 mouse_ids = [33, 38, 41,    # Batch 3
@@ -581,3 +582,32 @@ def plot_performance_neural_correlations():
                 index=False,
                 columns=['mouse_id', 'performance', 'pc_si', 'mean_stab'])
 
+
+def healthy_placecell_stability():
+
+    query = (common_match.MatchedIndex & 'mouse_id=108' & 'day<="2022-08-15"')
+    spatial_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
+                                         return_array=True, relative_dates=True, surgery='Microsphere injection')
+
+    is_pc = query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
+                                   extra_restriction=dict(corridor_type=0),
+                                   return_array=True, relative_dates=True, surgery='Microsphere injection')
+
+    dff = query.get_matched_data(table=common_img.Segmentation.ROI, attribute='dff',
+                                   extra_restriction=dict(corridor_type=0),
+                                   return_array=False, relative_dates=True, surgery='Microsphere injection')
+
+    # Compute correlation of each neuron across days
+    # Todo: maybe only correlate neighbouring days?
+    map_data = spatial_map['108_1'][0]
+    pearson = []
+    for cell_id in range(map_data.shape[0]):
+        # For each neuron, compute the correlation between all session combinations
+        corrmat = np.tril(np.corrcoef(map_data[cell_id]), k=-1)
+        coef = corrmat[corrmat != 0]
+        # Make Fisher-Z-transform, average coefficients, then transform back for mean correlation coefficient
+        pearson.append(np.tanh(np.mean(np.arctanh(coef))))
+
+    sns.stripplot(pearson)
+
+    # Plot cells across sessions based on sorting of reference session (where all are place cells)
