@@ -7,7 +7,7 @@ Created on 15/12/2022 12:07
 Plots for the preprint December 2022
 """
 import matplotlib
-matplotlib.use('TkAgg')
+# matplotlib.use('TkAgg')
 matplotlib.rcParams['font.sans-serif'] = "Arial"    # Use same font as Prism
 matplotlib.rcParams['font.family'] = "sans-serif"
 
@@ -52,14 +52,15 @@ grouping_2 = pd.DataFrame(data=dict(mouse_id=mice,
 
 folder = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Papers\preprint'
 
-#%% Figure 1
 
+#%% Figure 1
 def example_fov():
     avg = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-24"').fetch1('avg_image')
     tif.imwrite(os.path.join(folder, '41_20200824_fov_overview.tif'), avg)
 
     avg = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-26"').fetch1('avg_image')
     tif.imwrite(os.path.join(folder, '41_20200824_fov_overview_damage.tif'), avg)
+
 
 def example_lick_histogram():
     ### Example lick histogram
@@ -74,6 +75,7 @@ def example_lick_histogram():
     fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(29.4, 12.8))
 
     # Plot histograms in subplots
+    # Todo: implement performance lick histogram in Datajoint Table
     performance.plot_lick_histogram_in_figure(path=paths[0], ax=axes[0], label_axes=False, rz_color='green')
     performance.plot_lick_histogram_in_figure(path=paths[1], ax=axes[1], label_axes=False, rz_color='green')
     performance.plot_lick_histogram_in_figure(path=paths[2], ax=axes[2], label_axes=False, rz_color='green')
@@ -504,7 +506,6 @@ def plot_performance_neural_correlations():
             mean_si.append(np.mean(si))
             median_si.append(np.median(si))
 
-
         # Get within-session stability
         curr_rate = [(hheise_placecell.SpatialInformation.ROI & f'mouse_id={mouse}' & f'day="{day}"').fetch('stability')
                      for day in dates]
@@ -583,31 +584,342 @@ def plot_performance_neural_correlations():
                 columns=['mouse_id', 'performance', 'pc_si', 'mean_stab'])
 
 
+#%% Single-cell plots
 def healthy_placecell_stability():
 
-    query = (common_match.MatchedIndex & 'mouse_id=108' & 'day<="2022-08-15"')
-    spatial_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
-                                         return_array=True, relative_dates=True, surgery='Microsphere injection')
+    def filter_matched_data(match_list, keep_nomatch=False):
+        """
+        Filters output from get_matched_data of multiple mice/networks. Stacks cells from many networks into one array,
+        removes cells that did not exist in every session.
 
-    is_pc = query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
-                                   extra_restriction=dict(corridor_type=0),
-                                   return_array=True, relative_dates=True, surgery='Microsphere injection')
+        Args:
+            match_list: List of dicts (one dict per query), each key:val pair in the dict being one network.
+            keep_nomatch: Bool flag whether to keep neurons with "no-match", or remove them to only keep neurons that
+                        exist in all sessions
 
-    dff = query.get_matched_data(table=common_img.Segmentation.ROI, attribute='dff',
-                                   extra_restriction=dict(corridor_type=0),
-                                   return_array=False, relative_dates=True, surgery='Microsphere injection')
+        Returns:
+            A numpy array with shape (n_total_cells, n_sessions) and possible additional dimensions, depending on input.
+        """
 
-    # Compute correlation of each neuron across days
-    # Todo: maybe only correlate neighbouring days?
-    map_data = spatial_map['108_1'][0]
+        data_array = []
+        mouse_id_list = []
+        for curr_data in match_list:
+            for key, net in curr_data.items():
+                data_array.append(net[0])
+                mouse_id_list.extend([int(key.split('_')[0])] * net[0].shape[0])
+        data_array = np.vstack(data_array)
+        mouse_id_list = np.array(mouse_id_list)
+
+        # Only keep cells that exist in all sessions
+        # Reduce array dimensions in case of more than 2 dimensions
+        if len(data_array.shape) > 2:
+            data_array_flat = np.reshape(data_array, (data_array.shape[0], data_array.shape[1] * data_array.shape[2]))
+        else:
+            data_array_flat = data_array
+
+        if not keep_nomatch:
+            data_array = data_array[~np.isnan(data_array_flat).any(axis=1)]
+            mouse_id_list = mouse_id_list[~np.isnan(data_array_flat).any(axis=1)]
+
+        return data_array, mouse_id_list
+
+    # Construct query to include only intended matched cells
+    queries = ((common_match.MatchedIndex & 'mouse_id=33' & 'day<="2020-08-24"'),
+               # (common_match.MatchedIndex & 'mouse_id=38' & 'day<="2020-08-24"'),
+               (common_match.MatchedIndex & 'mouse_id=41' & 'day<="2020-08-24"'),
+               (common_match.MatchedIndex & 'mouse_id=108' & 'day<="2022-08-12"'),
+               (common_match.MatchedIndex & 'mouse_id=110' & 'day<="2022-08-09"'))
+
+    spatial_maps = []
+    for query in queries:
+        spatial_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
+                                             extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                             return_array=True, relative_dates=True, surgery='Microsphere injection')
+        spatial_maps.append(spatial_map)
+
+    spatial_dff_maps = []
+    for query in queries:
+        spatial_dff_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
+                                             extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                             return_array=True, relative_dates=True, surgery='Microsphere injection')
+        spatial_dff_maps.append(spatial_dff_map)
+
+    is_pc = []
+    for query in queries:
+        is_placecell = query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
+                                              extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                              return_array=True, relative_dates=True, surgery='Microsphere injection')
+        is_pc.append(is_placecell)
+
+    pfs = []
+    for query in queries:
+        is_pf = query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
+                                              extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                              return_array=False, relative_dates=True, surgery='Microsphere injection')
+        pfs.append(is_pf)
+
+    dffs = []
+    for query in queries:
+        dffs.append(query.get_matched_data(table=common_img.Segmentation.ROI, attribute='dff',
+                                     extra_restriction=dict(corridor_type=0),
+                                     return_array=False, relative_dates=True, surgery='Microsphere injection'))
+
+
+    #%% Compute correlation of each neuron across days
+    # map_data = spatial_map['110_1'][0]
+    # map_data = spatial_dff_map['110_1'][0]
+
+    # Combine data from many mice/networks
+    map_data, mouse_idx = filter_matched_data(spatial_maps)
+    placecell_data, mouse_idx = filter_matched_data(is_pc)
+    placefield_data, mouse_idx = filter_matched_data(pfs, keep_nomatch=True)
+    map_dff_data, mouse_idx = filter_matched_data(spatial_dff_maps, keep_nomatch=True)
+    dff_data, mouse_idx = filter_matched_data(dffs, keep_nomatch=True)
+
+    # Smooth spatial trace
+    map_data = gaussian_filter1d(map_data, sigma=1, axis=2)
+
     pearson = []
+    pearson_df = []
     for cell_id in range(map_data.shape[0]):
+
         # For each neuron, compute the correlation between all session combinations
         corrmat = np.tril(np.corrcoef(map_data[cell_id]), k=-1)
-        coef = corrmat[corrmat != 0]
+
+        # Distinguish neighbouring and non-neighbouring days, and check PC status
+        curr_pc = placecell_data[cell_id]
+        neighbours = []
+        pair_ids = []
+        coefs = []
+        where_pc = []
+        for pair in combinations(np.arange(map_data.shape[1]), 2):
+            if np.abs(pair[0]-pair[1]) == 1:
+                neighbours.append(True)
+            else:
+                neighbours.append(False)
+
+            if curr_pc[pair[0]] == curr_pc[pair[1]]:
+                if curr_pc[pair[0]] == 1:
+                    where_pc.append('both')
+                else:
+                    where_pc.append('none')
+            elif curr_pc[pair[0]] == 1:
+                where_pc.append('a')
+            else:
+                where_pc.append('b')
+
+            pair_ids.append(f'd{pair[0]+1}-d{pair[1]+1}')
+            coefs.append(corrmat[pair[1], pair[0]])
+
         # Make Fisher-Z-transform, average coefficients, then transform back for mean correlation coefficient
-        pearson.append(np.tanh(np.mean(np.arctanh(coef))))
+        # -> Average correlation of a neuron across all sessions
+        pearson.append(np.tanh(np.mean(np.arctanh(coefs))))
 
-    sns.stripplot(pearson)
+        pearson_df.append(pd.DataFrame(data=dict(mouse=mouse_idx[cell_id], cell_id=cell_id, days=pair_ids,
+                                                 r=coefs, consec_days=neighbours, is_pc=where_pc)))
+    pearson_df = pd.concat(pearson_df, ignore_index=True)
 
-    # Plot cells across sessions based on sorting of reference session (where all are place cells)
+    # Only include cells that were place cells in both comparisons
+    both_pc = pearson_df[pearson_df['is_pc'] == 'both']
+    # Only include neighbouring days
+    both_pc_consec = both_pc[both_pc['consec_days']]
+
+    plt.figure()
+    # sns.boxplot(data=both_pc_consec, x='days', y='r', order=['d1-d2', 'd2-d3', 'd3-d4', 'd4-d5'], hue='mouse')
+    sns.violinplot(data=both_pc_consec, x='days', y='r', order=['d1-d2', 'd2-d3', 'd3-d4', 'd4-d5'])
+    plt.axhline(0, linestyle='--', color='grey')
+    sns.boxplot(data=both_pc, x='days', y='r')
+
+    sns.violinplot(data=pearson_df, x='is_pc', y='r', hue='mouse')
+
+    fig = plt.figure()
+    ax_kde = sns.kdeplot(data=pearson_df, x='r', hue='is_pc', common_norm=False, common_grid=False)
+    # ax_kde.set_ylabel('# neurons', fontsize=25)
+    # ax_kde.set_xlabel('Mean correlation', fontsize=25)
+    # ax_kde.tick_params(axis='both', which='major', labelsize=20)
+    # plt.setp(ax_kde.get_legend().get_texts(), fontsize=20)
+    # plt.setp(ax_kde.get_legend().get_title(), fontsize=20)
+    ax_kde.spines['right'].set_visible(False)
+    ax_kde.spines['top'].set_visible(False)
+
+    # sns.stripplot(pearson)
+
+    #%% Plot cells across sessions based on sorting of reference session (where all are place cells)
+
+def plot_matched_cell_across_sessions(traces):
+
+    # Sort cells based on maximum activity in last session, and only plot cells which are place cells in that session
+    session_idx = 2
+
+    # Only plot place cells
+    map_data_filt = map_data[placecell_data[:, session_idx] == 1]
+    sort_key = [(i, np.argmax(trace)) for i, trace in enumerate(map_data_filt[:, session_idx, :])]
+    sort_key = [y[0] for y in sorted(sort_key, key=lambda x: x[1])]
+    map_sort = map_data_filt[sort_key]
+
+    # Plot all cells
+    sort_key = [(i, np.argmax(trace)) for i, trace in enumerate(map_data[:, session_idx, :])]
+    sort_key = [y[0] for y in sorted(sort_key, key=lambda x: x[1])]
+    map_sort = map_data[sort_key]
+
+    # Normalize activity neuron-wise across sessions
+    neuron_max = np.nanmax(np.reshape(map_sort, (map_sort.shape[0], map_sort.shape[1]*map_sort.shape[2])), axis=1)
+    map_sort_norm = map_sort / neuron_max[:, None, None]
+
+    fig, axes = plt.subplots(nrows=1, ncols=map_sort.shape[1], figsize=(15, 7.3))
+    for idx, ax in enumerate(axes):
+        # sns.heatmap(map_sort[:, idx, :], cmap='jet', ax=ax, cbar=False)
+        sns.heatmap(map_sort_norm[:, idx, :], cmap='jet', ax=ax, cbar=False, vmax=1)
+        # sns.heatmap(gaussian_filter1d(map_sort_norm[:, idx, :], sigma=1, axis=1), cmap='jet', ax=ax, cbar=False, vmax=1)
+
+        # Formatting
+        if idx != 0:
+            ax.set_yticks([])
+        else:
+            ax.set_ylabel('Cell no.', fontsize=15, labelpad=-3)
+
+        ax.set_xticks([])
+        ax.set_xlabel('Track position [m]', fontsize=15)
+        ax.set_title(f'{map_sort.shape[1]-idx}d prestroke')
+
+
+#%% Place Cell/Place field qualitative analysis
+
+def place_cell_qualitative():
+    """
+    Check which place cells are also place cells in other sessions with the same/similar place field (stable place
+    cells), and which cells are place cells, but at a different place in the corridor (remapping place cells), or
+    are not place cells anymore.
+    """
+
+    # Construct query to include only intended matched cells
+    queries = ((common_match.MatchedIndex & 'mouse_id=33' & 'day<="2020-08-24"'),
+               # (common_match.MatchedIndex & 'mouse_id=38' & 'day<="2020-08-24"'),
+               (common_match.MatchedIndex & 'mouse_id=41' & 'day<="2020-08-24"'),
+               (common_match.MatchedIndex & 'mouse_id=108' & 'day<="2022-08-12"'),
+               (common_match.MatchedIndex & 'mouse_id=110' & 'day<="2022-08-09"'))
+
+    is_pc = []
+    pfs = []
+    spatial_maps = []
+    match_matrices = []
+    for query in queries:
+        match_matrices.append(query.construct_matrix())
+
+        is_pc.append(query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
+                                            extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                            return_array=True, relative_dates=True, surgery='Microsphere injection'))
+
+        pfs.append(query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
+                                          extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                          return_array=False, relative_dates=True, surgery='Microsphere injection'))
+
+        spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
+                                             extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                             return_array=True, relative_dates=True, surgery='Microsphere injection'))
+
+    placecell_data, mouse_idx = filter_matched_data(is_pc, keep_nomatch=True)
+    placefield_data, mouse_idx = filter_matched_data(pfs, keep_nomatch=True)
+    spatial_data, mouse_idx = filter_matched_data(spatial_maps, keep_nomatch=True)
+
+    # Get matrix with mask IDs
+    match_matrices = []
+    for query in queries:
+        match_matrices.append(query.construct_matrix())
+
+    # For all place cells on a specific day, how many are also place cells on other days?
+    pc_d5 = placecell_data[placecell_data[:, 4] == 1]
+    print(np.nansum(pc_d5, axis=0))
+
+    # How many place cells are still place cells on the next day?
+    mice_data = []
+    for mouse in np.unique(mouse_idx):
+        curr_mouse = placecell_data[mouse_idx == mouse]
+        print(f'\nMouse {mouse}:')
+        mouse_data = []
+        for i in range(curr_mouse.shape[1]-1):
+            curr_pc = curr_mouse[curr_mouse[:, i] == 1]
+            print(f'Day {i}: {len(curr_pc)} Place Cells, {np.nansum(curr_pc[:, i+1])} place cells on day {i+1} '
+                  f'({(np.nansum(curr_pc[:, i+1]) / len(curr_pc))*100})')
+            mouse_data.append((np.nansum(curr_pc[:, i+1]) / len(curr_pc))*100)
+        mice_data.append(np.array(mouse_data))
+    mice_data = np.stack(mice_data)
+
+    np.nanmean(mice_data[[True, False, True, True, True]], axis=0)
+
+    # Of these cells, how many have the place field in approximately the same position?
+    pfs = []
+    for query in queries:
+        pfs.append(query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
+                                          extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                          return_array=False, relative_dates=True, surgery='Microsphere injection'))
+
+    placefield_data, mouse_idx = filter_matched_data(pfs, keep_nomatch=True)
+
+    pf_data = []
+
+    def place_field_com(spat_map, pf_list):
+        """
+        Compute center of mass for place fields of a single cell.
+
+        Args:
+            spat_map: 1D array, spatial activity map of one cell
+            pf_list: List of arrays holding indices of one or more place fields
+
+        Returns:
+
+        """
+
+        for place_field in pf_list:
+            curr_pf = spat_map[place_field]
+
+        # Normalize
+        map_norm = (spat_map - np.min(spat_map)) / (np.max(spat_map) - np.min(spat_map))
+        # Convert to Probability Mass Function / Probability distribution
+        map_pmf = map_norm / np.sum(map_norm)
+        # Calculate moments
+        com = np.sum(np.arange(len(map_pmf)) * map_pmf)
+
+        com_std = []
+        for t in np.arange(len(map_pmf)):
+            com_std.append((t**2 * map_pmf[t]) - com**2)
+        com_std = np.sqrt(np.sum(np.arange(len(map_pmf))**2 * map_pmf) - com**2)
+
+        plt.plot(spat_map)
+        plt.axvline(com, color='r')
+        plt.axvspan(com-com_std/2, com+com_std/2, color='r', alpha=0.3)
+
+    for i in range(placecell_data.shape[1]-1):
+        # Idx of PCs in session i that are also PCs in session i+1
+        stable_pc_idx = np.where(np.nansum(placecell_data[:, i:i+2], axis=1) == 2)[0]
+        pfs_1 = placefield_data[stable_pc_idx, i]
+        pfs_2 = placefield_data[stable_pc_idx, i+1]
+
+        # For each stable place cell, compare place fields
+        for cell_idx, pf_1, pf_2 in zip(stable_pc_idx, pfs_1, pfs_2):
+
+
+            cell_idx = 26
+            mask_id = match_matrices[0]['33_1'].iloc[cell_idx, i]
+            cell_1 = dict(username='hheise', mouse_id=33, day='2020-08-18', mask_id=mask_id, place_cell_id=2)
+
+            test_map = np.mean((hheise_placecell.BinnedActivity.ROI & cell_1).fetch1('bin_spikerate'), axis=1)
+            spat_map = spatial_data[cell_idx, i]
+            spat_map1 = spatial_maps[0]['33_1'][0][cell_idx, i]
+
+            (hheise_placecell.PlaceCell.PlaceField & cell_1).fetch('bin_idx')
+            curr_pf = placefield_data[cell_idx, i]
+
+            cell_2 = dict(username='hheise', mouse_id=33, day='2020-08-19', mask_id=294, place_cell_id=2)
+
+
+
+
+
+            # Get center of mass for current place fields in both sessions
+            place_field_com(spat_map=map_data[cell_idx, i], pf_list=pf_1)
+
+
+
+        mouse_data.append((np.nansum(curr_pc[:, i+1]) / len(curr_pc))*100)
+    mice_data.append(np.array(mouse_data))
