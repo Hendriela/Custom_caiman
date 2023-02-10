@@ -13,7 +13,7 @@ matplotlib.rcParams['font.family'] = "sans-serif"
 
 from matplotlib import pyplot as plt
 plt.rcParams['svg.fonttype'] = 'none'
-
+from typing import Optional
 import os
 from datetime import timedelta
 from scipy.ndimage import gaussian_filter1d
@@ -585,192 +585,237 @@ def plot_performance_neural_correlations():
 
 
 #%% Single-cell plots
-def healthy_placecell_stability():
 
-    def filter_matched_data(match_list, keep_nomatch=False):
-        """
-        Filters output from get_matched_data of multiple mice/networks. Stacks cells from many networks into one array,
-        removes cells that did not exist in every session.
+def filter_matched_data(match_list, keep_nomatch=False):
+    """
+    Filters output from get_matched_data of multiple mice/networks. Stacks cells from many networks into one array,
+    removes cells that did not exist in every session.
 
-        Args:
-            match_list: List of dicts (one dict per query), each key:val pair in the dict being one network.
-            keep_nomatch: Bool flag whether to keep neurons with "no-match", or remove them to only keep neurons that
-                        exist in all sessions
+    Args:
+        match_list: List of dicts (one dict per query), each key:val pair in the dict being one network.
+        keep_nomatch: Bool flag whether to keep neurons with "no-match", or remove them to only keep neurons that
+                    exist in all sessions
 
-        Returns:
-            A numpy array with shape (n_total_cells, n_sessions) and possible additional dimensions, depending on input.
-        """
+    Returns:
+        A numpy array with shape (n_total_cells, n_sessions) and possible additional dimensions, depending on input.
+    """
 
-        data_array = []
-        mouse_id_list = []
-        for curr_data in match_list:
-            for key, net in curr_data.items():
-                data_array.append(net[0])
-                mouse_id_list.extend([int(key.split('_')[0])] * net[0].shape[0])
-        data_array = np.vstack(data_array)
-        mouse_id_list = np.array(mouse_id_list)
+    data_array = []
+    mouse_id_list = []
+    for curr_data in match_list:
+        for key, net in curr_data.items():
+            data_array.append(net[0])
+            mouse_id_list.extend([int(key.split('_')[0])] * net[0].shape[0])
+    data_array = np.vstack(data_array)
+    mouse_id_list = np.array(mouse_id_list)
 
-        # Only keep cells that exist in all sessions
-        # Reduce array dimensions in case of more than 2 dimensions
-        if len(data_array.shape) > 2:
-            data_array_flat = np.reshape(data_array, (data_array.shape[0], data_array.shape[1] * data_array.shape[2]))
+    # Only keep cells that exist in all sessions
+    # Reduce array dimensions in case of more than 2 dimensions
+    if len(data_array.shape) > 2:
+        data_array_flat = np.reshape(data_array, (data_array.shape[0], data_array.shape[1] * data_array.shape[2]))
+    else:
+        data_array_flat = data_array
+
+    if not keep_nomatch:
+        data_array = data_array[~np.isnan(data_array_flat).any(axis=1)]
+        mouse_id_list = mouse_id_list[~np.isnan(data_array_flat).any(axis=1)]
+
+    return data_array, mouse_id_list
+
+# Construct query to include only intended matched cells
+queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=33' & 'day<="2020-08-30"'),
+           # (common_match.MatchedIndex & 'mouse_id=38' & 'day<="2020-08-24"'),
+           # (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41' & 'day<="2020-08-30"'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=108' & 'day<="2022-08-18"'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=110' & 'day<="2022-08-15"'))
+
+spatial_maps = []
+for query in queries:
+    spatial_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
+                                         extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                         return_array=True, relative_dates=True, surgery='Microsphere injection')
+    spatial_maps.append(spatial_map)
+
+spatial_dff_maps = []
+for query in queries:
+    spatial_dff_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
+                                         extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                         return_array=True, relative_dates=True, surgery='Microsphere injection')
+    spatial_dff_maps.append(spatial_dff_map)
+
+is_pc = []
+for query in queries:
+    is_placecell = query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
+                                          extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                          return_array=True, relative_dates=True, surgery='Microsphere injection')
+    is_pc.append(is_placecell)
+
+pfs = []
+for query in queries:
+    is_pf = query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
+                                          extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                          return_array=False, relative_dates=True, surgery='Microsphere injection')
+    pfs.append(is_pf)
+
+dffs = []
+for query in queries:
+    dffs.append(query.get_matched_data(table=common_img.Segmentation.ROI, attribute='dff',
+                                 extra_restriction=dict(corridor_type=0),
+                                 return_array=False, relative_dates=True, surgery='Microsphere injection'))
+
+
+#%% Compute correlation of each neuron across days
+# map_data = spatial_map['110_1'][0]
+# map_data = spatial_dff_map['110_1'][0]
+
+# Combine data from many mice/networks
+map_data, mouse_idx = filter_matched_data(spatial_maps)
+placecell_data, mouse_idx = filter_matched_data(is_pc)
+placefield_data, mouse_idx = filter_matched_data(pfs, keep_nomatch=True)
+map_dff_data, mouse_idx = filter_matched_data(spatial_dff_maps)
+dff_data, mouse_idx = filter_matched_data(dffs, keep_nomatch=True)
+
+# Smooth spatial trace
+map_data = gaussian_filter1d(map_data, sigma=1, axis=2)
+
+pearson = []
+pearson_df = []
+for cell_id in range(map_data.shape[0]):
+
+    # For each neuron, compute the correlation between all session combinations
+    corrmat = np.tril(np.corrcoef(map_data[cell_id]), k=-1)
+
+    # Distinguish neighbouring and non-neighbouring days, and check PC status
+    curr_pc = placecell_data[cell_id]
+    neighbours = []
+    pair_ids = []
+    coefs = []
+    where_pc = []
+    for pair in combinations(np.arange(map_data.shape[1]), 2):
+        if np.abs(pair[0]-pair[1]) == 1:
+            neighbours.append(True)
         else:
-            data_array_flat = data_array
+            neighbours.append(False)
 
-        if not keep_nomatch:
-            data_array = data_array[~np.isnan(data_array_flat).any(axis=1)]
-            mouse_id_list = mouse_id_list[~np.isnan(data_array_flat).any(axis=1)]
-
-        return data_array, mouse_id_list
-
-    # Construct query to include only intended matched cells
-    queries = ((common_match.MatchedIndex & 'mouse_id=33' & 'day<="2020-08-24"'),
-               # (common_match.MatchedIndex & 'mouse_id=38' & 'day<="2020-08-24"'),
-               (common_match.MatchedIndex & 'mouse_id=41' & 'day<="2020-08-24"'),
-               (common_match.MatchedIndex & 'mouse_id=108' & 'day<="2022-08-12"'),
-               (common_match.MatchedIndex & 'mouse_id=110' & 'day<="2022-08-09"'))
-
-    spatial_maps = []
-    for query in queries:
-        spatial_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
-                                             extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                             return_array=True, relative_dates=True, surgery='Microsphere injection')
-        spatial_maps.append(spatial_map)
-
-    spatial_dff_maps = []
-    for query in queries:
-        spatial_dff_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
-                                             extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                             return_array=True, relative_dates=True, surgery='Microsphere injection')
-        spatial_dff_maps.append(spatial_dff_map)
-
-    is_pc = []
-    for query in queries:
-        is_placecell = query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
-                                              extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                              return_array=True, relative_dates=True, surgery='Microsphere injection')
-        is_pc.append(is_placecell)
-
-    pfs = []
-    for query in queries:
-        is_pf = query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
-                                              extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                              return_array=False, relative_dates=True, surgery='Microsphere injection')
-        pfs.append(is_pf)
-
-    dffs = []
-    for query in queries:
-        dffs.append(query.get_matched_data(table=common_img.Segmentation.ROI, attribute='dff',
-                                     extra_restriction=dict(corridor_type=0),
-                                     return_array=False, relative_dates=True, surgery='Microsphere injection'))
-
-
-    #%% Compute correlation of each neuron across days
-    # map_data = spatial_map['110_1'][0]
-    # map_data = spatial_dff_map['110_1'][0]
-
-    # Combine data from many mice/networks
-    map_data, mouse_idx = filter_matched_data(spatial_maps)
-    placecell_data, mouse_idx = filter_matched_data(is_pc)
-    placefield_data, mouse_idx = filter_matched_data(pfs, keep_nomatch=True)
-    map_dff_data, mouse_idx = filter_matched_data(spatial_dff_maps, keep_nomatch=True)
-    dff_data, mouse_idx = filter_matched_data(dffs, keep_nomatch=True)
-
-    # Smooth spatial trace
-    map_data = gaussian_filter1d(map_data, sigma=1, axis=2)
-
-    pearson = []
-    pearson_df = []
-    for cell_id in range(map_data.shape[0]):
-
-        # For each neuron, compute the correlation between all session combinations
-        corrmat = np.tril(np.corrcoef(map_data[cell_id]), k=-1)
-
-        # Distinguish neighbouring and non-neighbouring days, and check PC status
-        curr_pc = placecell_data[cell_id]
-        neighbours = []
-        pair_ids = []
-        coefs = []
-        where_pc = []
-        for pair in combinations(np.arange(map_data.shape[1]), 2):
-            if np.abs(pair[0]-pair[1]) == 1:
-                neighbours.append(True)
+        if curr_pc[pair[0]] == curr_pc[pair[1]]:
+            if curr_pc[pair[0]] == 1:
+                where_pc.append('both')
             else:
-                neighbours.append(False)
+                where_pc.append('none')
+        elif curr_pc[pair[0]] == 1:
+            where_pc.append('a')
+        else:
+            where_pc.append('b')
 
-            if curr_pc[pair[0]] == curr_pc[pair[1]]:
-                if curr_pc[pair[0]] == 1:
-                    where_pc.append('both')
-                else:
-                    where_pc.append('none')
-            elif curr_pc[pair[0]] == 1:
-                where_pc.append('a')
-            else:
-                where_pc.append('b')
+        pair_ids.append(f'd{pair[0]+1}-d{pair[1]+1}')
+        coefs.append(corrmat[pair[1], pair[0]])
 
-            pair_ids.append(f'd{pair[0]+1}-d{pair[1]+1}')
-            coefs.append(corrmat[pair[1], pair[0]])
+    # Make Fisher-Z-transform, average coefficients, then transform back for mean correlation coefficient
+    # -> Average correlation of a neuron across all sessions
+    pearson.append(np.tanh(np.mean(np.arctanh(coefs))))
 
-        # Make Fisher-Z-transform, average coefficients, then transform back for mean correlation coefficient
-        # -> Average correlation of a neuron across all sessions
-        pearson.append(np.tanh(np.mean(np.arctanh(coefs))))
+    pearson_df.append(pd.DataFrame(data=dict(mouse=mouse_idx[cell_id], cell_id=cell_id, days=pair_ids,
+                                             r=coefs, consec_days=neighbours, is_pc=where_pc)))
+pearson_df = pd.concat(pearson_df, ignore_index=True)
+pearson_df['days'] = pd.Categorical(pearson_df['days'],
+                                    categories=['d1-d2', 'd2-d3', 'd3-d4', 'd4-d5'],
+                                    ordered=True)
 
-        pearson_df.append(pd.DataFrame(data=dict(mouse=mouse_idx[cell_id], cell_id=cell_id, days=pair_ids,
-                                                 r=coefs, consec_days=neighbours, is_pc=where_pc)))
-    pearson_df = pd.concat(pearson_df, ignore_index=True)
+# Only include cells that were place cells in both comparisons
+both_pc = pearson_df[pearson_df['is_pc'] == 'both']
+# Only include neighbouring days
+both_pc_consec = both_pc[both_pc['consec_days']]
 
-    # Only include cells that were place cells in both comparisons
-    both_pc = pearson_df[pearson_df['is_pc'] == 'both']
-    # Only include neighbouring days
-    both_pc_consec = both_pc[both_pc['consec_days']]
+plt.figure()
+# sns.boxplot(data=both_pc_consec, x='days', y='r', hue='mouse')
+ax = sns.violinplot(data=both_pc_consec, x='days', y='r')
+plt.axhline(0, linestyle='--', color='grey')
 
-    plt.figure()
-    # sns.boxplot(data=both_pc_consec, x='days', y='r', order=['d1-d2', 'd2-d3', 'd3-d4', 'd4-d5'], hue='mouse')
-    sns.violinplot(data=both_pc_consec, x='days', y='r', order=['d1-d2', 'd2-d3', 'd3-d4', 'd4-d5'])
-    plt.axhline(0, linestyle='--', color='grey')
-    sns.boxplot(data=both_pc, x='days', y='r')
+plt.figure()
+ax = sns.lineplot(data=both_pc_consec, x='days', y='r', )
+ax.set(ylim=(0, 1))
 
-    sns.violinplot(data=pearson_df, x='is_pc', y='r', hue='mouse')
+# plt.figure()
+fig, ax = plt.subplots(2, 1)
+sns.barplot(data=pearson_df, x='is_pc', y='r', ax=ax[0])
 
-    fig = plt.figure()
-    ax_kde = sns.kdeplot(data=pearson_df, x='r', hue='is_pc', common_norm=False, common_grid=False)
-    # ax_kde.set_ylabel('# neurons', fontsize=25)
-    # ax_kde.set_xlabel('Mean correlation', fontsize=25)
-    # ax_kde.tick_params(axis='both', which='major', labelsize=20)
-    # plt.setp(ax_kde.get_legend().get_texts(), fontsize=20)
-    # plt.setp(ax_kde.get_legend().get_title(), fontsize=20)
-    ax_kde.spines['right'].set_visible(False)
-    ax_kde.spines['top'].set_visible(False)
+plt.figure()
+sns.violinplot(data=pearson_df, x='is_pc', y='r')
 
-    # sns.stripplot(pearson)
+plt.figure()
+sns.violinplot(data=pearson_df, x='is_pc', y='r', hue='mouse')
 
-    #%% Plot cells across sessions based on sorting of reference session (where all are place cells)
+# Does place cell status affect correlation between two cells?
+fig = plt.figure()
+plt.axhline(0, c='grey', linestyle='--', alpha=0.5)
+ax = sns.violinplot(data=pearson_df, x='is_pc', y='r')
 
-def plot_matched_cell_across_sessions(traces):
 
-    # Sort cells based on maximum activity in last session, and only plot cells which are place cells in that session
-    session_idx = 2
+ax_kde = sns.kdeplot(data=pearson_df, x='r', hue='is_pc', common_norm=False, common_grid=False)
+# ax_kde.set_ylabel('# neurons', fontsize=25)
+# ax_kde.set_xlabel('Mean correlation', fontsize=25)
+# ax_kde.tick_params(axis='both', which='major', labelsize=20)
+# plt.setp(ax_kde.get_legend().get_texts(), fontsize=20)
+# plt.setp(ax_kde.get_legend().get_title(), fontsize=20)
+ax_kde.spines['right'].set_visible(False)
+ax_kde.spines['top'].set_visible(False)
 
-    # Only plot place cells
-    map_data_filt = map_data[placecell_data[:, session_idx] == 1]
-    sort_key = [(i, np.argmax(trace)) for i, trace in enumerate(map_data_filt[:, session_idx, :])]
+# sns.stripplot(pearson)
+
+
+#%% Plot cells across sessions based on sorting of reference session (where all are place cells)
+def plot_matched_cells_across_sessions(traces: np.ndarray, sort_session: int, place_cells: Optional[np.ndarray] = None,
+                                       normalize: bool = True, across_sessions: bool=False, smooth: Optional[int]=None):
+    """
+    Plot traces of matched neurons across sessions. Neurons are sorted by location of max activity in a given session.
+    Args:
+        traces: 3D array of the traces, shape (n_neurons, n_sessions, n_bins).
+        sort_session: Index of the session where the sorting should be based on.
+        place_cells: Optional, 2D array with shape (n_neurons, n_sessions). If given, only plot cells that are place
+                cells in the sorted session.
+        normalize: Bool Flag whether the activity should be normalized for each neuron.
+        across_sessions: Bool Flag, if normalize=True, whether neuron activity should be normalized across sessions or
+                or for each session separately.
+        smooth: Bool Flag whether the activity should be smoothed by a Gaussian kernel of sigma=1.
+    """
+
+    if place_cells is not None:
+        # Only plot place cells
+        traces_filt = traces[place_cells[:, sort_session] == 1]
+    else:
+        # Plot all cells
+        traces_filt = traces
+
+    sort_key = [(i, np.argmax(trace)) for i, trace in enumerate(traces_filt[:, sort_session, :])]
     sort_key = [y[0] for y in sorted(sort_key, key=lambda x: x[1])]
-    map_sort = map_data_filt[sort_key]
+    traces_sort = traces_filt[sort_key]
 
-    # Plot all cells
-    sort_key = [(i, np.argmax(trace)) for i, trace in enumerate(map_data[:, session_idx, :])]
-    sort_key = [y[0] for y in sorted(sort_key, key=lambda x: x[1])]
-    map_sort = map_data[sort_key]
+    if smooth is not None:
+        traces_sort = gaussian_filter1d(traces_sort, sigma=smooth, axis=2)
 
-    # Normalize activity neuron-wise across sessions
-    neuron_max = np.nanmax(np.reshape(map_sort, (map_sort.shape[0], map_sort.shape[1]*map_sort.shape[2])), axis=1)
-    map_sort_norm = map_sort / neuron_max[:, None, None]
+    # Normalize activity neuron-wise for each sessions
+    if normalize:
+        if across_sessions:
+            sess_squeeze = np.reshape(traces_sort, (traces_sort.shape[0], traces_sort.shape[1]*traces_sort.shape[2]))
+            neur_max = np.nanmax(sess_squeeze, axis=1)
+            neur_min = np.nanmin(sess_squeeze, axis=1)
+            to_plot = (traces_sort - neur_min[:, None, None]) / (neur_max[:, None, None] - neur_min[:, None, None])
+        else:
+            traces_norm = []
+            for i in range(traces_sort.shape[1]):
+                neur_sess_max = np.nanmax(traces_sort[:, i, :], axis=1)
+                neur_sess_min = np.nanmin(traces_sort[:, i, :], axis=1)
+                traces_norm.append((traces_sort[:, i, :] - neur_sess_min[:, None]) /
+                                   (neur_sess_max[:, None] - neur_sess_min[:, None]))
+            to_plot = np.stack(traces_norm, axis=1)
+        vmax = 1
+    else:
+        to_plot = traces_sort
+        vmax = None
 
-    fig, axes = plt.subplots(nrows=1, ncols=map_sort.shape[1], figsize=(15, 7.3))
+    fig, axes = plt.subplots(nrows=1, ncols=traces_sort.shape[1], figsize=(15, 7.3))
     for idx, ax in enumerate(axes):
-        # sns.heatmap(map_sort[:, idx, :], cmap='jet', ax=ax, cbar=False)
-        sns.heatmap(map_sort_norm[:, idx, :], cmap='jet', ax=ax, cbar=False, vmax=1)
-        # sns.heatmap(gaussian_filter1d(map_sort_norm[:, idx, :], sigma=1, axis=1), cmap='jet', ax=ax, cbar=False, vmax=1)
+        sns.heatmap(to_plot[:, idx, :], cmap='jet', ax=ax, cbar=False, vmax=vmax)
 
         # Formatting
         if idx != 0:
@@ -780,8 +825,19 @@ def plot_matched_cell_across_sessions(traces):
 
         ax.set_xticks([])
         ax.set_xlabel('Track position [m]', fontsize=15)
-        ax.set_title(f'{map_sort.shape[1]-idx}d prestroke')
+        # ax.set_title(f'{traces_sort.shape[1]-idx}d prestroke')
 
+    plt.tight_layout()
+
+
+# Combine data from many mice/networks
+map_data, mouse_idx = filter_matched_data(spatial_maps)
+placecell_data, mouse_idx = filter_matched_data(is_pc)
+map_dff_data, mouse_idx = filter_matched_data(spatial_dff_maps)
+
+# plot_matched_cells_across_sessions(map_data, 2, place_cells=placecell_data, normalize=True)
+plot_matched_cells_across_sessions(traces=map_dff_data, sort_session=4, place_cells=placecell_data, normalize=True,
+                                   across_sessions=True, smooth=1)
 
 #%% Place Cell/Place field qualitative analysis
 
