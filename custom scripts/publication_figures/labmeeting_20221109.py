@@ -6,8 +6,7 @@ Created on 07/11/2022 17:23
 
 Code for the labmeeting on 9.11.22 and the Synapsis 2022 forum
 """
-import matplotlib
-matplotlib.use('TkAgg')
+
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
@@ -37,7 +36,7 @@ prism_performance.to_csv(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Presenta
                          sep='\t')
 
 # Plot dFF examples of flicker sessions
-dff = (common_img.Segmentation & 'mouse_id=110' & 'day="2022-08-21"').get_traces()
+dff = (common_img.Segmentation & 'mouse_id=110' & 'day="2022-08-21"').get_traces(include_reject=True)
 max_idx = np.unravel_index(np.argmax(dff, axis=None), dff.shape)[0]
 
 idx = np.array([64698, 71863, 79059, 86225, 93360, 100528]) // 30   # start idx of flicker periods for M112
@@ -55,8 +54,9 @@ ax.spines['top'].set_visible(False)
 
 #%% Synapsis Forum Poster
 
-def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternative='two-sided',
-                        export_csv=False, dirpath = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch8\analysis\flicker'):
+def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternative='two-sided', run_bootstrap=False,
+                        sort=False, cmap='magma', export_csv=False,
+                        dirpath = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch8\analysis\flicker'):
     """
 
     Args:
@@ -87,6 +87,15 @@ def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternat
         return df[mask]
 
     ## Compute correlation (remove diagonal)
+    trace2_corr = np.corrcoef(trace2)
+
+    if sort:
+        # Sort neurons by mean correlation in ON condition
+        col_mean = np.nanmedian(trace2_corr, axis=1)
+        col_sort_idx = np.argsort(-col_mean)
+        trace2 = trace2[col_sort_idx]
+        trace1 = trace1[col_sort_idx]
+
     trace1_corr = np.corrcoef(trace1)
     trace2_corr = np.corrcoef(trace2)
     diag_idx = np.diag_indices(trace1_corr.shape[0])
@@ -102,8 +111,9 @@ def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternat
     comb_mat = trace1_tril.copy()
     upper_tril = np.triu_indices(comb_mat.shape[0], k=1)
     comb_mat[upper_tril] = trace2_corr[upper_tril]
+
     fig_ = plt.figure(figsize=(16, 12))
-    ax_ = sns.heatmap(comb_mat)
+    ax_ = sns.heatmap(comb_mat, cmap=cmap, vmax=0.6)
     ax_.set_xticks([])
     ax_.set_yticks([])
 
@@ -115,32 +125,33 @@ def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternat
     ax_.collections[0].colorbar.ax.tick_params(labelsize=30)
     ax_.collections[0].colorbar.set_label(label="Pearsons' R", size=35)
 
-    ax_.text(0.5, 1.06, 'Flicker on', ha='center', va='top', transform=ax_.transAxes, fontsize=38)
-    ax_.text(-0.12, 0.5, 'Flicker off', ha='left', va='center', rotation=90, transform=ax_.transAxes, fontsize=38)
+    ax_.text(0.5, 1.06, 'Flicker ON', ha='center', va='top', transform=ax_.transAxes, fontsize=38, color='green')
+    ax_.text(-0.12, 0.5, 'Flicker OFF', ha='left', va='center', rotation=90, transform=ax_.transAxes, fontsize=38)
 
-    ## Run permutation significance test
-    # (from https://towardsdatascience.com/how-to-measure-similarity-between-two-correlation-matrices-ce2ea13d8231)
-    mat1 = pd.DataFrame(trace1.T).corr()
-    mat2 = pd.DataFrame(trace2.T).corr()
+    if run_bootstrap:
+        ## Run permutation significance test
+        # (from https://towardsdatascience.com/how-to-measure-similarity-between-two-correlation-matrices-ce2ea13d8231)
+        mat1 = pd.DataFrame(trace1.T).corr()
+        mat2 = pd.DataFrame(trace2.T).corr()
 
-    rhos_ = []
-    n_iter_ = 5000
-    true_rho_, spear_p_ = stats.spearmanr(upper(mat1), upper(mat2))
-    # matrix permutation, shuffle the groups
-    m_ids_ = list(mat1.columns)
-    m2_v_ = upper(mat2)
-    for iter_ in range(n_iter_):
-        np.random.shuffle(m_ids_)  # shuffle list
-        r_, _ = stats.spearmanr(upper(mat1.loc[m_ids_, m_ids_]), m2_v_)
-        rhos_.append(r_)
-    perm_p_ = ((np.sum(np.abs(true_rho_) <= np.abs(rhos_))) + 1) / (n_iter_ + 1)  # two-tailed test
+        rhos_ = []
+        n_iter_ = 5000
+        true_rho_, spear_p_ = stats.spearmanr(upper(mat1), upper(mat2))
+        # matrix permutation, shuffle the groups
+        m_ids_ = list(mat1.columns)
+        m2_v_ = upper(mat2)
+        for iter_ in range(n_iter_):
+            np.random.shuffle(m_ids_)  # shuffle list
+            r_, _ = stats.spearmanr(upper(mat1.loc[m_ids_, m_ids_]), m2_v_)
+            rhos_.append(r_)
+        perm_p_ = ((np.sum(np.abs(true_rho_) <= np.abs(rhos_))) + 1) / (n_iter_ + 1)  # two-tailed test
 
-    # Plot bootstrapping results
-    f_, ax_1 = plt.subplots()
-    plt.hist(rhos_, bins=20)
-    ax_1.axvline(true_rho_, color='r', linestyle='--')
-    ax_1.set(title=f"Equal samples Permuted p: {perm_p_:.3f}", ylabel="counts", xlabel="rho")
-    plt.show()
+        # Plot bootstrapping results
+        f_, ax_1 = plt.subplots()
+        plt.hist(rhos_, bins=20)
+        ax_1.axvline(true_rho_, color='r', linestyle='--')
+        ax_1.set(title=f"Equal samples Permuted p: {perm_p_:.3f}", ylabel="counts", xlabel="rho")
+        plt.show()
 
     # Compare correlation coefficient distribution
     trace1_corr_flat = trace1_tril.flatten()[~np.isnan(trace1_tril.flatten())]
@@ -186,14 +197,26 @@ def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternat
                                             np.sum(np.logical_and(pair_change > -pair_abs_thresh, pair_change < pair_abs_thresh)), same_r))
 
     # Compare average z-transformed correlation per neuron
-    trace1_neur = np.nanmean(np.arctanh(trace1_corr), axis=0)
-    trace2_neur = np.nanmean(np.arctanh(trace2_corr), axis=0)
+    trace1_neur = np.arctan(np.nanmean(np.arctanh(trace1_corr), axis=0))
+    trace2_neur = np.arctan(np.nanmean(np.arctanh(trace2_corr), axis=0))
 
-    df1 = pd.DataFrame(dict(array=name1, r=trace1_neur, metric='neuron_avg'))
-    df2 = pd.DataFrame(dict(array=name2, r=trace2_neur, metric='neuron_avg'))
+    df1 = pd.DataFrame(dict(Flicker=name1, r=trace1_neur, metric='neuron_avg'))
+    df2 = pd.DataFrame(dict(Flicker=name2, r=trace2_neur, metric='neuron_avg'))
     df_neur_avg = pd.concat([df1, df2])
+
+    fig = plt.figure()
+    ax_kde = sns.kdeplot(data=df_neur_avg, x='r', hue='Flicker', bw_adjust=0.8, fill=True, palette=['grey', 'green'], alpha=0.5)
+    ax_kde.set_ylabel('# neurons', fontsize=25)
+    ax_kde.set_xlabel('Mean correlation', fontsize=25)
+    ax_kde.tick_params(axis='both', which='major', labelsize=20)
+    plt.setp(ax_kde.get_legend().get_texts(), fontsize=20)
+    plt.setp(ax_kde.get_legend().get_title(), fontsize=20)
+    ax_kde.spines['right'].set_visible(False)
+    ax_kde.spines['top'].set_visible(False)
+    plt.tight_layout()
+
     plt.figure()
-    sns.violinplot(data=df_neur_avg, x='array', y='r').set(title='Neuron avg')
+    sns.violinplot(data=df_neur_avg, x='Flicker', y='r').set(title='Neuron avg')
 
     if export_csv:
         np.savetxt(os.path.join(dirpath, f'{name1}_NeurAvg_corr.csv'), trace1_neur.T, fmt='%.8f')
@@ -233,7 +256,7 @@ def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternat
 
 # Plot deconvolved
 key = {'mouse_id':110, 'day':"2022-08-21"}
-decon = (common_img.Segmentation & key).get_traces('decon')
+decon = (common_img.Segmentation & key).get_traces('decon', include_reject=True)
 # Get idx of flicker periods
 flick = 492     # Flicker starts in file_00025 at frame 492
 flick1 = flick + (common_img.RawImagingFile & key & 'part<22').fetch('nr_frames').sum()
@@ -342,16 +365,20 @@ print('Neuron mean correlation fold-change:\n\tAverage change: {:.4f} +/- {:.4f}
 ## Compute correlation between all neurons
 
 # Whole OFF duration (unequal sample sizes)
-whole_off_mat, whole_off_stat = compare_corr_matrix(trace1=fr_off, trace2=fr_on, name1='OFF', name2='ON', export_csv=False)
+whole_off_mat, whole_off_stat = compare_corr_matrix(trace1=fr_off, trace2=fr_on, name1='OFF', name2='ON',
+                                                    export_csv=False, cmap='mako')
 
 # Only third OFF minute
-pre1min_off_mat, pre1min_off_stat = compare_corr_matrix(trace1=fr_off_3rd_min, trace2=fr_on, name1='OFF', name2='ON', export_csv=False)
+pre1min_off_mat, pre1min_off_stat = compare_corr_matrix(trace1=fr_off_3rd_min, trace2=fr_on, name1='OFF', name2='ON',
+                                                        export_csv=False, cmap='mako')
 
 # Only second OFF minute
-pre2min_off_mat, pre2min_off_stat = compare_corr_matrix(trace1=fr_off_2nd_min, trace2=fr_on, name1='OFF', name2='ON', export_csv=False)
+pre2min_off_mat, pre2min_off_stat = compare_corr_matrix(trace1=fr_off_2nd_min, trace2=fr_on, name1='OFF', name2='ON',
+                                                        export_csv=False, cmap='mako')
 
 # Only first OFF minute
-pre3min_off_mat, pre3min_off_stat = compare_corr_matrix(trace1=fr_off_1st_min, trace2=fr_on, name1='OFF', name2='ON', export_csv=False)
+pre3min_off_mat, pre3min_off_stat = compare_corr_matrix(trace1=fr_off_1st_min, trace2=fr_on, name1='OFF', name2='ON',
+                                                        export_csv=False, cmap='mako')
 
 # Compare different OFF sets
 vs3_1min_off_mat, vs3_1min_off_stat = compare_corr_matrix(trace1=fr_off_1st_min, trace2=fr_off_3rd_min, name1='pre3', name2='pre1', export_csv=False)
