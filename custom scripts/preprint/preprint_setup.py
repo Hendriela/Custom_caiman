@@ -7,13 +7,15 @@ Created on 15/12/2022 12:07
 Plots for the preprint December 2022
 """
 import matplotlib
+
 # matplotlib.use('TkAgg')
-matplotlib.rcParams['font.sans-serif'] = "Arial"    # Use same font as Prism
+matplotlib.rcParams['font.sans-serif'] = "Arial"  # Use same font as Prism
 matplotlib.rcParams['font.family'] = "sans-serif"
 
 from matplotlib import pyplot as plt
+
 plt.rcParams['svg.fonttype'] = 'none'
-from typing import Optional
+from typing import Optional, Tuple
 import os
 from datetime import timedelta
 from scipy.ndimage import gaussian_filter1d
@@ -27,8 +29,8 @@ import numpy as np
 from schema import hheise_behav, common_mice, hheise_placecell, common_img, common_match
 from util import helper
 
-mouse_ids = [33, 38, 41,    # Batch 3
-             63, 69,        # Batch 5
+mouse_ids = [33, 38, 41,  # Batch 3
+             63, 69,  # Batch 5
              83, 85, 86, 89, 90, 91, 93, 94, 95,  # Batch 7
              108, 110, 111, 112, 113, 114, 115, 116, 120, 122]  # Batch 8
 
@@ -42,13 +44,18 @@ sham_injection = [115, 122]
 mice = [*no_deficit, *no_deficit_flicker, *recovery, *deficit_no_flicker, *deficit_flicker, *sham_injection]
 
 grouping = pd.DataFrame(data=dict(mouse_id=mice,
-                                  group=[*['no_deficit']*len(no_deficit), *['no_deficit_flicker']*len(no_deficit_flicker),
-                                         *['recovery']*len(recovery), *['deficit_no_flicker']*len(deficit_no_flicker),
-                                         *['deficit_flicker']*len(deficit_flicker), *['sham_injection']*len(sham_injection)]))
+                                  group=[*['no_deficit'] * len(no_deficit),
+                                         *['no_deficit_flicker'] * len(no_deficit_flicker),
+                                         *['recovery'] * len(recovery),
+                                         *['deficit_no_flicker'] * len(deficit_no_flicker),
+                                         *['deficit_flicker'] * len(deficit_flicker),
+                                         *['sham_injection'] * len(sham_injection)]))
 grouping_2 = pd.DataFrame(data=dict(mouse_id=mice,
-                                      group=[*['no_deficit']*len(no_deficit), *['no_deficit']*len(no_deficit_flicker),
-                                             *['recovery']*len(recovery), *['deficit_no_flicker']*len(deficit_no_flicker),
-                                             *['deficit_flicker']*len(deficit_flicker), *['no_deficit']*len(sham_injection)]))
+                                    group=[*['no_deficit'] * len(no_deficit), *['no_deficit'] * len(no_deficit_flicker),
+                                           *['recovery'] * len(recovery),
+                                           *['deficit_no_flicker'] * len(deficit_no_flicker),
+                                           *['deficit_flicker'] * len(deficit_flicker),
+                                           *['no_deficit'] * len(sham_injection)]))
 
 folder = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Papers\preprint'
 
@@ -126,7 +133,6 @@ def example_lick_histogram():
 
 
 def learning_curves():
-
     # Get performance for X sessions before the first microsphere injection for each mouse
     dfs = []
     for mouse in mouse_ids:
@@ -148,19 +154,19 @@ def learning_curves():
 
     # sns.lineplot(data=df_all, x='rel_sess', y='perf')
 
-    #Export for prism
+    # Export for prism
     df_exp = df.pivot(index='rel_sess', columns='mouse_id', values='perf')
     df_exp.to_csv(os.path.join(folder, 'learning_curve.csv'), sep='\t')
 
 
 def place_cell_plot():
-
     # Get primary keys of all place cells in the normal corridor, apply strict quality criteria
-    thresh = (common_img.Segmentation.ROI * hheise_placecell.SpatialInformation.ROI & 'is_pc=1' & 'accepted=1').fetch('pf_threshold')
+    thresh = (common_img.Segmentation.ROI * hheise_placecell.SpatialInformation.ROI & 'is_pc=1' & 'accepted=1').fetch(
+        'pf_threshold')
     thresh_quant = np.quantile(thresh, 0.95)
     restrictions = dict(is_pc=1, accepted=1, p_si=0, p_stability=0, corridor_type=0)
     pk_pc_si = (common_img.Segmentation.ROI * hheise_placecell.SpatialInformation.ROI & restrictions &
-             'snr>10' & 'r>0.9' & 'cnn>0.9' & f'pf_threshold>{thresh_quant}').fetch('KEY')
+                'snr>10' & 'r>0.9' & 'cnn>0.9' & f'pf_threshold>{thresh_quant}').fetch('KEY')
 
     # Get place cells from Bartos criteria
     restrictions = dict(is_place_cell=1, accepted=1, corridor_type=0, place_cell_id=2)
@@ -217,7 +223,8 @@ def place_cell_plot():
 
     # Plotting, formatting
     fig = plt.figure(figsize=(4.93, 7.3))
-    ax = sns.heatmap(gaussian_filter1d(avg_act_filt_sort[sparse_neuron_mask], sigma=1, axis=1), cmap='jet', vmax=15)   # Cap colormap a bit
+    ax = sns.heatmap(gaussian_filter1d(avg_act_filt_sort[sparse_neuron_mask], sigma=1, axis=1), cmap='jet',
+                     vmax=15)  # Cap colormap a bit
     # ax = sns.heatmap(avg_act_sort_norm, cmap='jet')
 
     # Shade reward zones
@@ -242,7 +249,6 @@ def place_cell_plot():
 
 
 def plot_example_placecell():
-
     def screen_place_cells():
         # Spatial info based
         # thresh = (common_img.Segmentation.ROI * hheise_placecell.SpatialInformation.ROI &
@@ -260,14 +266,14 @@ def plot_example_placecell():
         ### Find good placecell from a session with many trials
         # Get sessions with >= 20 trials
         norm_trials, pk = (hheise_behav.VRSession & pk_pc).get_normal_trials(include_pk=True)
-        long_sess = [pk[i] for i in range(len(norm_trials)) if len(norm_trials[i])>=10]
+        long_sess = [pk[i] for i in range(len(norm_trials)) if len(norm_trials[i]) >= 10]
 
         # Get good place cells only from these sessions
         good_pk_pc = np.array((common_img.Segmentation.ROI * hheise_placecell.SpatialInformation.ROI &
-                      restrictions & long_sess).fetch('KEY'))
+                               restrictions & long_sess).fetch('KEY'))
 
         good_pk_pc = np.array((common_img.Segmentation.ROI * hheise_placecell.PlaceCell.ROI &
-                      restrictions & long_sess & 'snr>10' & 'r>0.9' & 'cnn>0.9').fetch('KEY'))
+                               restrictions & long_sess & 'snr>10' & 'r>0.9' & 'cnn>0.9').fetch('KEY'))
 
         # Get spatial activity maps
         act = (hheise_placecell.BinnedActivity.ROI() & good_pk_pc).fetch('bin_spikerate')
@@ -317,7 +323,7 @@ def plot_example_placecell():
         # sorting = [(y, x, z) for y, x, z in sorted(zip(act_filt, good_pk_pc_filt, fields_filt),
         #                                            key=lambda pair: np.quantile(pair[0], 0.8))]
         sorting = [(y, x) for y, x in sorted(zip(act_filt, good_pk_pc_filt),
-                                                   key=lambda pair: np.quantile(pair[0], 0.8))]
+                                             key=lambda pair: np.quantile(pair[0], 0.8))]
         # act_sort, pk_sort, fields_sort = zip(*sorting)
         act_sort, pk_sort = zip(*sorting)
 
@@ -326,7 +332,7 @@ def plot_example_placecell():
 
         # Plotting, formatting
         fig = plt.figure()
-        ax = sns.heatmap(gaussian_filter1d(act_sort[idx].T, sigma=1, axis=1), cmap='jet')     # Cap colormap a bit
+        ax = sns.heatmap(gaussian_filter1d(act_sort[idx].T, sigma=1, axis=1), cmap='jet')  # Cap colormap a bit
         # ax = sns.heatmap(avg_act_sort_norm, cmap='jet')
 
         # Shade reward zones
@@ -335,7 +341,8 @@ def plot_example_placecell():
             ax.axvspan(zone[0], zone[1], facecolor='green', alpha=0.4)
 
         # Clean up axes and color bar
-        ax.set_title(f'M{pk_sort[idx]["mouse_id"]}_{pk_sort[idx]["day"]}_mask{pk_sort[idx]["mask_id"]} (sorted idx {idx})')
+        ax.set_title(
+            f'M{pk_sort[idx]["mouse_id"]}_{pk_sort[idx]["day"]}_mask{pk_sort[idx]["mask_id"]} (sorted idx {idx})')
         ax.set_yticks([])
         ax.tick_params(axis=u'both', which=u'both', length=0)
         ax.set_xticks((0.5, 78.8), (0, 4), fontsize=20, rotation=0)
@@ -360,8 +367,6 @@ def plot_example_placecell():
     #######################################
     # Plot single-trial info as heatmap
 
-
-
     fig = plt.figure()
     ax = sns.heatmap(gaussian_filter1d(ex_spikerate.T, sigma=1, axis=1), cmap='jet')  # Cap colormap a bit
     # ax = sns.heatmap(avg_act_sort_norm, cmap='jet')
@@ -375,7 +380,7 @@ def plot_example_placecell():
     ax.set_yticks([])
     ax.tick_params(axis=u'both', which=u'both', length=0)
     ax.set_xticks((2, 78.8), (0, 4), fontsize=20, rotation=0)
-    ax.set_yticks((0.9, ex_spikerate.shape[1]-0.5), (1, ex_spikerate.shape[1]), fontsize=20, rotation=0)
+    ax.set_yticks((0.9, ex_spikerate.shape[1] - 0.5), (1, ex_spikerate.shape[1]), fontsize=20, rotation=0)
     ax.set_ylabel('Trial no.', fontsize=20, labelpad=-25)
     ax.set_xlabel('Track position [m]', fontsize=20, labelpad=-20)
 
@@ -393,7 +398,7 @@ def plot_example_placecell():
     stepsize = 1
     fig, ax = plt.subplots(1, 1)
 
-    for i in range(1, ex_spikerate.shape[1]+1):
+    for i in range(1, ex_spikerate.shape[1] + 1):
         # ax.plot(gaussian_filter1d(ex_act[:, -i].T+i*stepsize, sigma=1), color='grey')
         ax.plot(ex_act[:, -i].T + i * stepsize, color='grey')
 
@@ -408,7 +413,7 @@ def plot_example_placecell():
     ax.spines['right'].set_visible(False)
     ax.tick_params(axis=u'both', which=u'both', length=0)
     ax.set_xticks((0.5, 78.8), (0, 4), fontsize=20, rotation=0)
-    ax.set_yticks((ex_spikerate.shape[1]+0.8, 1.7), (1, ex_spikerate.shape[1]), fontsize=20, rotation=0)
+    ax.set_yticks((ex_spikerate.shape[1] + 0.8, 1.7), (1, ex_spikerate.shape[1]), fontsize=20, rotation=0)
     ax.set_ylabel('Trial no.', fontsize=20, labelpad=-25)
     ax.set_xlabel('Track position [m]', fontsize=20, labelpad=-20)
 
@@ -417,7 +422,8 @@ def plot_example_placecell():
     ##################
     # Plot raw traces
     dff = (common_img.Segmentation.ROI & example_pc_keys).fetch1('dff')
-    running_masks, bin_frame_counts = (hheise_placecell.Synchronization.VRTrial & example_pc_keys).fetch('running_mask', 'aligned_frames')
+    running_masks, bin_frame_counts = (hheise_placecell.Synchronization.VRTrial & example_pc_keys).fetch('running_mask',
+                                                                                                         'aligned_frames')
     n_bins, trial_mask = (hheise_placecell.PCAnalysis & example_pc_keys).fetch1('n_bins', 'trial_mask')
 
     # Split trace up into trials
@@ -425,11 +431,11 @@ def plot_example_placecell():
 
     # Get VR positions at frame times
     raw_pos = (hheise_behav.VRSession.VRTrial & example_pc_keys).get_arrays(['pos', 'frame'])
-    pos = [tr[tr[:, 2] == 1, 1]+10 for tr in raw_pos]
+    pos = [tr[tr[:, 2] == 1, 1] + 10 for tr in raw_pos]
 
     stepsize = 2
     fig, ax = plt.subplots(len(dff_trial), 1, sharex='all')
-    for i in range(1, len(dff_trial)+1):
+    for i in range(1, len(dff_trial) + 1):
         ax[-i].plot(dff_trial[-i][running_masks[-i]], color='grey')
         ax[-i].set_yticks([])
         ax[-i].spines['top'].set_visible(False)
@@ -447,13 +453,12 @@ def plot_example_placecell():
             ax[-i].tick_params(axis=u'both', which=u'both', length=0)
             ax2.tick_params(axis=u'both', which=u'both', length=0)
 
-    ax[0].set_xticks((0, 900), (0, int(900/30)), fontsize=20, rotation=0)
+    ax[0].set_xticks((0, 900), (0, int(900 / 30)), fontsize=20, rotation=0)
     ax[-1].vlines(800, ymin=1, ymax=2, label='1 dFF')
     plt.savefig(os.path.join(folder, 'example_placecell_M69_20220228_370_raw_dff_lines.svg'), transparent=True)
 
 
 def plot_performance_neural_correlations():
-
     # Select mice that should be part of the analysis (only mice that had successful microsphere surgery)
 
     # Get data from each mouse separately
@@ -466,8 +471,9 @@ def plot_performance_neural_correlations():
 
         # Get the dates of 5 imaging sessions before the surgery, and all dates from 2 days after it
         pre_dates = (common_img.Segmentation & f'mouse_id={mouse}' & f'day < "{surgery_day.date()}"').fetch('day')[-5:]
-        post_dates = np.unique((common_img.Segmentation*hheise_behav.VRSession.VRTrial & 'pattern="training"' & f'mouse_id={mouse}'
-                      & f'day > "{surgery_day.date() + timedelta(days=1)}"').fetch('day'))
+        post_dates = np.unique(
+            (common_img.Segmentation * hheise_behav.VRSession.VRTrial & 'pattern="training"' & f'mouse_id={mouse}'
+             & f'day > "{surgery_day.date() + timedelta(days=1)}"').fetch('day'))
         dates = [*pre_dates, *post_dates]
         if len(dates) == 0:
             print(f'No segmentation for mouse {mouse}')
@@ -476,8 +482,9 @@ def plot_performance_neural_correlations():
 
         # Get average performance for each session
         if mouse == 63:
-            pre_dates_63 = (hheise_behav.VRPerformance & f'mouse_id={mouse}' & f'day < "{surgery_day.date()}"').fetch('day')[
-                        -5:]
+            pre_dates_63 = (hheise_behav.VRPerformance & f'mouse_id={mouse}' & f'day < "{surgery_day.date()}"').fetch(
+                'day')[
+                           -5:]
             dates_63 = [*pre_dates_63, *post_dates]
             perf = (hheise_behav.VRPerformance & f'mouse_id={mouse}' & f'day in {helper.in_query(dates_63)}').get_mean()
         else:
@@ -501,8 +508,9 @@ def plot_performance_neural_correlations():
         mean_si = []
         median_si = []
         for date in dates:
-            si = (hheise_placecell.SpatialInformation.ROI & f'mouse_id={mouse}' & 'corridor_type=0' & f'place_cell_id=2' &
-                  f'day = "{date}"').fetch('si')
+            si = (
+                        hheise_placecell.SpatialInformation.ROI & f'mouse_id={mouse}' & 'corridor_type=0' & f'place_cell_id=2' &
+                        f'day = "{date}"').fetch('si')
             mean_si.append(np.mean(si))
             median_si.append(np.median(si))
 
@@ -515,16 +523,19 @@ def plot_performance_neural_correlations():
 
         # Build DataFrame
         data_dict = dict(mouse_id=[mouse] * len(dates), date=dates, is_pre=is_pre, performance=perf, mean_fr=mean_fr,
-                        median_fr=median_fr, pc_si=pc_si, mean_stab=mean_stab, median_stab=median_stab,
-                        sd_stab=sd_stab, pc_bartos=pc_bartos, mean_si=mean_si, median_si=median_si)
+                         median_fr=median_fr, pc_si=pc_si, mean_stab=mean_stab, median_stab=median_stab,
+                         sd_stab=sd_stab, pc_bartos=pc_bartos, mean_si=mean_si, median_si=median_si)
         try:
             data = pd.DataFrame(data_dict)
         except ValueError:
             if mouse == 63:
-                data_dict = dict(mouse_id=[mouse] * len(perf), date=['2021-03-01']*5 + dates, is_pre=[True]*5 +is_pre, performance=perf,
-                                 mean_fr=[np.nan]*5 +mean_fr,
-                                 median_fr=[np.nan]*5 +median_fr, pc_si=[np.nan]*5 +list(pc_si), mean_stab=[np.nan]*5 +mean_stab, median_stab=[np.nan]*5 +median_stab,
-                                 sd_stab=[np.nan]*5 +sd_stab, pc_bartos=[np.nan]*5 +list(pc_bartos), mean_si=[np.nan]*5 +mean_si, median_si=[np.nan]*5 +median_si)
+                data_dict = dict(mouse_id=[mouse] * len(perf), date=['2021-03-01'] * 5 + dates,
+                                 is_pre=[True] * 5 + is_pre, performance=perf,
+                                 mean_fr=[np.nan] * 5 + mean_fr,
+                                 median_fr=[np.nan] * 5 + median_fr, pc_si=[np.nan] * 5 + list(pc_si),
+                                 mean_stab=[np.nan] * 5 + mean_stab, median_stab=[np.nan] * 5 + median_stab,
+                                 sd_stab=[np.nan] * 5 + sd_stab, pc_bartos=[np.nan] * 5 + list(pc_bartos),
+                                 mean_si=[np.nan] * 5 + mean_si, median_si=[np.nan] * 5 + median_si)
                 data = pd.DataFrame(data_dict)
             else:
                 print(mouse)
@@ -561,7 +572,8 @@ def plot_performance_neural_correlations():
         for timepoint in [True, False]:
             new_df = dict(mouse_id=mouse, is_pre=timepoint)
             for metric in metrics:
-                new_df[metric] = np.nanmean(data_group[(data_group['mouse_id'] == mouse) & (data_group['is_pre'] == timepoint)][metric])
+                new_df[metric] = np.nanmean(
+                    data_group[(data_group['mouse_id'] == mouse) & (data_group['is_pre'] == timepoint)][metric])
             data_group_avg.append(pd.DataFrame(new_df, index=[0]))
     data_group_avg = pd.concat(data_group_avg, ignore_index=True)
     data_group_avg = data_group_avg.merge(grouping_2)
@@ -622,6 +634,7 @@ def filter_matched_data(match_list, keep_nomatch=False):
 
     return data_array, mouse_id_list
 
+
 # Construct query to include only intended matched cells
 queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=33' & 'day<="2020-08-30"'),
            # (common_match.MatchedIndex & 'mouse_id=38' & 'day<="2020-08-24"'),
@@ -639,8 +652,8 @@ for query in queries:
 spatial_dff_maps = []
 for query in queries:
     spatial_dff_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
-                                         extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                         return_array=True, relative_dates=True, surgery='Microsphere injection')
+                                             extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                             return_array=True, relative_dates=True, surgery='Microsphere injection')
     spatial_dff_maps.append(spatial_dff_map)
 
 is_pc = []
@@ -653,18 +666,17 @@ for query in queries:
 pfs = []
 for query in queries:
     is_pf = query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
-                                          extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                          return_array=False, relative_dates=True, surgery='Microsphere injection')
+                                   extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                   return_array=False, relative_dates=True, surgery='Microsphere injection')
     pfs.append(is_pf)
 
 dffs = []
 for query in queries:
     dffs.append(query.get_matched_data(table=common_img.Segmentation.ROI, attribute='dff',
-                                 extra_restriction=dict(corridor_type=0),
-                                 return_array=False, relative_dates=True, surgery='Microsphere injection'))
+                                       extra_restriction=dict(corridor_type=0),
+                                       return_array=False, relative_dates=True, surgery='Microsphere injection'))
 
-
-#%% Compute correlation of each neuron across days
+# %% Compute correlation of each neuron across days
 # map_data = spatial_map['110_1'][0]
 # map_data = spatial_dff_map['110_1'][0]
 
@@ -692,7 +704,7 @@ for cell_id in range(map_data.shape[0]):
     coefs = []
     where_pc = []
     for pair in combinations(np.arange(map_data.shape[1]), 2):
-        if np.abs(pair[0]-pair[1]) == 1:
+        if np.abs(pair[0] - pair[1]) == 1:
             neighbours.append(True)
         else:
             neighbours.append(False)
@@ -707,7 +719,7 @@ for cell_id in range(map_data.shape[0]):
         else:
             where_pc.append('b')
 
-        pair_ids.append(f'd{pair[0]+1}-d{pair[1]+1}')
+        pair_ids.append(f'd{pair[0] + 1}-d{pair[1] + 1}')
         coefs.append(corrmat[pair[1], pair[0]])
 
     # Make Fisher-Z-transform, average coefficients, then transform back for mean correlation coefficient
@@ -750,7 +762,6 @@ fig = plt.figure()
 plt.axhline(0, c='grey', linestyle='--', alpha=0.5)
 ax = sns.violinplot(data=pearson_df, x='is_pc', y='r')
 
-
 ax_kde = sns.kdeplot(data=pearson_df, x='r', hue='is_pc', common_norm=False, common_grid=False)
 # ax_kde.set_ylabel('# neurons', fontsize=25)
 # ax_kde.set_xlabel('Mean correlation', fontsize=25)
@@ -760,12 +771,14 @@ ax_kde = sns.kdeplot(data=pearson_df, x='r', hue='is_pc', common_norm=False, com
 ax_kde.spines['right'].set_visible(False)
 ax_kde.spines['top'].set_visible(False)
 
+
 # sns.stripplot(pearson)
 
 
-#%% Plot cells across sessions based on sorting of reference session (where all are place cells)
+# %% Plot cells across sessions based on sorting of reference session (where all are place cells)
 def plot_matched_cells_across_sessions(traces: np.ndarray, sort_session: int, place_cells: Optional[np.ndarray] = None,
-                                       normalize: bool = True, across_sessions: bool=False, smooth: Optional[int]=None):
+                                       normalize: bool = True, across_sessions: bool = False,
+                                       smooth: Optional[int] = None):
     """
     Plot traces of matched neurons across sessions. Neurons are sorted by location of max activity in a given session.
     Args:
@@ -796,7 +809,7 @@ def plot_matched_cells_across_sessions(traces: np.ndarray, sort_session: int, pl
     # Normalize activity neuron-wise for each sessions
     if normalize:
         if across_sessions:
-            sess_squeeze = np.reshape(traces_sort, (traces_sort.shape[0], traces_sort.shape[1]*traces_sort.shape[2]))
+            sess_squeeze = np.reshape(traces_sort, (traces_sort.shape[0], traces_sort.shape[1] * traces_sort.shape[2]))
             neur_max = np.nanmax(sess_squeeze, axis=1)
             neur_min = np.nanmin(sess_squeeze, axis=1)
             to_plot = (traces_sort - neur_min[:, None, None]) / (neur_max[:, None, None] - neur_min[:, None, None])
@@ -839,7 +852,8 @@ map_dff_data, mouse_idx = filter_matched_data(spatial_dff_maps)
 plot_matched_cells_across_sessions(traces=map_dff_data, sort_session=4, place_cells=placecell_data, normalize=True,
                                    across_sessions=True, smooth=1)
 
-#%% Place Cell/Place field qualitative analysis
+
+# %% Place Cell/Place field qualitative analysis
 
 def place_cell_qualitative():
     """
@@ -859,6 +873,8 @@ def place_cell_qualitative():
     pfs = []
     spatial_maps = []
     match_matrices = []
+    spat_dff_maps = []
+
     for query in queries:
         match_matrices.append(query.construct_matrix())
 
@@ -871,12 +887,19 @@ def place_cell_qualitative():
                                           return_array=False, relative_dates=True, surgery='Microsphere injection'))
 
         spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
-                                             extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                             return_array=True, relative_dates=True, surgery='Microsphere injection'))
+                                                   extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                                   return_array=True, relative_dates=True,
+                                                   surgery='Microsphere injection'))
+
+        spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
+                                                    extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                                    return_array=True, relative_dates=True,
+                                                    surgery='Microsphere injection'))
 
     placecell_data, mouse_idx = filter_matched_data(is_pc, keep_nomatch=True)
     placefield_data, mouse_idx = filter_matched_data(pfs, keep_nomatch=True)
     spatial_data, mouse_idx = filter_matched_data(spatial_maps, keep_nomatch=True)
+    spatial_dff_data, mouse_idx = filter_matched_data(spat_dff_maps, keep_nomatch=True)
 
     # Get matrix with mask IDs
     match_matrices = []
@@ -893,11 +916,11 @@ def place_cell_qualitative():
         curr_mouse = placecell_data[mouse_idx == mouse]
         print(f'\nMouse {mouse}:')
         mouse_data = []
-        for i in range(curr_mouse.shape[1]-1):
+        for i in range(curr_mouse.shape[1] - 1):
             curr_pc = curr_mouse[curr_mouse[:, i] == 1]
-            print(f'Day {i}: {len(curr_pc)} Place Cells, {np.nansum(curr_pc[:, i+1])} place cells on day {i+1} '
-                  f'({(np.nansum(curr_pc[:, i+1]) / len(curr_pc))*100})')
-            mouse_data.append((np.nansum(curr_pc[:, i+1]) / len(curr_pc))*100)
+            print(f'Day {i}: {len(curr_pc)} Place Cells, {np.nansum(curr_pc[:, i + 1])} place cells on day {i + 1} '
+                  f'({(np.nansum(curr_pc[:, i + 1]) / len(curr_pc)) * 100})')
+            mouse_data.append((np.nansum(curr_pc[:, i + 1]) / len(curr_pc)) * 100)
         mice_data.append(np.array(mouse_data))
     mice_data = np.stack(mice_data)
 
@@ -914,68 +937,183 @@ def place_cell_qualitative():
 
     pf_data = []
 
-    def place_field_com(spat_map, pf_list):
+    def place_field_com(spatial_map_data, pf_indices) -> Tuple[float, float]:
         """
         Compute center of mass for place fields of a single cell.
 
         Args:
-            spat_map: 1D array, spatial activity map of one cell
-            pf_list: List of arrays holding indices of one or more place fields
+            spatial_map_data: 1D array, spatial activity map of one cell
+            pf_indices: Array holding indices of one place field
 
         Returns:
-
+            Center-of-mass of the current place field based on the whole spatial map, and its standard deviation
         """
 
-        for place_field in pf_list:
-            curr_pf = spat_map[place_field]
+        spat_map = spatial_map_data[pf_indices]
 
         # Normalize
         map_norm = (spat_map - np.min(spat_map)) / (np.max(spat_map) - np.min(spat_map))
         # Convert to Probability Mass Function / Probability distribution
         map_pmf = map_norm / np.sum(map_norm)
-        # Calculate moments
-        com = np.sum(np.arange(len(map_pmf)) * map_pmf)
+        # Calculate moment (center of mass)
+        com = float(np.sum(np.arange(len(map_pmf)) * map_pmf))
 
+        # Calculate standard deviation
         com_std = []
         for t in np.arange(len(map_pmf)):
-            com_std.append((t**2 * map_pmf[t]) - com**2)
-        com_std = np.sqrt(np.sum(np.arange(len(map_pmf))**2 * map_pmf) - com**2)
+            com_std.append((t ** 2 * map_pmf[t]) - com ** 2)
+        com_std = float(np.sqrt(np.sum(np.arange(len(map_pmf)) ** 2 * map_pmf) - com ** 2))
 
-        plt.plot(spat_map)
-        plt.axvline(com, color='r')
-        plt.axvspan(com-com_std/2, com+com_std/2, color='r', alpha=0.3)
+        # plt.plot(spat_map)
+        # plt.axvline(com, color='r')
+        # plt.axvspan(com - com_std / 2, com + com_std / 2, color='r', alpha=0.3)
 
-    for i in range(placecell_data.shape[1]-1):
+        # Correct the center of mass to return map-wide indices before returning
+        return com + pf_indices[0], com_std
+
+    # Go through every session
+    dfs = []
+    for i in range(placecell_data.shape[1] - 1):
+
         # Idx of PCs in session i that are also PCs in session i+1
-        stable_pc_idx = np.where(np.nansum(placecell_data[:, i:i+2], axis=1) == 2)[0]
+        stable_pc_idx = np.where(np.nansum(placecell_data[:, i:i + 2], axis=1) == 2)[0]
         pfs_1 = placefield_data[stable_pc_idx, i]
-        pfs_2 = placefield_data[stable_pc_idx, i+1]
+        pfs_2 = placefield_data[stable_pc_idx, i + 1]
 
         # For each stable place cell, compare place fields
         for cell_idx, pf_1, pf_2 in zip(stable_pc_idx, pfs_1, pfs_2):
 
-
-            cell_idx = 26
-            mask_id = match_matrices[0]['33_1'].iloc[cell_idx, i]
-            cell_1 = dict(username='hheise', mouse_id=33, day='2020-08-18', mask_id=mask_id, place_cell_id=2)
-
-            test_map = np.mean((hheise_placecell.BinnedActivity.ROI & cell_1).fetch1('bin_spikerate'), axis=1)
-            spat_map = spatial_data[cell_idx, i]
-            spat_map1 = spatial_maps[0]['33_1'][0][cell_idx, i]
-
-            (hheise_placecell.PlaceCell.PlaceField & cell_1).fetch('bin_idx')
-            curr_pf = placefield_data[cell_idx, i]
-
-            cell_2 = dict(username='hheise', mouse_id=33, day='2020-08-19', mask_id=294, place_cell_id=2)
-
-
-
-
-
             # Get center of mass for current place fields in both sessions
-            place_field_com(spat_map=map_data[cell_idx, i], pf_list=pf_1)
+            pf_com_1 = [place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i], pf_indices=pf) for pf in pf_1]
+            pf_com_2 = [place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i + 1], pf_indices=pf) for pf in
+                        pf_2]
+
+            # For each place field in day i, check if there is a place field on day 2 that overlaps with its CoM
+            pc_is_stable = np.nan
+            dist = np.nan
+            if len(pf_com_1) == len(pf_com_2):
+                # If cell has one PF on both days, check if the day-1 CoM is located inside day-2 PF -> stable
+                if len(pf_com_1) == 1:
+                    if pf_2[0][0] < pf_com_1[0][0] < pf_2[0][-1]:
+                        pc_is_stable = True
+                    else:
+                        pc_is_stable = False
+
+                    # Compute distance for now only between singular PFs (positive distance means shift towards end)
+                    dist = pf_com_2[0][0] - pf_com_1[0][0]
+
+                # If the cell has more than 1 PF on both days, check if all PFs overlap -> stable
+                else:
+                    same_pfs = [True if pf2[0] < pf_com1[0] < pf2[-1] else False for pf_com1, pf2 in
+                                zip(pf_com_1, pf_2)]
+                    pc_is_stable = all(same_pfs)  # This sets pc_is_stable to True if all PFs match, otherwise its False
+
+            # If cell has different number of place fields on both days, for now don't process
+            else:
+                pass
+
+            # Get difference in place field numbers to quantify how many cells change number of place fields
+            pf_num_change = len(pf_com_2) - len(pf_com_1)
+
+            dfs.append(pd.DataFrame([dict(mouse_id=mouse_idx[cell_idx], cell_idx=cell_idx, day=i, stable=pc_is_stable,
+                                          dist=dist, num_pf_1=len(pf_com_1), num_pf_2=len(pf_com_2),
+                                          pf_num_change=pf_num_change)]))
+
+    stability_df = pd.concat(dfs)
 
 
+# %% Plot examples for stable/remapping place cells
 
-        mouse_data.append((np.nansum(curr_pc[:, i+1]) / len(curr_pc))*100)
-    mice_data.append(np.array(mouse_data))
+
+# Example of prolonged place field (artificial)
+x = np.arange(80)
+y = np.array([5.22377379e-02, 2.26253215e-02, 2.04782374e-02, 1.96897145e-02,
+              2.09978614e-02, 5.29242679e-02, 3.14436592e-02, 2.93919835e-02,
+              5.09827323e-02, 6.15774915e-02, 4.51521464e-02, 6.15792312e-02,
+              7.02343956e-02, 2.57525612e-02, 1.21903546e-01, 1.95630357e-01,
+              1.05794154e-01, 6.25002757e-02, 3.73290367e-02, 2.91241109e-02,
+              1.35791358e-02, 1.19158691e-02, 1.18616242e-02, 8.81965272e-03,
+              1.83015168e-02, 2.69463416e-02, 9.53717753e-02, 1.78993255e-01,
+              2.69650608e-01, 2.59652168e-01, 5.59530872e-01, 8.05883515e-01,
+              11.03258836e-01, 15.39960182e-01, 12.09657359e-01, 9.81399548e-01,
+              8.58287406e-01, 4.18269181e-01, 3.70853513e-01, 3.34044358e-01,
+              3.22030086e-01, 3.00857176e-01, 3.15183845e-01, 3.00594736e-01,
+              2.82286466e-01, 2.40064371e-01, 2.34399972e-01, 2.17649590e-01,
+              2.43314377e-01, 2.81106620e-01, 2.78584864e-01, 2.56415936e-01,
+              1.52608334e-01, 1.77566256e-01, 1.80633550e-01, 1.10497845e-01,
+              1.30287064e-01, 2.72508503e-02, 2.36224495e-02, 1.62607748e-02,
+              2.59395572e-03, 4.92016645e-03, -1.00035751e-02, 3.80560267e-03,
+              7.75086926e-03, 1.17135223e-03, 8.12307280e-03, -1.12709999e-02,
+              1.02724927e-02, 2.21360358e-03, 1.65023524e-02, 3.30559947e-02,
+              3.19987424e-02, 1.41764000e-01, 1.72215104e-01, 1.00743033e-01,
+              4.65977229e-02, 1.12166762e-01, 8.03439096e-02, 4.09437418e-02])
+plt.figure(figsize=(12, 7))
+plt.plot(x, y)
+plt.axvspan(28, 51, color='red', alpha=0.2)
+plt.axvline(place_field_com(spatial_map_data=y, pf_indices=np.arange(28, 51))[0], color='red')
+
+
+# Stable, single PF
+cell_id = 53
+days = (0, 1)
+
+# Remapping, single PF, to different location
+cell_id = 421
+days = (0, 1)
+cell_id = 359
+days = (2, 3)
+
+# Stable, double PF
+cell_id = 134
+days = (1, 2)
+
+# remapping, double PF
+cell_id = 510
+days = (0, 1)
+
+# changing numbers of PF, one additional PF
+cell_id = 134
+days = (0, 1)
+cell_id = 502
+days = (1, 2)
+
+# changing numbers of PF, completely different PFs
+cell_id = 254
+days = (0, 1)
+cell_id = 363
+days = (2, 3)
+
+# changing numbers of PF, one additional PF at place where there was activity, but not accepted PF
+cell_id = 279
+days = (0, 1)
+cell_id = 43
+days = (1, 2)
+cell_id = 254
+days = (1, 2)
+
+
+cell_id = 359
+days = (2, 3)
+
+# Plotting code
+fig, ax = plt.subplots(2, 1, sharey='all', figsize=(12, 7))
+ax[0].plot(spatial_dff_data[cell_id, days[0]])
+for pf in placefield_data[cell_id, days[0]]:
+    ax[0].axvspan(pf[0], pf[-1], color='red', alpha=0.2)
+    ax[0].axvline(place_field_com(spatial_map_data=spatial_dff_data[cell_id, days[0]], pf_indices=pf)[0], color='red')
+
+ax[1].plot(spatial_dff_data[cell_id, days[1]])
+for pf in placefield_data[cell_id, days[1]]:
+    ax[1].axvspan(pf[0], pf[-1], color='red', alpha=0.2)
+    ax[1].axvline(place_field_com(spatial_map_data=spatial_dff_data[cell_id, days[1]], pf_indices=pf)[0], color='red')
+
+ax[0].set_xticks([])
+ax[0].spines['top'].set_visible(False)
+ax[0].spines['right'].set_visible(False)
+ax[1].spines['top'].set_visible(False)
+ax[1].spines['right'].set_visible(False)
+
+# zone_borders = (hheise_behav.CorridorPattern & 'pattern="training"').rescale_borders(n_bins=80)
+for zone in zone_borders:
+    ax[0].axvspan(zone[0], zone[1], color='green', alpha=0.2)
+    ax[1].axvspan(zone[0], zone[1], color='green', alpha=0.2)
