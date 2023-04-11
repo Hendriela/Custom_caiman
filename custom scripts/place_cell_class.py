@@ -15,7 +15,7 @@ import re
 from standard_pipeline.behavior_import import progress
 from standard_pipeline.performance_check import is_session_novel
 import tifffile as tiff
-from manual_selection_gui import gui_without_movie as gui
+# from manual_selection_gui import gui_without_movie as gui
 from caiman.utils import visualization
 import pandas as pd
 from multisession_analysis import multisession_registration as msr

@@ -9,8 +9,6 @@ Plots for the preprint December 2022
 import itertools
 
 import matplotlib
-
-# matplotlib.use('TkAgg')
 matplotlib.rcParams['font.sans-serif'] = "Arial"  # Use same font as Prism
 # matplotlib.rcParams['font.family'] = "sans-serif"
 
@@ -28,17 +26,19 @@ import pandas as pd
 import seaborn as sns
 from scipy import stats
 import numpy as np
-from schema import hheise_behav, common_mice, hheise_placecell, common_img, common_match
-from util import helper
 
-mouse_ids = [33, 38, 41,  # Batch 3
+from schema import hheise_behav, common_mice, hheise_placecell, common_img, common_match, hheise_hist
+from util import helper
+from preprint import data_cleaning as dc
+
+mouse_ids = [33, 41,  # Batch 3
              63, 69,  # Batch 5
              83, 85, 86, 89, 90, 91, 93, 94, 95,  # Batch 7
-             108, 110, 111, 112, 113, 114, 115, 116, 120, 122]  # Batch 8
+             108, 110, 111, 112, 113, 114, 115, 116, 121, 122]  # Batch 8
 
-no_deficit = [93, 91, 94, 95, 109, 123, 120]
+no_deficit = [93, 91, 94, 95]
 no_deficit_flicker = [111, 114, 116]
-recovery = [33, 38, 83, 85, 86, 89, 90, 113]
+recovery = [33, 83, 85, 86, 89, 90, 113]
 deficit_no_flicker = [41, 63, 69, 121]
 deficit_flicker = [108, 110, 112]
 sham_injection = [115, 122]
@@ -142,23 +142,22 @@ def learning_curves():
         surgery_day = (common_mice.Surgery() & 'surgery_type="Microsphere injection"' & f'mouse_id={mouse}').fetch(
             'surgery_date')[0].date()
         # Get date and performance for each session before the surgery day
-        days, perf = (hheise_behav.VRPerformance & 'username="hheise"' &
-                      f'mouse_id={mouse}' & f'day<"{surgery_day}"').fetch('day', 'binned_lick_ratio')
-        # Calculate average performance for each day
-        mean_perf = [np.mean(x) for x in perf]
+        days = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}' & f'day<="{surgery_day}"').fetch('day')
+        perf = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}' & f'day<="{surgery_day}"').get_mean('binned_lick_ratio')
+
         # Transform dates into days before surgery
         rel_days = [(d - surgery_day).days for d in days]
         # Get session number before surgery
-        rel_sess = np.arange(-len(mean_perf), 0)
+        rel_sess = np.arange(-len(perf), 0)
 
-        dfs.append(pd.DataFrame(dict(mouse_id=mouse, days=days, rel_days=rel_days, rel_sess=rel_sess, perf=mean_perf)))
+        dfs.append(pd.DataFrame(dict(mouse_id=mouse, days=days, rel_days=rel_days, rel_sess=rel_sess, perf=perf)))
     df = pd.concat(dfs, ignore_index=True)
 
     # sns.lineplot(data=df_all, x='rel_sess', y='perf')
 
     # Export for prism
     df_exp = df.pivot(index='rel_sess', columns='mouse_id', values='perf')
-    df_exp.to_csv(os.path.join(folder, 'learning_curve.csv'), sep='\t')
+    df_exp.to_csv(os.path.join(folder, 'figure1', 'learning_curve1.csv'))
 
 
 def place_cell_plot():
@@ -172,7 +171,7 @@ def place_cell_plot():
 
     # Get place cells from Bartos criteria
     restrictions = dict(is_place_cell=1, accepted=1, corridor_type=0, place_cell_id=2)
-    pk_pc = (common_img.Segmentation.ROI * hheise_placecell.PlaceCell.ROI & restrictions &
+    pk_pc = (common_img.Segmentation.ROI * hheise_placecell.PlaceCell.ROI * hheise_placecell.SpatialInformation.ROI & restrictions &
              'snr>10' & 'r>0.9' & 'cnn>0.9').fetch('KEY')
 
     # Get spatial activity maps
@@ -225,7 +224,7 @@ def place_cell_plot():
 
     # Plotting, formatting
     fig = plt.figure(figsize=(4.93, 7.3))
-    ax = sns.heatmap(gaussian_filter1d(avg_act_filt_sort[sparse_neuron_mask], sigma=1, axis=1), cmap='jet',
+    ax = sns.heatmap(gaussian_filter1d(avg_act_filt_sort[sparse_neuron_mask], sigma=1, axis=1), cmap='turbo',
                      vmax=15)  # Cap colormap a bit
     # ax = sns.heatmap(avg_act_sort_norm, cmap='jet')
 
@@ -246,8 +245,10 @@ def place_cell_plot():
     cbar.ax.tick_params(axis=u'both', which=u'both', length=0)
     cbar.ax.set_ylabel('Firing rate [Hz]', fontsize=20, labelpad=-3, rotation=270)
 
-    plt.savefig(os.path.join(folder, 'all_place_cells_bartos_8020.png'), transparent=True)
-    plt.savefig(os.path.join(folder, 'all_place_cells_3380.svg'), transparent=True)
+    # Matrix has too many elements for Inkscape, use PNG of matrix instead of vectorized file
+    plt.savefig(os.path.join(folder, 'figure1', 'all_place_cells_bartos_8020_for_matrix.png'), transparent=True)
+    # Much fewer cells, this file is used to load quickly into Inkscape, delete the matrix and use the axes
+    plt.savefig(os.path.join(folder, 'figure1', 'all_place_cells_3380_for_axes.svg'), transparent=True)
 
 
 def plot_example_placecell():
@@ -393,7 +394,7 @@ def plot_example_placecell():
     cbar.ax.set_ylabel('Firing rate [Hz]', fontsize=20, labelpad=-5, rotation=270)
     # cbar.ax.set_ylabel(r'$\Delta$F/F', fontsize=20, labelpad=3, rotation=270)
 
-    plt.savefig(os.path.join(folder, 'example_placecell_M69_20220228_370_fr_heatmap_1.svg'), transparent=True)
+    plt.savefig(os.path.join(folder, 'figure1',  'example_placecell_M69_20220228_370_fr_heatmap_1.svg'), transparent=True)
 
     ################################################
     # Plot single-trial spatial maps as lineplots
@@ -419,7 +420,7 @@ def plot_example_placecell():
     ax.set_ylabel('Trial no.', fontsize=20, labelpad=-25)
     ax.set_xlabel('Track position [m]', fontsize=20, labelpad=-20)
 
-    plt.savefig(os.path.join(folder, 'example_placecell_M69_20220228_370_dff_lines.svg'), transparent=True)
+    plt.savefig(os.path.join(folder, 'figure1', 'example_placecell_M69_20220228_370_dff_lines.svg'), transparent=True)
 
     ##################
     # Plot raw traces
@@ -459,7 +460,7 @@ def plot_example_placecell():
 
     ax[0].set_xticks((0, 900), (0, int(900 / 30)), fontsize=20, rotation=0)
     ax2.vlines(800, ymin=1, ymax=2, label='1 dFF')
-    plt.savefig(os.path.join(folder, 'example_placecell_M69_20220228_370_raw_dff_lines.svg'), transparent=True)
+    plt.savefig(os.path.join(folder, 'figure1', 'example_placecell_M69_20220228_370_raw_dff_lines.svg'), transparent=True)
 
 
 def plot_performance_neural_correlations():
@@ -595,56 +596,20 @@ def plot_performance_neural_correlations():
 
     # Metrics that correlate well with performance: pc_si, stability (all 3)
     # Export for Prism
-    data.to_csv(os.path.join(folder, 'neur_perf_corr.csv'), sep='\t',
+    data.to_csv(os.path.join(folder, 'figure1', 'neur_perf_corr.csv'), sep='\t',
                 index=False,
                 columns=['mouse_id', 'performance', 'pc_si', 'mean_stab'])
 
 
 #%% Single-cell plots
 
-def filter_matched_data(match_list, keep_nomatch=False):
-    """
-    Filters output from get_matched_data of multiple mice/networks. Stacks cells from many networks into one array,
-    removes cells that did not exist in every session.
-
-    Args:
-        match_list: List of dicts (one dict per query), each key:val pair in the dict being one network.
-        keep_nomatch: Bool flag whether to keep neurons with "no-match", or remove them to only keep neurons that
-                    exist in all sessions
-
-    Returns:
-        A numpy array with shape (n_total_cells, n_sessions) and possible additional dimensions, depending on input.
-    """
-
-    data_array = []
-    mouse_id_list = []
-    for curr_data in match_list:
-        for key, net in curr_data.items():
-            data_array.append(net[0])
-            mouse_id_list.extend([int(key.split('_')[0])] * net[0].shape[0])
-    data_array = np.vstack(data_array)
-    mouse_id_list = np.array(mouse_id_list)
-
-    # Only keep cells that exist in all sessions
-    # Reduce array dimensions in case of more than 2 dimensions
-    if len(data_array.shape) > 2:
-        data_array_flat = np.reshape(data_array, (data_array.shape[0], data_array.shape[1] * data_array.shape[2]))
-    else:
-        data_array_flat = data_array
-
-    if not keep_nomatch:
-        data_array = data_array[~np.isnan(data_array_flat).any(axis=1)]
-        mouse_id_list = mouse_id_list[~np.isnan(data_array_flat).any(axis=1)]
-
-    return data_array, mouse_id_list
-
-
 # Construct query to include only intended matched cells
 queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=33' & 'day<="2020-08-30"'),
            # (common_match.MatchedIndex & 'mouse_id=38' & 'day<="2020-08-24"'),
            # (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41' & 'day<="2020-08-30"'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=108' & 'day<="2022-08-18"'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=110' & 'day<="2022-08-15"'))
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=108' & 'day<"2022-08-18"'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=110' & 'day<"2022-08-15"'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-08-15"'))
 
 spatial_maps = []
 for query in queries:
@@ -679,18 +644,22 @@ for query in queries:
     dffs.append(query.get_matched_data(table=common_img.Segmentation.ROI, attribute='dff',
                                        extra_restriction=dict(corridor_type=0),
                                        return_array=False, relative_dates=True, surgery='Microsphere injection'))
-
+decons = []
+for query in queries:
+    decons.append(query.get_matched_data(table=common_img.Deconvolution.ROI, attribute='decon',
+                                       extra_restriction=dict(corridor_type=0),
+                                       return_array=False, relative_dates=True, surgery='Microsphere injection'))
 
 # %% Compute correlation of each neuron across days
 # map_data = spatial_map['110_1'][0]
 # map_data = spatial_dff_map['110_1'][0]
 
 # Combine data from many mice/networks
-map_data, mouse_idx = filter_matched_data(spatial_maps)
-placecell_data, mouse_idx = filter_matched_data(is_pc)
-placefield_data, mouse_idx = filter_matched_data(pfs, keep_nomatch=True)
-map_dff_data, mouse_idx = filter_matched_data(spatial_dff_maps)
-dff_data, mouse_idx = filter_matched_data(dffs, keep_nomatch=True)
+map_data, mouse_idx = dc.filter_matched_data(spatial_maps)
+placecell_data, mouse_idx = dc.filter_matched_data(is_pc)
+placefield_data, mouse_idx = dc.filter_matched_data(pfs, keep_nomatch=True)
+map_dff_data, mouse_idx = dc.filter_matched_data(spatial_dff_maps)
+dff_data, mouse_idx = dc.filter_matched_data(dffs, keep_nomatch=True)
 
 # Smooth spatial trace
 map_data = gaussian_filter1d(map_data, sigma=1, axis=2)
@@ -777,13 +746,10 @@ ax_kde.spines['right'].set_visible(False)
 ax_kde.spines['top'].set_visible(False)
 
 
-# sns.stripplot(pearson)
-
-
 # %% Plot cells across sessions based on sorting of reference session (where all are place cells)
 def plot_matched_cells_across_sessions(traces: np.ndarray, sort_session: int, place_cells: Optional[np.ndarray] = None,
                                        normalize: bool = True, across_sessions: bool = False,
-                                       smooth: Optional[int] = None):
+                                       smooth: Optional[int] = None, cmap='turbo'):
     """
     Plot traces of matched neurons across sessions. Neurons are sorted by location of max activity in a given session.
     Args:
@@ -833,7 +799,7 @@ def plot_matched_cells_across_sessions(traces: np.ndarray, sort_session: int, pl
 
     fig, axes = plt.subplots(nrows=1, ncols=traces_sort.shape[1], figsize=(15, 7.3))
     for idx, ax in enumerate(axes):
-        sns.heatmap(to_plot[:, idx, :], cmap='jet', ax=ax, cbar=False, vmax=vmax)
+        sns.heatmap(to_plot[:, idx, :], cmap=cmap, ax=ax, cbar=False, vmax=vmax)
 
         # Formatting
         if idx != 0:
@@ -849,13 +815,38 @@ def plot_matched_cells_across_sessions(traces: np.ndarray, sort_session: int, pl
 
 
 # Combine data from many mice/networks
-map_data, mouse_idx = filter_matched_data(spatial_maps)
-placecell_data, mouse_idx = filter_matched_data(is_pc)
-map_dff_data, mouse_idx = filter_matched_data(spatial_dff_maps)
+map_data, mouse_idx = dc.filter_matched_data(spatial_maps)
+placecell_data, mouse_idx = dc.filter_matched_data(is_pc)
+map_dff_data, mouse_idx = dc.filter_matched_data(spatial_dff_maps)
+
 
 # plot_matched_cells_across_sessions(map_data, 2, place_cells=placecell_data, normalize=True)
 plot_matched_cells_across_sessions(traces=map_dff_data, sort_session=4, place_cells=placecell_data, normalize=True,
                                    across_sessions=True, smooth=1)
+
+# Plot highly correlating and low correlating cells separately across days
+pearson_df_consec = pearson_df[pearson_df['consec_days']]
+cell_means = pearson_df_consec.groupby('cell_id')['r'].mean()
+
+# Only use place cells in sorting session
+sort_session = 0
+pc_mask = placecell_data[:, sort_session] == 1
+cell_means = cell_means[pc_mask]
+
+upper_quantile = np.quantile(cell_means, 0.75)
+lower_quantile = np.quantile(cell_means, 0.25)
+plt.figure()
+# bins = sns.histplot(cell_means, bins=30)
+sns.kdeplot(cell_means)
+plt.axvline(upper_quantile)
+plt.axvline(lower_quantile)
+
+plot_matched_cells_across_sessions(traces=map_dff_data[cell_means > upper_quantile], sort_session=sort_session,
+                                   #place_cells=placecell_data[cell_means < lower_quantile],
+                                   normalize=True, across_sessions=True, smooth=1, cmap='turbo')
+plot_matched_cells_across_sessions(traces=map_dff_data[cell_means < lower_quantile], sort_session=sort_session,
+                                   #place_cells=placecell_data[cell_means < lower_quantile],
+                                   normalize=True, across_sessions=True, smooth=1)
 
 
 # %% Place Cell/Place field qualitative analysis
@@ -872,7 +863,8 @@ def place_cell_qualitative():
                # (common_match.MatchedIndex & 'mouse_id=38' & 'day<="2020-08-24"'),
                (common_match.MatchedIndex & 'mouse_id=41' & 'day<="2020-08-24"'),
                (common_match.MatchedIndex & 'mouse_id=108' & 'day<="2022-08-12"'),
-               (common_match.MatchedIndex & 'mouse_id=110' & 'day<="2022-08-09"'))
+               (common_match.MatchedIndex & 'mouse_id=110' & 'day<="2022-08-09"'),
+               (common_match.MatchedIndex & 'mouse_id=121' & 'day<="2022-08-12"'))
 
     is_pc = []
     pfs = []
@@ -901,15 +893,10 @@ def place_cell_qualitative():
                                                     return_array=True, relative_dates=True,
                                                     surgery='Microsphere injection'))
 
-    placecell_data, mouse_idx = filter_matched_data(is_pc, keep_nomatch=True)
-    placefield_data, mouse_idx = filter_matched_data(pfs, keep_nomatch=True)
-    spatial_data, mouse_idx = filter_matched_data(spatial_maps, keep_nomatch=True)
-    spatial_dff_data, mouse_idx = filter_matched_data(spat_dff_maps, keep_nomatch=True)
-
-    # Get matrix with mask IDs
-    match_matrices = []
-    for query in queries:
-        match_matrices.append(query.construct_matrix())
+    placecell_data, mouse_idx = dc.filter_matched_data(is_pc, keep_nomatch=True)
+    placefield_data, mouse_idx = dc.filter_matched_data(pfs, keep_nomatch=True)
+    spatial_data, mouse_idx = dc.filter_matched_data(spatial_maps, keep_nomatch=True)
+    spatial_dff_data, mouse_idx = dc.filter_matched_data(spat_dff_maps, keep_nomatch=True)
 
     # For all place cells on a specific day, how many are also place cells on other days?
     pc_d5 = placecell_data[placecell_data[:, 4] == 1]
@@ -957,59 +944,29 @@ def place_cell_qualitative():
                                           extra_restriction=dict(corridor_type=0, place_cell_id=2),
                                           return_array=False, relative_dates=True, surgery='Microsphere injection'))
 
-    placefield_data, mouse_idx = filter_matched_data(pfs, keep_nomatch=True)
+    placefield_data, mouse_idx = dc.filter_matched_data(pfs, keep_nomatch=True)
 
     pf_data = []
 
-    def place_field_com(spatial_map_data, pf_indices) -> Tuple[float, float]:
-        """
-        Compute center of mass for place fields of a single cell.
-
-        Args:
-            spatial_map_data: 1D array, spatial activity map of one cell
-            pf_indices: Array holding indices of one place field
-
-        Returns:
-            Center-of-mass of the current place field based on the whole spatial map, and its standard deviation
-        """
-
-        spat_map = spatial_map_data[pf_indices]
-
-        # Normalize
-        map_norm = (spat_map - np.min(spat_map)) / (np.max(spat_map) - np.min(spat_map))
-        # Convert to Probability Mass Function / Probability distribution
-        map_pmf = map_norm / np.sum(map_norm)
-        # Calculate moment (center of mass)
-        com = float(np.sum(np.arange(len(map_pmf)) * map_pmf))
-
-        # Calculate standard deviation
-        com_std = []
-        for t in np.arange(len(map_pmf)):
-            com_std.append((t ** 2 * map_pmf[t]) - com ** 2)
-        com_std = float(np.sqrt(np.sum(np.arange(len(map_pmf)) ** 2 * map_pmf) - com ** 2))
-
-        # plt.plot(spat_map)
-        # plt.axvline(com, color='r')
-        # plt.axvspan(com - com_std / 2, com + com_std / 2, color='r', alpha=0.3)
-
-        # Correct the center of mass to return map-wide indices before returning
-        return com + pf_indices[0], com_std
-
     # Go through every session
     dfs = []
-    for i in range(placecell_data.shape[1] - 1):
 
-        # Idx of PCs in session i that are also PCs in session i+1
-        stable_pc_idx = np.where(np.nansum(placecell_data[:, i:i + 2], axis=1) == 2)[0]
+    # for i in range(placecell_data.shape[1] - 1):      # This checks PCs on the next day (forward)
+    #     i_next = i+1
+    for i in range(1, placecell_data.shape[1]):         # This checks PCs on the previous day (backward)
+        i_next = i-1
+
+        # Idx of PCs in session i that are also PCs in the other session
+        stable_pc_idx = np.where(np.nansum(placecell_data[:, [i, i_next]], axis=1) == 2)[0]
         pfs_1 = placefield_data[stable_pc_idx, i]
-        pfs_2 = placefield_data[stable_pc_idx, i + 1]
+        pfs_2 = placefield_data[stable_pc_idx, i_next]
 
         # For each stable place cell, compare place fields
         for cell_idx, pf_1, pf_2 in zip(stable_pc_idx, pfs_1, pfs_2):
 
             # Get center of mass for current place fields in both sessions
-            pf_com_1 = [place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i], pf_indices=pf) for pf in pf_1]
-            pf_com_2 = [place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i + 1], pf_indices=pf) for pf in
+            pf_com_1 = [dc.place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i], pf_indices=pf) for pf in pf_1]
+            pf_com_2 = [dc.place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i_next], pf_indices=pf) for pf in
                         pf_2]
 
             # For each place field in day i, check if there is a place field on day 2 that overlaps with its CoM
@@ -1039,15 +996,34 @@ def place_cell_qualitative():
             # Get difference in place field numbers to quantify how many cells change number of place fields
             pf_num_change = len(pf_com_2) - len(pf_com_1)
 
-            dfs.append(pd.DataFrame([dict(mouse_id=mouse_idx[cell_idx], cell_idx=cell_idx, day=i, stable=pc_is_stable,
-                                          dist=dist, num_pf_1=len(pf_com_1), num_pf_2=len(pf_com_2),
-                                          pf_num_change=pf_num_change)]))
+            dfs.append(pd.DataFrame([dict(mouse_id=mouse_idx[cell_idx], cell_idx=cell_idx, day=i, day_next=i_next,
+                                          stable=pc_is_stable, dist=dist, num_pf_1=len(pf_com_1),
+                                          num_pf_2=len(pf_com_2), pf_num_change=pf_num_change)]))
 
     stability_df = pd.concat(dfs)
 
+    ### Create array with stable/remapping PCs
+    stable_pcs = stability_df.pivot(index='cell_idx', columns='day', values='stable')
+
+    # Plot activity of single cell across days vertically
+    """
+    Examples:
+    230: remaps once, then stable
+    284: stable, but remapped to different RZ
+    343: relatively silent, completely remaps to different location
+    506: stable place cell for 1st and 3rd RZ
+    561: quite stable, bit messy
+    """
+    cell_idx = 230
+    plt.figure()
+    sns.heatmap(gaussian_filter1d(spatial_dff_data[cell_idx], axis=1, sigma=1), cbar=False, cmap='turbo')
+
+    # zone_borders = (hheise_behav.CorridorPattern & 'pattern="training"').rescale_borders(n_bins=80)
+    # for zone in zone_borders:
+    #     plt.axvspan(zone[0], zone[1], facecolor='green', alpha=0.4)
+    plt.title(cell_idx)
 
 # %% Plot examples for stable/remapping place cells
-
 
 # Example of prolonged place field (artificial)
 x = np.arange(80)
@@ -1074,7 +1050,7 @@ y = np.array([5.22377379e-02, 2.26253215e-02, 2.04782374e-02, 1.96897145e-02,
 plt.figure(figsize=(12, 7))
 plt.plot(x, y)
 plt.axvspan(28, 51, color='red', alpha=0.2)
-plt.axvline(place_field_com(spatial_map_data=y, pf_indices=np.arange(28, 51))[0], color='red')
+plt.axvline(dc.place_field_com(spatial_map_data=y, pf_indices=np.arange(28, 51))[0], color='red')
 
 
 # Stable, single PF
@@ -1124,12 +1100,12 @@ fig, ax = plt.subplots(2, 1, sharey='all', figsize=(12, 7))
 ax[0].plot(spatial_dff_data[cell_id, days[0]])
 for pf in placefield_data[cell_id, days[0]]:
     ax[0].axvspan(pf[0], pf[-1], color='red', alpha=0.2)
-    ax[0].axvline(place_field_com(spatial_map_data=spatial_dff_data[cell_id, days[0]], pf_indices=pf)[0], color='red')
+    ax[0].axvline(dc.place_field_com(spatial_map_data=spatial_dff_data[cell_id, days[0]], pf_indices=pf)[0], color='red')
 
 ax[1].plot(spatial_dff_data[cell_id, days[1]])
 for pf in placefield_data[cell_id, days[1]]:
     ax[1].axvspan(pf[0], pf[-1], color='red', alpha=0.2)
-    ax[1].axvline(place_field_com(spatial_map_data=spatial_dff_data[cell_id, days[1]], pf_indices=pf)[0], color='red')
+    ax[1].axvline(dc.place_field_com(spatial_map_data=spatial_dff_data[cell_id, days[1]], pf_indices=pf)[0], color='red')
 
 ax[0].set_xticks([])
 ax[0].spines['top'].set_visible(False)
@@ -1164,10 +1140,61 @@ pc_ratios = {np.unique(query.fetch('mouse_id'))[0]: query.fetch('place_cell_rati
 place_cells = len(hheise_placecell.PlaceCell.ROI & pks & 'is_place_cell=1')
 non_place_cells = len(common_img.Segmentation.ROI & pks & 'accepted=1') - place_cells
 
-#%% Preliminary post-stroke analysis of deficit mice (M41 and M121)
+#%% Figure 2
+
+# Microsphere behavior plot
+norm_performance = (hheise_behav.VRPerformance & f'mouse_id in {helper.in_query(mouse_ids)}').get_normalized_performance(baseline_days=3, plotting=False)
+prism_performance = norm_performance.pivot(index='day', columns='mouse_id', values='performance')
+prism_performance.to_csv(os.path.join(folder, 'figure2', 'microsphere_behavior_groups.csv'))
+
+# Sphere/lesion count vs performance group
+spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="spheres"' & f'mouse_id in {helper.in_query(mouse_ids)}').fetch('mouse_id', 'count_extrap', as_dict=True))
+spheres = spheres.rename(columns=dict(count_extrap='spheres'))
+lesions = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="auto"' & f'mouse_id in {helper.in_query(mouse_ids)}').fetch('mouse_id', 'count_extrap', as_dict=True))
+lesions = lesions.rename(columns=dict(count_extrap='lesion'))
+histo = pd.merge(spheres, lesions, on='mouse_id', how='outer').merge(grouping_2).sort_values(by='group')
+histo.to_csv(os.path.join(folder, 'figure2', 'histo_summary.csv'))
+
+# Running speed across time
+data = []
+for mouse in mouse_ids:
+    day = (hheise_behav.VRPerformance & f'mouse_id = {mouse}').fetch('day')
+    speed = (hheise_behav.VRPerformance & f'mouse_id = {mouse}').get_mean('mean_speed')
+    running_speed = (hheise_behav.VRPerformance & f'mouse_id = {mouse}').get_mean('mean_running_speed')
+    trial_duration = (hheise_behav.VRPerformance & f'mouse_id = {mouse}').get_mean('trial_duration')
+
+    surg_day = (common_mice.Surgery & 'surgery_type="Microsphere injection"' &
+                f'mouse_id = {mouse}').fetch1('surgery_date').date()
+    day_diff = day-surg_day
+    rel_day = [d.days for d in day_diff]
+
+    data.append(pd.DataFrame(dict(mouse_id=mouse, date=day, rel_day=rel_day, speed=speed, running_speed=running_speed,
+                                  trial_duration=trial_duration)))
+data = pd.concat(data, ignore_index=True)
+data = data.merge(grouping_2)
+
+# fig, ax = plt.subplots(3, 1)
+# sns.lineplot(data=data, x='rel_day', y='speed', hue='mouse_id', ax=ax[0])
+# sns.lineplot(data=data, x='rel_day', y='running_speed', hue='mouse_id', ax=ax[1])
+# sns.lineplot(data=data, x='rel_day', y='trial_duration', hue='mouse_id', ax=ax[2])
+#
+fig, ax = plt.subplots(3, 1)
+sns.lineplot(data=data, x='rel_day', y='speed', hue='group', ax=ax[0])
+sns.lineplot(data=data, x='rel_day', y='running_speed', hue='group', ax=ax[1])
+sns.lineplot(data=data, x='rel_day', y='trial_duration', hue='group', ax=ax[2])
+
+sns.lineplot(data=data, x='rel_day', y='speed', hue='group')
+sns.lineplot(data=data, x='rel_day', y='running_speed', hue='group')
+
+data_exp = data.pivot(index='rel_day', columns='mouse_id', values='running_speed')
+data_exp.to_csv(os.path.join(folder, 'figure2', 'running_speed.csv'))
+
+#%% Figure 3
+# Preliminary post-stroke analysis of deficit mice (M41 and M121)
 
 # Queries including post-stroke period
 queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69'),
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121'))
 
 is_pc = []
@@ -1197,24 +1224,353 @@ for query in queries:
                                                 return_array=True, relative_dates=True,
                                                 surgery='Microsphere injection'))
 
-# Remove d1 from M41 and change relative days to merge dataframes
-spatial_maps[0]['41_1'][0] = np.delete(spatial_maps[0]['41_1'][0], 5, 1)
-spatial_maps[0]['41_1'][1] = spatial_maps[1]['121_1'][1]
-is_pc[0]['41_1'][0] = np.delete(is_pc[0]['41_1'][0], 5, 1)
-is_pc[0]['41_1'][1] = is_pc[1]['121_1'][1]
-pfs[0]['41_1'][0] = pfs[0]['41_1'][0].drop(columns='2020-08-26_1_1_0')
-pfs[0]['41_1'][1] = pfs[1]['121_1'][1]
-spat_dff_maps[0]['41_1'][0] = np.delete(spat_dff_maps[0]['41_1'][0], 5, 1)
-spat_dff_maps[0]['41_1'][1] = spat_dff_maps[1]['121_1'][1]
 
-placecell_data, mouse_idx = filter_matched_data(is_pc, keep_nomatch=True)
-placefield_data, mouse_idx = filter_matched_data(pfs, keep_nomatch=True)
-spatial_data, mouse_idx = filter_matched_data(spatial_maps, keep_nomatch=True)
-spatial_dff_data, mouse_idx = filter_matched_data(spat_dff_maps, keep_nomatch=True)
+def spatial_map_correlations_single_cells(spatial_maps=list):
+    """
+    Correlate spatial maps across sessions of multiple numpy arrays. This function does not require the matching
+    and merging of arrays and is more flexible with variable acquisition days.
+
+    Args:
+        spatial_maps: Data list, output from get_matched_data().
+
+    Returns:
+        A Dataframe with all the cross-session correlations.
+    """
+
+    DAY_DIFF = 3    # The day difference between sessions to be compared (usually 3)
+
+    df_list = []
+    for animal in spatial_maps:
+        for net_id, data in animal.items():
+            days = np.array(data[1])
+            arr = data[0]
+
+            curr_df = pd.DataFrame({'net_id': [net_id]*len(arr)})
+
+            # Loop through days and compute correlation between sessions that are 3 days apart
+            for day_idx, day in enumerate(days):
+                next_day_idx = np.where(days == day+DAY_DIFF)[0]
+
+                # If a session 3 days later exists, compute the correlation of all cells between these sessions
+                # Do not analyze session 1 day after stroke (unreliable data)
+                if day+DAY_DIFF != 1 and len(next_day_idx) == 1:
+                    curr_corr = [np.corrcoef(arr[cell_id, day_idx], arr[cell_id, next_day_idx[0]])[0, 1]
+                                 for cell_id in range(len(arr))]
+
+                    curr_df[days[next_day_idx[0]]] = curr_corr
+            df_list.append(curr_df)
+
+    final_df = pd.concat(df_list, ignore_index=True)
+
+    # Sort columns numerically. The column names show the 2nd day of correlation, e.g. the column 0 shows the correlation
+    # of activity on day 0 (the day of the surgery) with day -3 (3 days before surgery)
+    net_ids = final_df.pop('net_id')
+    sorted_days = np.sort(final_df.columns.astype(int))
+    final_df = final_df[sorted_days]
+    final_df['net_id'] = net_ids
+
+    ### ANALYSIS ###
+    # Get average cross-correlation of of pre, early post and late post sessions
+
+    # Prestroke sessions (the index has to be the column names, not a boolean mask)
+    pre_avg = np.tanh(np.nanmean(np.arctanh(final_df[sorted_days[sorted_days <= 0]]), axis=1))
+
+    # Pre-Post
+    pre_post_avg = np.tanh(np.nanmean(np.arctanh(final_df[sorted_days[(0 < sorted_days) & (sorted_days <= DAY_DIFF)]]),
+                                      axis=1))
+
+    # Early Post
+    early_post_avg = np.tanh(np.nanmean(np.arctanh(final_df[sorted_days[(0 < sorted_days) & (sorted_days <= 9)]]),
+                                        axis=1))
+
+    # Late Post
+    late_post_avg = np.tanh(np.nanmean(np.arctanh(final_df[sorted_days[(9 < sorted_days)]]), axis=1))
+
+    # All Post
+    all_post_avg = np.tanh(np.nanmean(np.arctanh(final_df[sorted_days[(0 < sorted_days)]]), axis=1))
+
+    # Construct DataFrame
+    avg_df = pd.DataFrame({'pre': pre_avg, 'pre_post': pre_post_avg, 'early_post': early_post_avg,
+                           'late_post': late_post_avg, 'all_post': all_post_avg})
+
+    avg_df_rel = avg_df.div(avg_df['pre'], axis=0)
+    avg_df_dif = avg_df.sub(avg_df['pre'], axis=0)
+
+    # Drop cells that are not in every period
+    avg_df_clean = avg_df.dropna(axis=0)
+    avg_df_clean.to_csv(os.path.join(folder, r'single_cell_corr.csv'))
+
+    # Sort cells by pre-stroke correlation
+    avg_df_clean_sort = avg_df_clean.sort_values(by='pre', ascending=False)
+
+    avg_df_dif.to_csv(os.path.join(folder, r'single_cell_corr_dif.csv'))
 
 
-# Compute spatial map correlations
+def place_cell_stability_fractions_score(is_pc):
+    """ Code for the raw output from get_matched_data(). """
+
+    # Remapping fractions pre vs post stroke (same as in fig 1)
+    dfs = []
+    population = []
+
+    BACKWARDS = False    # If true, a place cell's stability is measured by its activity 3 days before the current day instead of 3 days after
+    DAY_DIFF = 3        # The day difference between sessions to be compared (usually 3)
+
+    for idx, animal in enumerate(is_pc):
+        for net_id, data in animal.items():
+
+            days = np.array(data[1])
+            arr = data[0]
+
+            # Loop through days and compute correlation between sessions that are 3 days apart
+            for day_idx, day in enumerate(days):
+                next_day_idx = np.where(days == day + DAY_DIFF)[0]
+
+                # If a session 3 days later exists, compute the correlation of all cells between these sessions
+                # Do not analyze session 1 day after stroke (unreliable data)
+                if day + DAY_DIFF != 1 and len(next_day_idx) == 1:
+
+                    if BACKWARDS:
+                        i = next_day_idx[0]
+                        i_next = day_idx
+                    else:
+                        i_next = next_day_idx[0]
+                        i = day_idx
+
+                    n_pcs = np.nansum(arr[:, i])
+                    remaining_pc_idx = np.where(np.nansum(arr[:, [i, i_next]], axis=1) == 2)[0]
+                    n_remaining_pcs = len(remaining_pc_idx)
+                    # Get Place Fields of the same mouse/network/cells. Convert to array for indexing, then to list for accessibility
+                    pfs_1 = list(np.array(pfs[idx][net_id][0])[remaining_pc_idx, i])
+                    pfs_2 = list(np.array(pfs[idx][net_id][0])[remaining_pc_idx, i_next])
+
+                    # For each stable place cell, compare place fields
+                    for cell_idx, pf_1, pf_2 in zip(remaining_pc_idx, pfs_1, pfs_2):
+
+                        # Get center of mass for current place fields in both sessions
+                        pf_com_1 = [dc.place_field_com(spatial_map_data=spat_dff_maps[idx][net_id][0][cell_idx, i],
+                                                       pf_indices=pf) for pf in pf_1]
+                        pf_com_2 = [dc.place_field_com(spatial_map_data=spat_dff_maps[idx][net_id][0][cell_idx, i_next],
+                                                       pf_indices=pf) for pf in pf_2]
+
+                        # For each place field in day i, check if there is a place field on day 2 that overlaps with its CoM
+                        pc_is_stable = np.nan
+                        dist = np.nan
+                        if len(pf_com_1) == len(pf_com_2):
+                            # If cell has one PF on both days, check if the day-1 CoM is located inside day-2 PF -> stable
+                            if len(pf_com_1) == 1:
+                                if pf_2[0][0] < pf_com_1[0][0] < pf_2[0][-1]:
+                                    pc_is_stable = True
+                                else:
+                                    pc_is_stable = False
+
+                                # Compute distance for now only between singular PFs (positive distance means shift towards end)
+                                dist = pf_com_2[0][0] - pf_com_1[0][0]
+
+                            # If the cell has more than 1 PF on both days, check if all PFs overlap -> stable
+                            else:
+                                same_pfs = [True if pf2[0] < pf_com1[0] < pf2[-1] else False for pf_com1, pf2 in
+                                            zip(pf_com_1, pf_2)]
+                                pc_is_stable = all(same_pfs)  # This sets pc_is_stable to True if all PFs match, otherwise its False
+
+                        # If cell has different number of place fields on both days, for now consider as unstable
+                        else:
+                            pc_is_stable = False
+
+                        # Get difference in place field numbers to quantify how many cells change number of place fields
+                        pf_num_change = len(pf_com_2) - len(pf_com_1)
+
+                        dfs.append(pd.DataFrame([dict(net_id=net_id, cell_idx=cell_idx,
+                                                      day=days[i], other_day=days[i_next],
+                                                      stable=pc_is_stable, dist=dist, num_pf_1=len(pf_com_1),
+                                                      num_pf_2=len(pf_com_2), pf_num_change=pf_num_change)]))
+
+                    population.append(
+                        pd.DataFrame([dict(net_id=net_id, day=days[i], other_day=days[i_next],
+                                           n_pc=n_pcs, n_remaining=n_remaining_pcs,
+                                           frac=n_remaining_pcs / n_pcs)]))
+
+    population_df = pd.concat(population)
+    stability_df = pd.concat(dfs)
+
+    # Summarize stability by days
+    stab_summ = []
+    for day in np.sort(stability_df['day'].unique()):
+        curr_day = stability_df[stability_df['day'] == day]
+
+        stab_summ.append(pd.DataFrame([dict(day=day, n_cells=len(curr_day), n_stable=curr_day['stable'].sum(),
+                                            frac_stable=curr_day['stable'].sum() / len(curr_day))]))
+    stab_summ = pd.concat(stab_summ)
+
+    # Additionally, compute remainder and stability scores per cell (how often a cell is a (stable) PC in pre vs post)
+    rem_scores = []
+    for idx, animal in enumerate(is_pc):
+        for net_id, data in animal.items():
+
+            days = np.array(data[1])
+            arr = data[0]
+
+            remain_score = np.zeros((len(arr), 2)) * np.nan
+            pre_mask = days <= 0
+            for cell in range(len(arr)):
+                if np.sum(~np.isnan(arr[cell, pre_mask])) > 2 and np.sum(~np.isnan(arr[cell, ~pre_mask])) > 3:
+                    pre_score = np.nansum(arr[cell, pre_mask]) / np.nansum(~np.isnan(arr[cell, pre_mask]))
+                    post_score = np.nansum(arr[cell, ~pre_mask]) / np.nansum(~np.isnan(arr[cell, ~pre_mask]))
+
+                    remain_score[cell, 0] = pre_score
+                    remain_score[cell, 1] = post_score
+
+            rem_scores.append(remain_score)
+    rem_score = np.vstack(rem_scores)
+
+    # Reorganize stability_df to get cells in rows and days in columns (done together for all networks from stability_df)
+    unique_days = np.sort(stability_df['day'].unique())
+    if BACKWARDS:
+        pre_stab_mask = unique_days <= 0
+    else:
+        pre_stab_mask = unique_days < 0
+
+    df = pd.DataFrame(columns=unique_days)
+    for idx, row in stability_df.iterrows():
+        df.loc[row['cell_idx'], row['day']] = row['stable']
+    stable_pc = np.asarray(df, dtype=float)
+
+    stab_score = np.zeros((len(stable_pc), 2)) * np.nan
+    for cell in range(len(stable_pc)):
+        if np.sum(~np.isnan(stable_pc[cell, pre_stab_mask])) > 0 and np.sum(~np.isnan(stable_pc[cell, ~pre_stab_mask])) > 0:
+            pre_score = np.nansum(stable_pc[cell, pre_stab_mask]) / np.nansum(~np.isnan(stable_pc[cell, pre_stab_mask]))
+            post_score = np.nansum(stable_pc[cell, ~pre_stab_mask]) / np.nansum(~np.isnan(stable_pc[cell, ~pre_stab_mask]))
+
+            stab_score[cell, 0] = pre_score
+            stab_score[cell, 1] = post_score
+
+    np.savetxt(os.path.join(folder, r'single_cell_remain_score.csv'), rem_score)
+    np.savetxt(os.path.join(folder, r'single_cell_stab_score.csv'), stab_score)
+
+
+def place_cell_stability_score(stability_df):
+    """ Code for cleaned filtered DataFrame. """
+    # Give each tracked place cell from the first poststroke session stability scores: how often is the cell a PC before
+    # and after stroke?
+
+    first_post_mask = placecell_data[:, 5] == 1
+    first_post_pc = placecell_data[first_post_mask]
+
+    remain_score = np.zeros((len(first_post_pc), 2)) * np.nan
+    for cell in range(len(first_post_pc)):
+
+        # Only use cells that have more than 2 prestroke or poststroke sessions tracked
+        if np.sum(~np.isnan(first_post_pc[cell, :5])) > 2 and np.sum(~np.isnan(first_post_pc[cell, 6:])) > 2:
+            pre_score = np.nansum(first_post_pc[cell, :5]) / np.nansum(~np.isnan(first_post_pc[cell, :5]))
+            post_score = np.nansum(first_post_pc[cell, 6:]) / np.nansum(~np.isnan(first_post_pc[cell, 6:]))
+
+            remain_score[cell, 0] = pre_score
+            remain_score[cell, 1] = post_score
+
+    # Reorganize stability_df to get cells in rows and days in columns
+    df = pd.DataFrame(index=np.arange(len(placefield_data))[first_post_mask], columns=stability_df['day'].unique())
+    for idx, row in stability_df.iterrows():
+        df.loc[row['cell_idx'], row['day']] = row['stable']
+    stable_pc = np.asarray(df, dtype=float)
+
+    # Calculate average stability across prestroke and poststroke session pairs (excluding pre vs post)
+    pre_score = np.nanmean(stable_pc[:, :2], axis=1)
+    post_score = np.nanmean(stable_pc[:, 3:], axis=1)
+    stab_score = np.stack([pre_score, post_score])
+
+
+
+
+### Legacy functions that work only with filtered, date-matched DataFrames
+def place_cell_population_stability():
+    """ Code for a single, filtered dataframe. """
+    # Remapping pre vs post stroke (same as in fig 1)
+    dfs = []
+    population = []
+
+    # # Use this to examine the next session (forward)
+    # for i in range(placecell_data.shape[1] - 1):
+    #
+    #     if i < 2:               # in prestroke, compare in 3-day intervals
+    #         i_next = i + 3
+    #     elif i in [2, 3]:       # only compare last prestroke session with first poststroke session
+    #         continue
+    #     else:
+    #         i_next = i+1
+
+    # Use this to examine the previous session (backwards)
+    for i in range(3, placecell_data.shape[1]):
+
+        if i < 5:  # in prestroke, compare in 3-day intervals
+            i_next = i - 3
+        else:
+            i_next = i - 1
+
+        # Idx of PCs in session i that are also PCs in session i+1
+        n_pcs = np.nansum(placecell_data[:, i])
+        stable_pc_idx = np.where(np.nansum(placecell_data[:, [i, i_next]], axis=1) == 2)[0]
+        n_stable_pcs = len(stable_pc_idx)
+        pfs_1 = placefield_data[stable_pc_idx, i]
+        pfs_2 = placefield_data[stable_pc_idx, i_next]
+
+        # For each stable place cell, compare place fields
+        for cell_idx, pf_1, pf_2 in zip(stable_pc_idx, pfs_1, pfs_2):
+
+            # Get center of mass for current place fields in both sessions
+            pf_com_1 = [dc.place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i], pf_indices=pf) for pf in pf_1]
+            pf_com_2 = [dc.place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i_next], pf_indices=pf) for pf in
+                        pf_2]
+
+            # For each place field in day i, check if there is a place field on day 2 that overlaps with its CoM
+            pc_is_stable = np.nan
+            dist = np.nan
+            if len(pf_com_1) == len(pf_com_2):
+                # If cell has one PF on both days, check if the day-1 CoM is located inside day-2 PF -> stable
+                if len(pf_com_1) == 1:
+                    if pf_2[0][0] < pf_com_1[0][0] < pf_2[0][-1]:
+                        pc_is_stable = True
+                    else:
+                        pc_is_stable = False
+
+                    # Compute distance for now only between singular PFs (positive distance means shift towards end)
+                    dist = pf_com_2[0][0] - pf_com_1[0][0]
+
+                # If the cell has more than 1 PF on both days, check if all PFs overlap -> stable
+                else:
+                    same_pfs = [True if pf2[0] < pf_com1[0] < pf2[-1] else False for pf_com1, pf2 in
+                                zip(pf_com_1, pf_2)]
+                    pc_is_stable = all(same_pfs)  # This sets pc_is_stable to True if all PFs match, otherwise its False
+
+            # If cell has different number of place fields on both days, for now consider as unstable
+            else:
+                pc_is_stable = False
+
+            # Get difference in place field numbers to quantify how many cells change number of place fields
+            pf_num_change = len(pf_com_2) - len(pf_com_1)
+
+            dfs.append(pd.DataFrame([dict(mouse_id=mouse_idx[cell_idx], cell_idx=cell_idx, day=is_pc[1]['121_1'][1][i], next_day=is_pc[1]['121_1'][1][i_next],
+                                          stable=pc_is_stable, dist=dist, num_pf_1=len(pf_com_1), num_pf_2=len(pf_com_2),
+                                          pf_num_change=pf_num_change)]))
+
+        population.append(pd.DataFrame([dict(day=is_pc[1]['121_1'][1][i], next_day=is_pc[1]['121_1'][1][i_next], n_pc=n_pcs, n_remaining=n_stable_pcs,
+                                             frac=n_stable_pcs/n_pcs)]))
+
+    population_df = pd.concat(population)
+    stability_df = pd.concat(dfs)
+
+    # Summarize stability by days
+    stab_summ = []
+    for day in stability_df['day'].unique():
+        curr_day = stability_df[stability_df['day'] == day]
+
+        stab_summ.append(pd.DataFrame([dict(day=day, n_cells=len(curr_day), n_stable=curr_day['stable'].sum(),
+                                            frac_stable=curr_day['stable'].sum()/len(curr_day))]))
+    stab_summ = pd.concat(stab_summ)
+
+
+# Compute spatial map correlations, legacy code for easy filtered dataframe
 def spatial_map_correlations():
+    """ Correlate spatial maps across sessions of a single DataFrame. """
     pearson_df = []
     for cell_id in range(map_data.shape[0]):
 
@@ -1248,69 +1604,32 @@ def spatial_map_correlations():
     dif = pearson_df_clean.iloc[:, 11:].T.to_csv(os.path.join(folder, r'single_cell_corr_dif.csv'))
 
 
-def place_cell_stability():
+def place_cell_single_stability(stability_df):
+    """ Code for cleaned filtered DataFrame. """
+    # Give each tracked place cell from the first poststroke session stability scores: how often is the cell a PC before
+    # and after stroke?
 
-    # Remapping pre vs post stroke (same as in fig 1)
-    dfs = []
-    population = []
-    for i in range(placecell_data.shape[1] - 1):
+    first_post_mask = placecell_data[:, 5] == 1
+    first_post_pc = placecell_data[first_post_mask]
 
-        if i < 2:               # in prestroke, compare in 3-day intervals
-            i_next = i + 3
-        elif i in [2, 3]:       # only compare last prestroke session with first poststroke session
-            continue
-        else:
-            i_next = i+1
+    remain_score = np.zeros((len(first_post_pc), 2)) * np.nan
+    for cell in range(len(first_post_pc)):
 
-        # Idx of PCs in session i that are also PCs in session i+1
-        n_pcs = np.nansum(placecell_data[:, i])
-        stable_pc_idx = np.where(np.nansum(placecell_data[:, [i, i_next]], axis=1) == 2)[0]
-        n_stable_pcs = len(stable_pc_idx)
-        pfs_1 = placefield_data[stable_pc_idx, i]
-        pfs_2 = placefield_data[stable_pc_idx, i_next]
+        # Only use cells that have more than 2 prestroke or poststroke sessions tracked
+        if np.sum(~np.isnan(first_post_pc[cell, :5])) > 2 and np.sum(~np.isnan(first_post_pc[cell, 6:])) > 2:
+            pre_score = np.nansum(first_post_pc[cell, :5]) / np.nansum(~np.isnan(first_post_pc[cell, :5]))
+            post_score = np.nansum(first_post_pc[cell, 6:]) / np.nansum(~np.isnan(first_post_pc[cell, 6:]))
 
-        # For each stable place cell, compare place fields
-        for cell_idx, pf_1, pf_2 in zip(stable_pc_idx, pfs_1, pfs_2):
+            remain_score[cell, 0] = pre_score
+            remain_score[cell, 1] = post_score
 
-            # Get center of mass for current place fields in both sessions
-            pf_com_1 = [place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i], pf_indices=pf) for pf in pf_1]
-            pf_com_2 = [place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i_next], pf_indices=pf) for pf in
-                        pf_2]
+    # Reorganize stability_df to get cells in rows and days in columns
+    df = pd.DataFrame(index=np.arange(len(placefield_data))[first_post_mask], columns=stability_df['day'].unique())
+    for idx, row in stability_df.iterrows():
+        df.loc[row['cell_idx'], row['day']] = row['stable']
+    stable_pc = np.asarray(df, dtype=float)
 
-            # For each place field in day i, check if there is a place field on day 2 that overlaps with its CoM
-            pc_is_stable = np.nan
-            dist = np.nan
-            if len(pf_com_1) == len(pf_com_2):
-                # If cell has one PF on both days, check if the day-1 CoM is located inside day-2 PF -> stable
-                if len(pf_com_1) == 1:
-                    if pf_2[0][0] < pf_com_1[0][0] < pf_2[0][-1]:
-                        pc_is_stable = True
-                    else:
-                        pc_is_stable = False
-
-                    # Compute distance for now only between singular PFs (positive distance means shift towards end)
-                    dist = pf_com_2[0][0] - pf_com_1[0][0]
-
-                # If the cell has more than 1 PF on both days, check if all PFs overlap -> stable
-                else:
-                    same_pfs = [True if pf2[0] < pf_com1[0] < pf2[-1] else False for pf_com1, pf2 in
-                                zip(pf_com_1, pf_2)]
-                    pc_is_stable = all(same_pfs)  # This sets pc_is_stable to True if all PFs match, otherwise its False
-
-            # If cell has different number of place fields on both days, for now consider as unstable
-            else:
-                pc_is_stable = False
-
-            # Get difference in place field numbers to quantify how many cells change number of place fields
-            pf_num_change = len(pf_com_2) - len(pf_com_1)
-
-            dfs.append(pd.DataFrame([dict(mouse_id=mouse_idx[cell_idx], cell_idx=cell_idx, day=i, next_day=i_next,
-                                          stable=pc_is_stable, dist=dist, num_pf_1=len(pf_com_1), num_pf_2=len(pf_com_2),
-                                          pf_num_change=pf_num_change)]))
-
-        population.append(pd.DataFrame([dict(day=i, next_day=i_next, n_pc=n_pcs, n_stable=n_stable_pcs,
-                                             frac=n_stable_pcs/n_pcs)]))
-
-    population_df = pd.concat(population)
-    stability_df = pd.concat(dfs)
-
+    # Calculate average stability across prestroke and poststroke session pairs (excluding pre vs post)
+    pre_score = np.nanmean(stable_pc[:, :2], axis=1)
+    post_score = np.nanmean(stable_pc[:, 3:], axis=1)
+    stab_score = np.stack([pre_score, post_score])
