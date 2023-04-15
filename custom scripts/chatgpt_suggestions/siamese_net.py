@@ -17,6 +17,7 @@ of cells is considered as a match based on the predicted similarity score.
 """
 
 import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
@@ -35,12 +36,12 @@ n_features = 5
 
 # Assume you have extracted features for each cell in two images, stored in numpy arrays
 # features_img1 and features_img2, where each row represents the features for a single cell
-features_img1 = np.zeros((n_cells, n_features))
-features_img2 = np.zeros((n_cells, n_features))
+features_img1 = pd.read_csv('.\\custom scripts\\chatgpt_suggestions\\reference_cell_features.csv')
+features_img2 = pd.read_csv('.\\custom scripts\\chatgpt_suggestions\\target_cell_features.csv')
 
 # Assume you have a ground-truth dataset of manually confirmed matched cells for training, stored in a numpy array
 # ground_truth, where each row represents a pair of matched cells as (img1_idx, img2_idx) indices
-ground_truth = np.zeros((n_cells, 2))
+ground_truth = pd.read_csv('.\\custom scripts\\chatgpt_suggestions\\ground_truth.csv')
 
 """
 Our ground truth consists of manually confirmed matches. However, the SNN outputs similarity scores from 0 to 1.
