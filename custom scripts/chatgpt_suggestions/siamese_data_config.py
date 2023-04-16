@@ -5,6 +5,7 @@ Created on 15/04/2023 15:01
 @author: hheise
 
 Functions to prepare data for the siamese network.
+Matching with global ID validated, returns correct matched cells!
 
 """
 
@@ -13,8 +14,13 @@ import matplotlib.pyplot as plt
 from skimage import registration
 from scipy import ndimage
 import pandas as pd
+import seaborn as sns
 
 from schema import common_match, common_img
+
+
+FEATURES = ['rois_nearby', 'closest_roi_angle', 'com_x', 'com_y', 'quad_ul', 'quad_ur', 'quad_ll', 'quad_lr']
+
 
 #%% FOV shifts with only 2x2 patches (more biologically plausible, less sensitive to noise)
 
@@ -205,6 +211,11 @@ ref_total.to_csv('.\\custom scripts\\chatgpt_suggestions\\reference_cell_feature
 tar_total.to_csv('.\\custom scripts\\chatgpt_suggestions\\target_cell_features.csv')
 ground_truth_total.to_csv('.\\custom scripts\\chatgpt_suggestions\\ground_truth.csv')
 
+# Check distribution of data
+data_total = pd.concat([ref_total, tar_total])
+for feature in FEATURES:
+    sns.displot(data=data_total, x=feature, hue='mouse_id')
+    plt.suptitle(feature)
 
 #
 # key = dict(username='hheise', mouse_id=69, day='2021-03-11', session_num=1, motion_id=0,
