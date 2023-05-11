@@ -224,7 +224,7 @@ def place_cell_plot():
 
     # Plotting, formatting
     fig = plt.figure(figsize=(4.93, 7.3))
-    ax = sns.heatmap(gaussian_filter1d(avg_act_filt_sort[sparse_neuron_mask], sigma=1, axis=1), cmap='turbo',
+    ax = sns.heatmap(gaussian_filter1d(avg_act_filt_sort[sparse_neuron_mask], sigma=1, axis=1), cmap='jet',
                      vmax=15)  # Cap colormap a bit
     # ax = sns.heatmap(avg_act_sort_norm, cmap='jet')
 
@@ -246,7 +246,7 @@ def place_cell_plot():
     cbar.ax.set_ylabel('Firing rate [Hz]', fontsize=20, labelpad=-3, rotation=270)
 
     # Matrix has too many elements for Inkscape, use PNG of matrix instead of vectorized file
-    plt.savefig(os.path.join(folder, 'figure1', 'all_place_cells_bartos_8020_for_matrix.png'), transparent=True)
+    plt.savefig(os.path.join(folder, 'figure1', 'all_place_cells_bartos_8020_for_matrix_jet.png'), transparent=True)
     # Much fewer cells, this file is used to load quickly into Inkscape, delete the matrix and use the axes
     plt.savefig(os.path.join(folder, 'figure1', 'all_place_cells_3380_for_axes.svg'), transparent=True)
 
@@ -749,6 +749,7 @@ ax_kde.spines['top'].set_visible(False)
 # %% Plot cells across sessions based on sorting of reference session (where all are place cells)
 def plot_matched_cells_across_sessions(traces: np.ndarray, sort_session: int, place_cells: Optional[np.ndarray] = None,
                                        normalize: bool = True, across_sessions: bool = False,
+                                       titles: Optional[Iterable] = None,
                                        smooth: Optional[int] = None, cmap='turbo'):
     """
     Plot traces of matched neurons across sessions. Neurons are sorted by location of max activity in a given session.
@@ -760,6 +761,7 @@ def plot_matched_cells_across_sessions(traces: np.ndarray, sort_session: int, pl
         normalize: Bool Flag whether the activity should be normalized for each neuron.
         across_sessions: Bool Flag, if normalize=True, whether neuron activity should be normalized across sessions or
                 or for each session separately.
+        titles: List of titles for each subplot/session.
         smooth: Bool Flag whether the activity should be smoothed by a Gaussian kernel of sigma=1.
     """
 
@@ -811,8 +813,12 @@ def plot_matched_cells_across_sessions(traces: np.ndarray, sort_session: int, pl
         ax.set_xlabel('Track position [m]', fontsize=15)
         # ax.set_title(f'{traces_sort.shape[1]-idx}d prestroke')
 
+        if titles is not None:
+            ax.set_title(titles[idx])
+
     plt.tight_layout()
 
+    return fig
 
 # Combine data from many mice/networks
 map_data, mouse_idx = dc.filter_matched_data(spatial_maps)
@@ -1194,8 +1200,18 @@ data_exp.to_csv(os.path.join(folder, 'figure2', 'running_speed.csv'))
 
 # Queries including post-stroke period
 queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121'))
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'))
+
+queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"'))
+
+queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"')
+           )
 
 is_pc = []
 pfs = []
@@ -1298,12 +1314,23 @@ def spatial_map_correlations_single_cells(spatial_maps=list):
 
     # Drop cells that are not in every period
     avg_df_clean = avg_df.dropna(axis=0)
-    avg_df_clean.to_csv(os.path.join(folder, r'single_cell_corr.csv'))
+    avg_df_clean.to_csv(os.path.join(folder, r'single_cell_corr_sham.csv'))
 
     # Sort cells by pre-stroke correlation
     avg_df_clean_sort = avg_df_clean.sort_values(by='pre', ascending=False)
+    avg_df_clean_sort.to_csv(os.path.join(folder, r'single_cell_corr_sorted_allstroke.csv'))
 
-    avg_df_dif.to_csv(os.path.join(folder, r'single_cell_corr_dif.csv'))
+    avg_df_dif.to_csv(os.path.join(folder, r'single_cell_corr_dif_allstroke.csv'))
+
+    # Store data sorted by mice
+    for net in final_df['net_id'].unique():
+        out = avg_df_dif.loc[final_df['net_id'] == net]
+        out.to_csv(os.path.join(folder, f'single_cell_corr_dif_{net}.csv'))
+
+    # Store total correlation pair data sorted by mice (for scatter plot)
+    avg_df_clean['net_id'] = final_df['net_id']
+    avg_df_totalpost = avg_df_clean.pivot(index='pre', columns='net_id', values='all_post')
+    avg_df_totalpost.to_csv(os.path.join(folder, f'single_cell_corr_totalpost_allmice.csv'))
 
 
 def place_cell_stability_fractions_score(is_pc):
@@ -1313,7 +1340,7 @@ def place_cell_stability_fractions_score(is_pc):
     dfs = []
     population = []
 
-    BACKWARDS = False    # If true, a place cell's stability is measured by its activity 3 days before the current day instead of 3 days after
+    BACKWARDS = True    # If true, a place cell's stability is measured by its activity 3 days before the current day instead of 3 days after
     DAY_DIFF = 3        # The day difference between sessions to be compared (usually 3)
 
     for idx, animal in enumerate(is_pc):
@@ -1395,12 +1422,30 @@ def place_cell_stability_fractions_score(is_pc):
 
     # Summarize stability by days
     stab_summ = []
-    for day in np.sort(stability_df['day'].unique()):
-        curr_day = stability_df[stability_df['day'] == day]
+    for net in np.sort(stability_df['net_id'].unique()):
+        curr_net = stability_df[stability_df['net_id'] == net]
 
-        stab_summ.append(pd.DataFrame([dict(day=day, n_cells=len(curr_day), n_stable=curr_day['stable'].sum(),
-                                            frac_stable=curr_day['stable'].sum() / len(curr_day))]))
+        for day in np.sort(curr_net['day'].unique()):
+            curr_day = curr_net[curr_net['day'] == day]
+
+            stab_summ.append(pd.DataFrame([dict(net_id=net, day=day, n_cells=len(curr_day),
+                                                n_stable=curr_day['stable'].sum(),
+                                                frac_stable=curr_day['stable'].sum() / len(curr_day))]))
     stab_summ = pd.concat(stab_summ)
+
+    # Group by phases
+    stab_summ_phase = []
+    for net in np.sort(stab_summ['net_id'].unique()):
+
+        curr_net = stab_summ[stab_summ['net_id'] == net]
+        first_post_day = curr_net['day'].unique()[np.searchsorted(curr_net['day'].unique(), 0, side='right')]
+        stab_summ_phase.append(pd.DataFrame([dict(net_id=net,
+                                                  pre=curr_net[curr_net['day'] <= 0]['frac_stable'].mean(),
+                                                  pre_post=curr_net[curr_net['day'] == first_post_day]['frac_stable'][0],
+                                                  early=curr_net[(curr_net['day'] > first_post_day) & (curr_net['day'] <= 9)]['frac_stable'].mean(),
+                                                  late=curr_net[curr_net['day'] > 9]['frac_stable'].mean())]))
+    stab_summ_phase = pd.concat(stab_summ_phase)
+
 
     # Additionally, compute remainder and stability scores per cell (how often a cell is a (stable) PC in pre vs post)
     rem_scores = []
@@ -1480,7 +1525,7 @@ def place_cell_stability_score(stability_df):
 
 
 
-
+#%%
 ### Legacy functions that work only with filtered, date-matched DataFrames
 def place_cell_population_stability():
     """ Code for a single, filtered dataframe. """
