@@ -39,8 +39,11 @@ queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"')
            )
 
+is_pc = []
+pfs = []
 spatial_maps = []
 match_matrices = []
+spat_dff_maps = []
 
 for query in queries:
     match_matrices.append(query.construct_matrix())
@@ -154,80 +157,26 @@ def get_neighbourhood_avg(match_matrix, mouse_id, day, values, neighborhood_radi
     return
 
 
-def compute_placecell_stability(spat_dff_maps, place_fields, days):
+def compute_placecell_fractions(pc, days):
 
-    # Loop through days and compute correlation between sessions that are 3 days apart
-    for day_idx, day in enumerate(days):
-        next_day_idx = np.where(days == day + DAY_DIFF)[0]
+    # Get number of PC sessions in pre, early and late post for each cell
+    pc_frac = pd.DataFrame(dict(pre_avg=np.nanmean(pc[:, days <= 0], axis=1),
+                                early_post_avg=np.nanmean(pc[:, (0 < days) & (days <= 9)], axis=1),
+                                late_post_avg=np.nanmean(pc[:, 9 < days], axis=1),
+                                all_post_avg=np.nanmean(pc[:, 0 < days], axis=1)))
 
-        # If a session 3 days later exists, compute the correlation of all cells between these sessions
-        # Do not analyze session 1 day after stroke (unreliable data)
-        if day + DAY_DIFF != 1 and len(next_day_idx) == 1:
+    # Classify cells into stable/unstable
+    pc_class = np.zeros(len(pc), dtype=int)    # Class 0: Unclassified cells (never PCs)
+    pc_class[(pc_frac['pre_avg'] == 0) & (pc_frac['early_post_avg'] > 0)] = 1  # Class 1: no PC pre, PC early post
+    pc_class[(pc_frac['pre_avg'] > 0) & (pc_frac['early_post_avg'] == 0)] = 2  # Class 2: PC pre, no PC early post
+    pc_class[(pc_frac['pre_avg'] >= 0.5) & (pc_frac['early_post_avg'] >= 0.5)] = 3  # Class 3: PC pre and PC early post
 
-            if BACKWARDS:
-                i = next_day_idx[0]
-                i_next = day_idx
-            else:
-                i_next = next_day_idx[0]
-                i = day_idx
-
-            n_pcs = np.nansum(arr[:, i])
-            remaining_pc_idx = np.where(np.nansum(arr[:, [i, i_next]], axis=1) == 2)[0]
-            n_remaining_pcs = len(remaining_pc_idx)
-            # Get Place Fields of the same mouse/network/cells. Convert to array for indexing, then to list for accessibility
-            pfs_1 = list(np.array(place_fields[idx][net_id][0])[remaining_pc_idx, i])
-            pfs_2 = list(np.array(place_fields[idx][net_id][0])[remaining_pc_idx, i_next])
-
-            # For each stable place cell, compare place fields
-            for cell_idx, pf_1, pf_2 in zip(remaining_pc_idx, pfs_1, pfs_2):
-
-                # Get center of mass for current place fields in both sessions
-                pf_com_1 = [dc.place_field_com(spatial_map_data=spat_dff_maps[cell_idx, i],
-                                               pf_indices=pf) for pf in pf_1]
-                pf_com_2 = [dc.place_field_com(spatial_map_data=spat_dff_maps[cell_idx, i_next],
-                                               pf_indices=pf) for pf in pf_2]
-
-                # For each place field in day i, check if there is a place field on day 2 that overlaps with its CoM
-                pc_is_stable = np.nan
-                dist = np.nan
-                if len(pf_com_1) == len(pf_com_2):
-                    # If cell has one PF on both days, check if the day-1 CoM is located inside day-2 PF -> stable
-                    if len(pf_com_1) == 1:
-                        if pf_2[0][0] < pf_com_1[0][0] < pf_2[0][-1]:
-                            pc_is_stable = True
-                        else:
-                            pc_is_stable = False
-
-                        # Compute distance for now only between singular PFs (positive distance means shift towards end)
-                        dist = pf_com_2[0][0] - pf_com_1[0][0]
-
-                    # If the cell has more than 1 PF on both days, check if all PFs overlap -> stable
-                    else:
-                        same_pfs = [True if pf2[0] < pf_com1[0] < pf2[-1] else False for pf_com1, pf2 in
-                                    zip(pf_com_1, pf_2)]
-                        pc_is_stable = all(
-                            same_pfs)  # This sets pc_is_stable to True if all PFs match, otherwise its False
-
-                # If cell has different number of place fields on both days, for now consider as unstable
-                else:
-                    pc_is_stable = False
-
-                # Get difference in place field numbers to quantify how many cells change number of place fields
-                pf_num_change = len(pf_com_2) - len(pf_com_1)
-
-                dfs.append(pd.DataFrame([dict(net_id=net_id, cell_idx=cell_idx,
-                                              day=days[i], other_day=days[i_next],
-                                              stable=pc_is_stable, dist=dist, num_pf_1=len(pf_com_1),
-                                              num_pf_2=len(pf_com_2), pf_num_change=pf_num_change)]))
-
-            population.append(
-                pd.DataFrame([dict(net_id=net_id, day=days[i], other_day=days[i_next],
-                                   n_pc=n_pcs, n_remaining=n_remaining_pcs,
-                                   frac=n_remaining_pcs / n_pcs)]))
+    return pc_class
 
 
-def plot_colored_cells(match_matrix, mouse_id, day, row_ids, color, cmap='magma', contour_thresh=0.05,
-                       background='avg_image', axis=None, title=None):
+
+def plot_colored_cells(match_matrix, mouse_id, day, row_ids, color, cmap='magma', contour_thresh=0.05, draw_cbar=True,
+                       background='avg_image', axis=None, title=None, cbar_ticklabels=None):
 
     # Fetch background image and initialize colormap
     username = 'hheise'
@@ -255,8 +204,13 @@ def plot_colored_cells(match_matrix, mouse_id, day, row_ids, color, cmap='magma'
         # ax.plot(*c.T, c='black')
         axis.add_patch(matplotlib.patches.Polygon(c, facecolor=colormap(norm(col)), alpha=0.8))
 
-    # Draw colorbar for patch color
-    plt.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), ax=axis)
+    if draw_cbar:
+        # Draw colorbar for patch color
+        cbar = plt.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), ax=axis)
+
+        if cbar_ticklabels:
+            cbar.set_ticks([np.max(color) / len(cbar_ticklabels) * (i + 0.5) for i in range(len(cbar_ticklabels))])
+            cbar.set_ticklabels(cbar_ticklabels)
 
     if title is not None:
         axis.set_title(title)
@@ -264,7 +218,6 @@ def plot_colored_cells(match_matrix, mouse_id, day, row_ids, color, cmap='magma'
     return axis
 
 
-# Compute cross-session stability for each network
 data = {41: compute_crosssession_stability(spatial_maps[0]['41_1'][0], np.array(spatial_maps[0]['41_1'][1])),
         69: compute_crosssession_stability(spatial_maps[1]['69_1'][0], np.array(spatial_maps[1]['69_1'][1])),
         121: compute_crosssession_stability(spatial_maps[2]['121_1'][0], np.array(spatial_maps[2]['121_1'][1])),
@@ -306,6 +259,37 @@ for k, v in avg_data.items():
     remain_stable = pre_stable & post_stable
     became_stable = pre_unstable & post_stable
 
+
+pc_fractions = {41: compute_placecell_fractions(pc=is_pc[0]['41_1'][0], days=np.array(is_pc[0]['41_1'][1])),
+                69: compute_placecell_fractions(pc=is_pc[1]['69_1'][0], days=np.array(is_pc[1]['69_1'][1])),
+                121: compute_placecell_fractions(pc=is_pc[2]['121_1'][0], days=np.array(is_pc[2]['121_1'][1])),
+                115: compute_placecell_fractions(pc=is_pc[3]['115_1'][0], days=np.array(is_pc[3]['115_1'][1])),
+                122: compute_placecell_fractions(pc=is_pc[4]['122_1'][0], days=np.array(is_pc[4]['122_1'][1]))}
+
+
+# Make categorical colormap
+cat_cm = matplotlib.colors.ListedColormap(np.array([[0.4, 0.2, 0.0, 1],     # Class 0: brown
+                                                    [0.0, 0.6, 1.0, 1],     # Class 0: blue
+                                                    [0.2, 0.8, 0.2, 1],     # Class 0: green
+                                                    [1.0, 0.4, 0.0, 1]]))   # Class 0: orange
+
+fig, ax = plt.subplots(2, 3)
+ax[0, 0] = plot_colored_cells(match_matrix=match_matrices[0]['41_1'], mouse_id=41, day='2020-08-27', axis=ax[0, 0],
+                              row_ids=np.arange(len(pc_fractions[41])), color=pc_fractions[41], title='41', cmap=cat_cm,
+                              draw_cbar=False)
+ax[0, 1] = plot_colored_cells(match_matrix=match_matrices[1]['69_1'], mouse_id=69, day='2021-03-11', axis=ax[0, 1],
+                              row_ids=np.arange(len(pc_fractions[69])), color=pc_fractions[69], title='69', cmap=cat_cm,
+                              cbar_ticklabels=['Never PC', 'PC post only', 'PC pre only', 'Always PC'])
+ax[0, 2].set_visible(False)
+ax[1, 0] = plot_colored_cells(match_matrix=match_matrices[2]['121_1'], mouse_id=121, day='2022-08-15', axis=ax[1, 0],
+                              row_ids=np.arange(len(pc_fractions[121])), color=pc_fractions[121], title='121',
+                              cmap=cat_cm, draw_cbar=False)
+ax[1, 1] = plot_colored_cells(match_matrix=match_matrices[3]['115_1'], mouse_id=115, day='2022-08-12', axis=ax[1, 1],
+                              row_ids=np.arange(len(pc_fractions[115])), color=pc_fractions[115], title='115',
+                              cmap=cat_cm, draw_cbar=False)
+ax[1, 2] = plot_colored_cells(match_matrix=match_matrices[4]['122_1'], mouse_id=122, day='2022-08-15', axis=ax[1, 2],
+                              row_ids=np.arange(len(pc_fractions[122])), color=pc_fractions[122], title='122',
+                              cmap=cat_cm, draw_cbar=False)
 
 
 
