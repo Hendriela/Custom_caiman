@@ -8,6 +8,7 @@ Created on 11/05/2023 12:53
 
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from skimage import measure
 import matplotlib
 import matplotlib.pyplot as plt
@@ -154,7 +155,7 @@ def get_neighbourhood_avg(match_matrix, mouse_id, day, values, neighborhood_radi
                                           neighbour_mean=neighbourhood_mean, p=shuffle_p)]))
     df = pd.concat(df)
 
-    return
+    return df
 
 
 def compute_placecell_fractions(pc, days):
@@ -230,6 +231,18 @@ avg_data = {k: group_sessions(v) for k, v in data.items()}
 # Compute absolute difference in correlation compared to pre-stroke
 avg_dif = {k: v.sub(v['pre'], axis=0) for k, v in avg_data.items()}
 
+# Get neighbourhood average correlation diff for each neuron
+avg_neighbour_dif = {41: get_neighbourhood_avg(match_matrix=match_matrices[0]['41_1'], mouse_id=41, day='2020-08-27',
+                                               values=avg_dif[41]['early_post']),
+                     69: get_neighbourhood_avg(match_matrix=match_matrices[1]['69_1'], mouse_id=69, day='2021-03-11',
+                                               values=avg_dif[69]['early_post']),
+                     121: get_neighbourhood_avg(match_matrix=match_matrices[2]['121_1'], mouse_id=121, day='2022-08-15',
+                                                values=avg_dif[121]['early_post']),
+                     115: get_neighbourhood_avg(match_matrix=match_matrices[3]['115_1'], mouse_id=115, day='2022-08-12',
+                                                values=avg_dif[115]['early_post']),
+                     122: get_neighbourhood_avg(match_matrix=match_matrices[4]['122_1'], mouse_id=122, day='2022-08-15',
+                                                values=avg_dif[122]['early_post'])}
+
 
 ## Plot cells in the FOV, shaded by the correlation change in early poststroke compared to prestroke
 fig, ax = plt.subplots(2, 3)
@@ -246,8 +259,18 @@ ax[1, 1] = plot_colored_cells(match_matrix=match_matrices[3]['115_1'], mouse_id=
 ax[1, 2] = plot_colored_cells(match_matrix=match_matrices[4]['122_1'], mouse_id=122, day='2022-08-15', axis=ax[1, 2],
                               row_ids=avg_dif[122].index, color=avg_dif[122]['early_post'], title='122')
 
-# Todo: Compute average stability of neighbouring cells (e.g. 100 px neighbourhood) of each cell, and correlate against
-#  stability of center cell. Maybe check if stability around stable cells is higher than for shuffled cells?
+
+## Correlate correlation_diff and avg_neighbour_diff
+colormap = matplotlib.cm.get_cmap('viridis')
+fig, ax = plt.subplots(2, 3)
+sns.regplot(data=avg_neighbour_dif[41], x='value', y='neighbour_mean', ax=ax[0, 0], scatter_kws={'color': colormap(avg_neighbour_dif[41]['p'][~np.isnan(avg_neighbour_dif[41]['p'])])})
+sns.regplot(data=avg_neighbour_dif[69], x='value', y='neighbour_mean', ax=ax[0, 1], scatter_kws={'color': colormap(avg_neighbour_dif[69]['p'][~np.isnan(avg_neighbour_dif[69]['p'])])})
+sns.regplot(data=avg_neighbour_dif[121], x='value', y='neighbour_mean', ax=ax[1, 0], scatter_kws={'color': colormap(avg_neighbour_dif[121]['p'][~np.isnan(avg_neighbour_dif[121]['p'])])})
+sns.regplot(data=avg_neighbour_dif[115], x='value', y='neighbour_mean', ax=ax[1, 1], scatter_kws={'color': colormap(avg_neighbour_dif[115]['p'][~np.isnan(avg_neighbour_dif[115]['p'])])})
+sns.regplot(data=avg_neighbour_dif[122], x='value', y='neighbour_mean', ax=ax[1, 2], scatter_kws={'color': colormap(avg_neighbour_dif[122]['p'][~np.isnan(avg_neighbour_dif[122]['p'])])})
+
+# Todo: Plot colorbars for p-value --> investigate why pvalue tracks nicely with y-axis
+
 
 ## Split cells into stable_pre-stable_post and unstable_pre-stable_post
 for k, v in avg_data.items():
