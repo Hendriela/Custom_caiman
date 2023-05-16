@@ -158,6 +158,40 @@ def get_neighbourhood_avg(match_matrix, mouse_id, day, values, neighborhood_radi
     return df
 
 
+def get_pf_location(match_matrix, spatial_dff, place_fields):
+    """
+    Compute center of mass of all place fields of matched cells of a single network.
+
+    Args:
+        match_matrix: single entry of match_matrices
+        spatial_dff: single entry of spat_dff_maps
+        place_fields: single entry of pfs
+
+    Returns:
+
+    """
+
+    pf_com_df = np.array(match_matrix.copy(), dtype='object')
+    pf_com_df[:] = np.nan
+    # pf_com_sd_df = pf_com_df.copy()
+
+    # Use Lambda function to check if a value is an empty list, or nan
+    valid_sessions = np.where(~(pd.isna(place_fields) |
+                                place_fields.applymap(lambda x: isinstance(x, list) and len(x) == 0)))
+
+    for x, y in zip(valid_sessions[0], valid_sessions[1]):
+        # Loop through multiple place fields
+        pf_com_df[x, y] = [dc.place_field_com(spatial_dff[x, y], curr_pf)[0] for curr_pf in place_fields.iloc[x, y]]
+
+        # pf_com_df[x, y] = [j[0] for j in curr_coms]
+        # pf_com_sd_df[x, y] = [j[1] for j in curr_coms]
+
+    pf_com_df = pd.DataFrame(data=pf_com_df, columns=match_matrix.columns, index=match_matrix.index)
+    # pf_com_sd_df = pd.DataFrame(data=pf_com_sd_df, columns=match_matrix.columns, index=match_matrix.index)
+
+    return pf_com_df
+
+
 def compute_placecell_fractions(pc, days):
 
     # Get number of PC sessions in pre, early and late post for each cell
@@ -173,7 +207,6 @@ def compute_placecell_fractions(pc, days):
     pc_class[(pc_frac['pre_avg'] >= 0.3) & (pc_frac['early_post_avg'] >= 0.3)] = 3  # Class 3: PC pre and PC early post
 
     return pc_class
-
 
 
 def plot_colored_cells(match_matrix, mouse_id, day, row_ids, color, cmap='magma', contour_thresh=0.05, draw_cbar=True,
@@ -285,15 +318,6 @@ sns.regplot(data=avg_neighbour_dif[122], x='value', y='neighbour_mean', ax=ax[1,
 
 
 #%% Split cells into stable_pre-stable_post and unstable_pre-stable_post
-for k, v in avg_data.items():
-
-    pre_stable = v['pre'] >= np.percentile(v['pre'], 75)
-    pre_unstable = v['pre'] <= np.percentile(v['pre'], 25)
-    post_stable = v['early_post'] >= np.percentile(v['early_post'], 75)
-
-    remain_stable = pre_stable & post_stable
-    became_stable = pre_unstable & post_stable
-
 
 pc_fractions = {41: compute_placecell_fractions(pc=is_pc[0]['41_1'][0], days=np.array(is_pc[0]['41_1'][1])),
                 69: compute_placecell_fractions(pc=is_pc[1]['69_1'][0], days=np.array(is_pc[1]['69_1'][1])),
@@ -329,7 +353,8 @@ ax[1, 2] = plot_colored_cells(match_matrix=match_matrices[4]['122_1'], mouse_id=
 
 #%% Compute phase of the periodic spatial map (position of maxima in each corridor quadrant) and plot in FOV
 
-#%% Get fractions of PCs that prefer a certain location (inside/outside RZ, which RZ)
+
+#%% Get fractions of PCs that prefer a certain location (inside/outside RZ, which RZ) --> unmatched data
 
 def make_binary_column(df, col1, col2, lower, upper):
     return np.array(((df[col1].between(lower, upper)) | (df[col2].between(lower, upper))).astype(int))
@@ -353,7 +378,7 @@ pf_location = []    # Location of place fields. Always adds up to 100%.
 for pk in pks:
 
     # Get place fields of all accepted place cells of the session
-    key, pfs = (hheise_placecell.PlaceCell.ROI * hheise_placecell.PlaceCell.PlaceField & pk & pf_key).fetch('KEY', 'bin_idx')
+    key, all_pfs = (hheise_placecell.PlaceCell.ROI * hheise_placecell.PlaceCell.PlaceField & pk & pf_key).fetch('KEY', 'bin_idx')
 
     # Compute day relative to surgery
     try:
@@ -383,7 +408,7 @@ for pk in pks:
     pf_sds = []
     for ind, k in enumerate(key):
         mask_idx = [i for i, dic in enumerate(mask_pks) if dic['mask_id'] == k['mask_id']][0]
-        pf_com, pf_sd = dc.place_field_com(spat_maps[mask_idx], pfs[ind])
+        pf_com, pf_sd = dc.place_field_com(spat_maps[mask_idx], all_pfs[ind])
         pf_coms.append(pf_com)
         pf_sds.append(pf_sd)
 
@@ -451,8 +476,103 @@ fig.legend()
 
 total_mean_sphere.to_csv(r'C:\Users\hheise.UZH\Desktop\pc_location\in_RZ_spheres.csv')
 
-    small = curr_mouse[columns]
-    big = curr_mouse[['in_RZ', 'out_RZ']]
+#%% Periodicity
 
-    ax = small.plot(kind='bar', stacked=True)
-    ax = big.plot(kind='bar', stacked=True)
+"""
+1. Get classification of which cells are PCs across whole experiment
+2. Get preferred location of these PCs for each session (global, quadrant, binary)
+3. Check influence
+    a. Does a larger fraction of PCs in poststroke than prestroke have a similar preferred location like the stable cells?
+    b. Do the newly coding PCs share more often than expected (how to test?) a preferred location with the stable cells?
+"""
+
+def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, exclude_other_class3_cells=False):
+
+    # Transform PF centers into quadrant coordinates (distance to next RZ start) -> applied to each pf center
+    def get_distance(centers, borders):
+
+        def comp_dist(cent, b):
+            dist = b - cent
+            return np.min(dist[dist > 0])  # Get distance to next RZ (only positive distances)
+
+        try:
+            return [comp_dist(c, borders) for c in centers]
+        except TypeError:
+            return comp_dist(centers, borders)
+
+    # Transform PF centers into binary values (in RZ or not) -> applied to each pf center
+    def in_reward_zone(centers, borders):
+        try:
+            return [any([b[0] <= c <= b[1] for b in borders]) for c in centers]
+        except TypeError:
+            return any([b[0] <= centers <= b[1] for b in borders])
+
+    # Only take accepted PFs from accepted PCs
+    pf_key = dict(place_cell_id=2, corridor_type=0, is_place_cell=1, large_enough=1, strong_enough=1, transients=1)
+    bord = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(80)
+    # Make a dummy 5th border (same distance as RZ1-RZ2) for place fields after the 4th RZ
+    pf_quad = pf_center.applymap(get_distance, na_action='ignore',
+                                 borders=np.append(bord[:, 0], bord[-1, 0]+(bord[1, 0]-bord[0, 0])))
+    pf_rz = pf_center.applymap(in_reward_zone, na_action='ignore', borders=bord)
+
+    # For all class-3 cells, compute fraction of other place cells that are similar/average distance of place fields
+    # all sessions where class-3 cells are actually place cells
+    class3 = np.where(cell_class == 3)[0]
+    for day in pf_center.columns:
+        # If there are class-3-cells in this session, start loading data for all place cells
+        if not pf_center[day].iloc[class3].isna().all():
+            real_class3_ids = match_matrix[day].iloc[class3].values
+            all_curr_pfs = pd.DataFrame((hheise_placecell.PlaceCell.ROI * hheise_placecell.PlaceCell.PlaceField &
+                                         f'mouse_id={mouse_id}' & pf_key &
+                                         common_match.MatchedIndex().string2key(title=day)).fetch('KEY', 'bin_idx', as_dict=True))
+
+            # Compute PF CoM for all place cells of the current session
+            dff_pks, all_spat_dff = (hheise_placecell.BinnedActivity.ROI & all_curr_pfs).get_normal_act(trace='dff', return_pks=True)
+            all_spat = pd.DataFrame(dff_pks)
+            all_spat['spat_dff'] = list(all_spat_dff)
+            all_pc = pd.merge(all_curr_pfs, all_spat)
+            all_pf_com = [dc.place_field_com(dff, bin_idx)[0] for bin_idx, dff in zip(all_pc['bin_idx'], all_pc['spat_dff'])]
+            all_pc['com'] = all_pf_com
+            all_pc['pf_quad'] = all_pc['com'].apply(get_distance,
+                                                    borders=np.append(bord[:, 0], bord[-1, 0]+(bord[1, 0]-bord[0, 0])))
+            all_pc['pf_rz'] = all_pc['com'].apply(in_reward_zone, borders=bord)
+
+            if exclude_other_class3_cells:
+                all_class3_cells = all_pc[all_pc['mask_id'].isin(real_class3_ids)]
+                all_pc = all_pc[~all_pc['mask_id'].isin(real_class3_ids)]
+
+            for df_idx, dj_mask_id in zip(class3, real_class3_ids):
+                # for each class3 cell, compute distance/similarity of the c3 cell to all other PCs (also non-tracked) at that session
+
+                if exclude_other_class3_cells:
+                    # If we excluded all class3 cells before, we dont have to do it for each cell
+                    curr_class3 = all_class3_cells[all_class3_cells['mask_id'] == dj_mask_id]
+                    curr_all_pc = all_pc
+                else:
+                    # Otherwise, remove the current class 3 cell from the DF for processing
+                    curr_class3 = all_pc[all_pc['mask_id'] == dj_mask_id]
+                    curr_all_pc = all_pc[all_pc['mask_id'] != dj_mask_id]
+
+
+
+    return
+
+
+# 1.
+pc_fractions = {41: compute_placecell_fractions(pc=is_pc[0]['41_1'][0], days=np.array(is_pc[0]['41_1'][1])),
+                69: compute_placecell_fractions(pc=is_pc[1]['69_1'][0], days=np.array(is_pc[1]['69_1'][1])),
+                121: compute_placecell_fractions(pc=is_pc[2]['121_1'][0], days=np.array(is_pc[2]['121_1'][1])),
+                115: compute_placecell_fractions(pc=is_pc[3]['115_1'][0], days=np.array(is_pc[3]['115_1'][1])),
+                122: compute_placecell_fractions(pc=is_pc[4]['122_1'][0], days=np.array(is_pc[4]['122_1'][1]))}
+
+# 2.
+pf_centers = {41: get_pf_location(match_matrix=match_matrices[0]['41_1'], spatial_dff=spatial_maps[0]['41_1'][0], place_fields=pfs[0]['41_1'][0]),
+              69: get_pf_location(match_matrix=match_matrices[1]['69_1'], spatial_dff=spatial_maps[1]['69_1'][0], place_fields=pfs[1]['69_1'][0]),
+              121: get_pf_location(match_matrix=match_matrices[2]['121_1'], spatial_dff=spatial_maps[2]['121_1'][0], place_fields=pfs[2]['121_1'][0]),
+              115: get_pf_location(match_matrix=match_matrices[3]['115_1'], spatial_dff=spatial_maps[3]['115_1'][0], place_fields=pfs[3]['115_1'][0]),
+              122: get_pf_location(match_matrix=match_matrices[4]['122_1'], spatial_dff=spatial_maps[4]['122_1'][0], place_fields=pfs[4]['122_1'][0])}
+
+# 3.
+for i, k in enumerate(pc_fractions):
+    measure_cell_influence(cell_class=pc_fractions[k], pf_center=pf_centers[k], mouse_id=k,
+                           match_matrix=match_matrices[i][f'{k}_1'], days=pfs[i][f'{k}_1'][1])
