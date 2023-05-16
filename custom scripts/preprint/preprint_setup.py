@@ -43,6 +43,11 @@ deficit_no_flicker = [41, 63, 69, 121]
 deficit_flicker = [108, 110, 112]
 sham_injection = [115, 122]
 
+# Grouping by number of spheres (extrapolated for whole brain)
+low = [38, 91, 111, 115, 122]   # < 50 spheres
+mid = [33, 83, 86, 89, 93, 94, 95, 108, 110, 112, 113, 114, 116, 121]  # 50 - 500 spheres
+high = [41, 63, 69, 85, 90, 109, 123]   # > 500 spheres
+
 mice = [*no_deficit, *no_deficit_flicker, *recovery, *deficit_no_flicker, *deficit_flicker, *sham_injection]
 
 grouping = pd.DataFrame(data=dict(mouse_id=mice,
