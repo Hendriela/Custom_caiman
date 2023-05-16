@@ -16,7 +16,7 @@ from scipy import spatial
 import bisect
 import datajoint as dj
 
-from schema import common_match, common_img, hheise_placecell, hheise_behav, common_mice
+from schema import common_match, common_img, hheise_placecell, hheise_behav, common_mice, hheise_hist
 from util import helper
 from preprint import data_cleaning as dc
 
@@ -426,10 +426,30 @@ pf_loc_export = pf_loc.pivot(index='rel_day', columns='mouse_id', values='in_RZ'
 pf_loc_export.to_csv(r'C:\Users\hheise.UZH\Desktop\pc_location\pf_loc.csv')
 # Todo: finish analysing, plotting with Prism --> across mice, days
 
-curr_df = pf_loc
-for mouse_id in curr_df['mouse_id'].unique():
 
-    curr_mouse = curr_df[curr_df['mouse_id'] == mouse_id].set_index('day')
+# Plot in_RZ fraction for all mice, color-coded by the number of spheres they have
+spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric() &
+                        'metric_name="spheres"').fetch('mouse_id', 'count_extrap', as_dict=True))
+spheres.rename(columns={'count_extrap': 'spheres'}, inplace=True)
+pf_loc_filt = pd.read_csv(r'C:\Users\hheise.UZH\Desktop\pc_location\pf_loc_smooth.csv')
+pf_loc_filt = pd.melt(pf_loc_filt, id_vars='rel_day', var_name='mouse_id', value_name='in_RZ')
+pf_loc_filt['mouse_id'] = pf_loc_filt['mouse_id'].astype(int)
+pf_loc_sphere = pd.merge(pf_loc_filt, spheres, on='mouse_id')
+sns.lineplot(data=pf_loc_sphere, x='rel_day', y='in_RZ', hue='spheres', hue_norm=matplotlib.colors.LogNorm())
+
+# Correlate number of spheres and place cells in RZ (separately for different time periods)
+total_mean = pf_loc_sphere.groupby('mouse_id')['in_RZ'].mean().rename('in_RZ_total')
+pre_mean = pf_loc_sphere[pf_loc_sphere['rel_day'] <= 0].groupby('mouse_id')['in_RZ'].mean().rename('in_RZ_pre')
+post_mean = pf_loc_sphere[pf_loc_sphere['rel_day'] > 0].groupby('mouse_id')['in_RZ'].mean().rename('in_RZ_post')
+total_mean_sphere = pd.merge(spheres, total_mean, on='mouse_id').merge(pre_mean, on='mouse_id').merge(post_mean, on='mouse_id')
+
+fig = plt.figure()
+ax_total = sns.regplot(data=total_mean_sphere, x='spheres', y='in_RZ_total', logx=True, label='total')
+ax_pre = sns.regplot(data=total_mean_sphere, x='spheres', y='in_RZ_pre', logx=True, label='pre')
+ax_post = sns.regplot(data=total_mean_sphere, x='spheres', y='in_RZ_post', logx=True, label='post')
+fig.legend()
+
+total_mean_sphere.to_csv(r'C:\Users\hheise.UZH\Desktop\pc_location\in_RZ_spheres.csv')
 
     small = curr_mouse[columns]
     big = curr_mouse[['in_RZ', 'out_RZ']]
