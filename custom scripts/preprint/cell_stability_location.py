@@ -507,23 +507,46 @@ def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, 
         except TypeError:
             return any([b[0] <= centers <= b[1] for b in borders])
 
+    def get_zone(centers, borders):
+
+        def single_zone(cent, b):
+            # Get fine-grained location of PF
+            cent_loc = []
+            prev_bord = 0
+            for i, bor in enumerate(b.flatten()):
+                cent_loc.append(prev_bord <= cent < bor)
+                prev_bord = bor
+            cent_loc.append(prev_bord <= cent <= 80)
+            c_loc = np.where(cent_loc)[0]
+            if len(c_loc) != 1:
+                return 'ERROR'
+            else:
+                return fine_zones[c_loc[0]]
+
+        fine_zones = np.array(['pre_RZ1', 'in_RZ1', 'RZ1-RZ2', 'in_RZ2', 'RZ2-RZ3', 'in_RZ3',
+                               'RZ3-RZ4', 'in_RZ4', 'post_RZ4'])
+
+        try:
+            return [single_zone(c, borders) for c in centers]
+        except TypeError:
+            return single_zone(centers, borders)
+
+    print(mouse_id)
+
     # Only take accepted PFs from accepted PCs
-    pf_key = dict(place_cell_id=2, corridor_type=0, is_place_cell=1, large_enough=1, strong_enough=1, transients=1)
+    pf_k = dict(place_cell_id=2, corridor_type=0, is_place_cell=1, large_enough=1, strong_enough=1, transients=1)
     bord = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(80)
-    # Make a dummy 5th border (same distance as RZ1-RZ2) for place fields after the 4th RZ
-    pf_quad = pf_center.applymap(get_distance, na_action='ignore',
-                                 borders=np.append(bord[:, 0], bord[-1, 0]+(bord[1, 0]-bord[0, 0])))
-    pf_rz = pf_center.applymap(in_reward_zone, na_action='ignore', borders=bord)
 
     # For all class-3 cells, compute fraction of other place cells that are similar/average distance of place fields
     # all sessions where class-3 cells are actually place cells
     class3 = np.where(cell_class == 3)[0]
-    for day in pf_center.columns:
+    class3_df = []
+    for day, relative_day in zip(pf_center.columns, days):
         # If there are class-3-cells in this session, start loading data for all place cells
         if not pf_center[day].iloc[class3].isna().all():
             real_class3_ids = match_matrix[day].iloc[class3].values
             all_curr_pfs = pd.DataFrame((hheise_placecell.PlaceCell.ROI * hheise_placecell.PlaceCell.PlaceField &
-                                         f'mouse_id={mouse_id}' & pf_key &
+                                         f'mouse_id={mouse_id}' & pf_k &
                                          common_match.MatchedIndex().string2key(title=day)).fetch('KEY', 'bin_idx', as_dict=True))
 
             # Compute PF CoM for all place cells of the current session
@@ -533,9 +556,10 @@ def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, 
             all_pc = pd.merge(all_curr_pfs, all_spat)
             all_pf_com = [dc.place_field_com(dff, bin_idx)[0] for bin_idx, dff in zip(all_pc['bin_idx'], all_pc['spat_dff'])]
             all_pc['com'] = all_pf_com
-            all_pc['pf_quad'] = all_pc['com'].apply(get_distance,
-                                                    borders=np.append(bord[:, 0], bord[-1, 0]+(bord[1, 0]-bord[0, 0])))
+            # Make a dummy 5th border (same distance as RZ1-RZ2) for place fields after the 4th RZ
+            all_pc['pf_quad'] = all_pc['com'].apply(get_distance, borders=np.append(bord[:, 0], bord[-1, 0]+(bord[1, 0]-bord[0, 0])))
             all_pc['pf_rz'] = all_pc['com'].apply(in_reward_zone, borders=bord)
+            all_pc['pf_zone'] = all_pc['com'].apply(get_zone, borders=bord)
 
             if exclude_other_class3_cells:
                 all_class3_cells = all_pc[all_pc['mask_id'].isin(real_class3_ids)]
@@ -544,18 +568,27 @@ def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, 
             for df_idx, dj_mask_id in zip(class3, real_class3_ids):
                 # for each class3 cell, compute distance/similarity of the c3 cell to all other PCs (also non-tracked) at that session
 
+                # TODO: M69, day 20210303, row 69, mask_id 254 is not in all_pc, but in pf_center
+                #  also, for M69, day 20210303, row 31, mask_id 154, pf_center has different com as all_pc
+
                 if exclude_other_class3_cells:
                     # If we excluded all class3 cells before, we dont have to do it for each cell
-                    curr_class3 = all_class3_cells[all_class3_cells['mask_id'] == dj_mask_id]
-                    curr_all_pc = all_pc
+                    curr_class3 = all_class3_cells[all_class3_cells['mask_id'] == dj_mask_id].squeeze().to_dict()
+                    rest_pc = all_pc
                 else:
                     # Otherwise, remove the current class 3 cell from the DF for processing
-                    curr_class3 = all_pc[all_pc['mask_id'] == dj_mask_id]
-                    curr_all_pc = all_pc[all_pc['mask_id'] != dj_mask_id]
+                    curr_class3 = all_pc[all_pc['mask_id'] == dj_mask_id].squeeze().to_dict()
+                    rest_pc = all_pc[all_pc['mask_id'] != dj_mask_id]
 
-
-
-    return
+                class3_df.append(pd.DataFrame([dict(match_matrix_idx=df_idx, day=day, rel_day=relative_day, mask_idx=int(dj_mask_id), n_rest_pc=len(rest_pc),
+                                  com=curr_class3['com'], pf_quad=curr_class3['pf_quad'], pf_rz=curr_class3['pf_rz'], pf_zone=curr_class3['pf_zone'],
+                                  avg_dist=(rest_pc['com'] - curr_class3['com']).abs().mean() * (400/80),               # Average distance of PF CoM to other accepted PFs in cm
+                                  avg_quad_dist=(rest_pc['pf_quad'] - curr_class3['pf_quad']).abs().mean() * (400/80),  # Average distance of PF CoM to other accepted PFs, normalized by quadrants, in cm
+                                  share_rz=(rest_pc['pf_rz'] == curr_class3['pf_rz']).sum()/len(rest_pc),      # Fraction of PFs that are also in a reward zone/not in reward zone
+                                  share_zone=(rest_pc['pf_zone'] == curr_class3['pf_zone']).sum()/len(rest_pc),
+                                  )]))
+    class3_df = pd.concat(class3_df)
+    return class3_df
 
 
 # 1.
@@ -573,6 +606,6 @@ pf_centers = {41: get_pf_location(match_matrix=match_matrices[0]['41_1'], spatia
               122: get_pf_location(match_matrix=match_matrices[4]['122_1'], spatial_dff=spatial_maps[4]['122_1'][0], place_fields=pfs[4]['122_1'][0])}
 
 # 3.
-for i, k in enumerate(pc_fractions):
-    measure_cell_influence(cell_class=pc_fractions[k], pf_center=pf_centers[k], mouse_id=k,
-                           match_matrix=match_matrices[i][f'{k}_1'], days=pfs[i][f'{k}_1'][1])
+influence = {k: measure_cell_influence(cell_class=pc_fractions[k], pf_center=pf_centers[k], mouse_id=k,
+                                       match_matrix=match_matrices[i][f'{k}_1'], days=pfs[i][f'{k}_1'][1])
+             for i, k in enumerate(pf_centers)}
