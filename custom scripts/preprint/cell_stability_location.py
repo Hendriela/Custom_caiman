@@ -14,10 +14,10 @@ import matplotlib
 import matplotlib.pyplot as plt
 from scipy import spatial
 import bisect
+import datajoint as dj
 
-from schema import common_match, common_img, hheise_placecell
+from schema import common_match, common_img, hheise_placecell, hheise_behav, common_mice
 from util import helper
-
 from preprint import data_cleaning as dc
 
 DAY_DIFF = 3
@@ -49,23 +49,23 @@ spat_dff_maps = []
 for query in queries:
     match_matrices.append(query.construct_matrix())
 
-    # is_pc.append(query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
-    #                                     extra_restriction=dict(corridor_type=0, place_cell_id=2),
-    #                                     return_array=True, relative_dates=True, surgery='Microsphere injection'))
-    #
-    # pfs.append(query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
-    #                                   extra_restriction=dict(corridor_type=0, place_cell_id=2),
-    #                                   return_array=False, relative_dates=True, surgery='Microsphere injection'))
+    is_pc.append(query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
+                                        extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                        return_array=True, relative_dates=True, surgery='Microsphere injection'))
+
+    pfs.append(query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
+                                      extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                      return_array=False, relative_dates=True, surgery='Microsphere injection'))
 
     spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
                                                extra_restriction=dict(corridor_type=0, place_cell_id=2),
                                                return_array=True, relative_dates=True,
                                                surgery='Microsphere injection'))
 
-    # spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
-    #                                             extra_restriction=dict(corridor_type=0, place_cell_id=2),
-    #                                             return_array=True, relative_dates=True,
-    #                                             surgery='Microsphere injection'))
+    spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
+                                                extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                                return_array=True, relative_dates=True,
+                                                surgery='Microsphere injection'))
 
 
 #%% Compute cross-session stability
@@ -170,7 +170,7 @@ def compute_placecell_fractions(pc, days):
     pc_class = np.zeros(len(pc), dtype=int)    # Class 0: Unclassified cells (never PCs)
     pc_class[(pc_frac['pre_avg'] == 0) & (pc_frac['early_post_avg'] > 0)] = 1  # Class 1: no PC pre, PC early post
     pc_class[(pc_frac['pre_avg'] > 0) & (pc_frac['early_post_avg'] == 0)] = 2  # Class 2: PC pre, no PC early post
-    pc_class[(pc_frac['pre_avg'] >= 0.5) & (pc_frac['early_post_avg'] >= 0.5)] = 3  # Class 3: PC pre and PC early post
+    pc_class[(pc_frac['pre_avg'] >= 0.3) & (pc_frac['early_post_avg'] >= 0.3)] = 3  # Class 3: PC pre and PC early post
 
     return pc_class
 
@@ -182,7 +182,10 @@ def plot_colored_cells(match_matrix, mouse_id, day, row_ids, color, cmap='magma'
     # Fetch background image and initialize colormap
     username = 'hheise'
     key = dict(username=username, mouse_id=mouse_id, day=day)
-    bg = (common_img.QualityControl & key).fetch1(background)
+    if background is None:
+        bg = np.zeros((488, 488), dtype=int)   # Todo: dont hardcode FOV size
+    else:
+        bg = (common_img.QualityControl & key).fetch1(background)
     colormap = matplotlib.cm.get_cmap(cmap)
     norm = matplotlib.colors.Normalize(vmin=np.min(color), vmax=np.max(color))
 
@@ -244,20 +247,20 @@ avg_neighbour_dif = {41: get_neighbourhood_avg(match_matrix=match_matrices[0]['4
                                                 values=avg_dif[122]['early_post'])}
 
 
-## Plot cells in the FOV, shaded by the correlation change in early poststroke compared to prestroke
+#%% Plot cells in the FOV, shaded by the correlation change in early poststroke compared to prestroke
 fig, ax = plt.subplots(2, 3)
 
 ax[0, 0] = plot_colored_cells(match_matrix=match_matrices[0]['41_1'], mouse_id=41, day='2020-08-27', axis=ax[0, 0],
-                              row_ids=avg_dif[41].index, color=avg_dif[41]['early_post'], title='41')
+                              row_ids=avg_dif[41].index, color=avg_dif[41]['early_post'], title='41', background=None)
 ax[0, 1] = plot_colored_cells(match_matrix=match_matrices[1]['69_1'], mouse_id=69, day='2021-03-11', axis=ax[0, 1],
-                              row_ids=avg_dif[69].index, color=avg_dif[69]['early_post'], title='69')
+                              row_ids=avg_dif[69].index, color=avg_dif[69]['early_post'], title='69', background=None)
 ax[0, 2].set_visible(False)
 ax[1, 0] = plot_colored_cells(match_matrix=match_matrices[2]['121_1'], mouse_id=121, day='2022-08-15', axis=ax[1, 0],
-                              row_ids=avg_dif[121].index, color=avg_dif[121]['early_post'], title='121')
+                              row_ids=avg_dif[121].index, color=avg_dif[121]['early_post'], title='121', background=None)
 ax[1, 1] = plot_colored_cells(match_matrix=match_matrices[3]['115_1'], mouse_id=115, day='2022-08-12', axis=ax[1, 1],
-                              row_ids=avg_dif[115].index, color=avg_dif[115]['early_post'], title='115')
+                              row_ids=avg_dif[115].index, color=avg_dif[115]['early_post'], title='115', background=None)
 ax[1, 2] = plot_colored_cells(match_matrix=match_matrices[4]['122_1'], mouse_id=122, day='2022-08-15', axis=ax[1, 2],
-                              row_ids=avg_dif[122].index, color=avg_dif[122]['early_post'], title='122')
+                              row_ids=avg_dif[122].index, color=avg_dif[122]['early_post'], title='122', background=None)
 
 
 ## Correlate correlation_diff and avg_neighbour_diff
@@ -271,8 +274,17 @@ sns.regplot(data=avg_neighbour_dif[122], x='value', y='neighbour_mean', ax=ax[1,
 
 # Todo: Plot colorbars for p-value --> investigate why pvalue tracks nicely with y-axis
 
+colormap = matplotlib.cm.get_cmap('viridis')
+fig, ax = plt.subplots(2, 3)
+sns.regplot(data=avg_neighbour_dif[41], x='value', y='neighbour_mean', ax=ax[0, 0]); ax[0, 0].set_title(41); ax[0, 0].set(xlabel='Stability', ylabel='Mean neighbourhood stability')
+sns.regplot(data=avg_neighbour_dif[69], x='value', y='neighbour_mean', ax=ax[0, 1]); ax[0, 1].set_title(69); ax[0, 1].set(xlabel='Stability', ylabel='Mean neighbourhood stability')
+ax[0, 2].set_visible(False)
+sns.regplot(data=avg_neighbour_dif[121], x='value', y='neighbour_mean', ax=ax[1, 0]); ax[1, 0].set_title(121); ax[1, 0].set(xlabel='Stability', ylabel='Mean neighbourhood stability')
+sns.regplot(data=avg_neighbour_dif[115], x='value', y='neighbour_mean', ax=ax[1, 1]); ax[1, 1].set_title(115); ax[1, 1].set(xlabel='Stability', ylabel='Mean neighbourhood stability')
+sns.regplot(data=avg_neighbour_dif[122], x='value', y='neighbour_mean', ax=ax[1, 2]); ax[1, 2].set_title(122); ax[1, 2].set(xlabel='Stability', ylabel='Mean neighbourhood stability')
 
-## Split cells into stable_pre-stable_post and unstable_pre-stable_post
+
+#%% Split cells into stable_pre-stable_post and unstable_pre-stable_post
 for k, v in avg_data.items():
 
     pre_stable = v['pre'] >= np.percentile(v['pre'], 75)
@@ -291,7 +303,7 @@ pc_fractions = {41: compute_placecell_fractions(pc=is_pc[0]['41_1'][0], days=np.
 
 
 # Make categorical colormap
-cat_cm = matplotlib.colors.ListedColormap(np.array([[0.4, 0.2, 0.0, 1],     # Class 0: brown
+cat_cm = matplotlib.colors.ListedColormap(np.array([[0.5, 0.5, 0.5, 1],     # Class 0: brown
                                                     [0.0, 0.6, 1.0, 1],     # Class 0: blue
                                                     [0.2, 0.8, 0.2, 1],     # Class 0: green
                                                     [1.0, 0.4, 0.0, 1]]))   # Class 0: orange
@@ -299,40 +311,128 @@ cat_cm = matplotlib.colors.ListedColormap(np.array([[0.4, 0.2, 0.0, 1],     # Cl
 fig, ax = plt.subplots(2, 3)
 ax[0, 0] = plot_colored_cells(match_matrix=match_matrices[0]['41_1'], mouse_id=41, day='2020-08-27', axis=ax[0, 0],
                               row_ids=np.arange(len(pc_fractions[41])), color=pc_fractions[41], title='41', cmap=cat_cm,
-                              draw_cbar=False)
+                              draw_cbar=False, background=None)
 ax[0, 1] = plot_colored_cells(match_matrix=match_matrices[1]['69_1'], mouse_id=69, day='2021-03-11', axis=ax[0, 1],
                               row_ids=np.arange(len(pc_fractions[69])), color=pc_fractions[69], title='69', cmap=cat_cm,
-                              cbar_ticklabels=['Never PC', 'PC post only', 'PC pre only', 'Always PC'])
+                              cbar_ticklabels=['Never PC', 'PC post only', 'PC pre only', 'Always PC'], background=None)
 ax[0, 2].set_visible(False)
 ax[1, 0] = plot_colored_cells(match_matrix=match_matrices[2]['121_1'], mouse_id=121, day='2022-08-15', axis=ax[1, 0],
                               row_ids=np.arange(len(pc_fractions[121])), color=pc_fractions[121], title='121',
-                              cmap=cat_cm, draw_cbar=False)
+                              cmap=cat_cm, draw_cbar=False, background=None)
 ax[1, 1] = plot_colored_cells(match_matrix=match_matrices[3]['115_1'], mouse_id=115, day='2022-08-12', axis=ax[1, 1],
                               row_ids=np.arange(len(pc_fractions[115])), color=pc_fractions[115], title='115',
-                              cmap=cat_cm, draw_cbar=False)
+                              cmap=cat_cm, draw_cbar=False, background=None)
 ax[1, 2] = plot_colored_cells(match_matrix=match_matrices[4]['122_1'], mouse_id=122, day='2022-08-15', axis=ax[1, 2],
                               row_ids=np.arange(len(pc_fractions[122])), color=pc_fractions[122], title='122',
-                              cmap=cat_cm, draw_cbar=False)
+                              cmap=cat_cm, draw_cbar=False, background=None)
 
 
+#%% Compute phase of the periodic spatial map (position of maxima in each corridor quadrant) and plot in FOV
+
+#%% Get fractions of PCs that prefer a certain location (inside/outside RZ, which RZ)
+
+def make_binary_column(df, col1, col2, lower, upper):
+    return np.array(((df[col1].between(lower, upper)) | (df[col2].between(lower, upper))).astype(int))
 
 
+zone_borders = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(80)
+# Move RZ a bit to the front, to compensate for visual mismatch/anticipation
+zone_borders[:, 0] -= 1.33333
+zone_borders[:, 1] -= 1.33333
+# Only get data from normal, non-validation trials
+pks = (hheise_placecell.PlaceCell() & 'corridor_type=0' & 'place_cell_id=2' & 'mouse_id!=63' & 'mouse_id!=38' & 'mouse_id!=89').fetch('KEY')
+# Only get fully accepted place fields from accepted place cells
+pf_key = dict(is_place_cell=1, large_enough=1, strong_enough=1, transients=1)
 
-avg_df_rel = avg_df.div(avg_df['pre'], axis=0)
-avg_df_dif = avg_df.sub(avg_df['pre'], axis=0)
+# Classes of possible PF locations
+columns = np.array(['pre_RZ1', 'in_RZ1', 'RZ1-RZ2', 'in_RZ2', 'RZ2-RZ3', 'in_RZ3', 'RZ3-RZ4', 'in_RZ4', 'post_RZ4'])
+rz_mask = np.array([False, True, False, True, False, True, False, True, False])
 
-# Drop cells that are not in every period
-avg_df_clean = avg_df.dropna(axis=0)
+pc_location = []    # Preferred location of place cells. Can be above 100% due to PCs with more than 1 PF.
+pf_location = []    # Location of place fields. Always adds up to 100%.
+for pk in pks:
 
-# Sort cells by pre-stroke correlation
-avg_df_clean_sort = avg_df_clean.sort_values(by='pre', ascending=False)
+    # Get place fields of all accepted place cells of the session
+    key, pfs = (hheise_placecell.PlaceCell.ROI * hheise_placecell.PlaceCell.PlaceField & pk & pf_key).fetch('KEY', 'bin_idx')
 
-# Store data sorted by mice
-for net in final_df['net_id'].unique():
-    out = avg_df_dif.loc[final_df['net_id'] == net]
+    # Compute day relative to surgery
+    try:
+        surg_day = (common_mice.Surgery & f'mouse_id={pk["mouse_id"]}' & 'surgery_type="Microsphere injection"').fetch1('surgery_date')
+        rel_day = (pk['day'] - surg_day.date()).days
+    except dj.errors.DataJointError:
+        continue
 
-# Store total correlation pair data sorted by mice (for scatter plot)
-avg_df_clean['net_id'] = final_df['net_id']
-avg_df_totalpost = avg_df_clean.pivot(index='pre', columns='net_id', values='all_post')
+    if len(key) <= 2:
 
+        # Make summaries
+        summary = {col: np.nan for col in columns}
+        summary['in_RZ'] = -1
+        summary['out_RZ'] = -1
+        pc_location.append(pd.DataFrame(data=[dict(mouse_id=pk['mouse_id'], day=pk['day'], rel_day=rel_day, **summary)]))
+        pf_location.append(pd.DataFrame(data=[dict(mouse_id=pk['mouse_id'], day=pk['day'], rel_day=rel_day, **summary)]))
+        continue
+    mask_pks, spat_maps = (hheise_placecell.BinnedActivity.ROI & key).get_normal_act('dff')
 
+    if spat_maps.shape == (80,):
+        continue
+
+    pf = pd.DataFrame(key)
+
+    # Compute Center of Mass for all place fields (some cells have more than 1 PF)
+    pf_coms = []
+    pf_sds = []
+    for ind, k in enumerate(key):
+        mask_idx = [i for i, dic in enumerate(mask_pks) if dic['mask_id'] == k['mask_id']][0]
+        pf_com, pf_sd = dc.place_field_com(spat_maps[mask_idx], pfs[ind])
+        pf_coms.append(pf_com)
+        pf_sds.append(pf_sd)
+
+    # pf_com = list(zip(*[dc.place_field_com(spat_map, pf_ind) for spat_map, pf_ind in zip(spat_maps, pfs)]))
+
+    pf.drop(columns=['session_num', 'motion_id', 'caiman_id', 'place_cell_id', 'corridor_type'], inplace=True)
+    pf['com'] = pf_coms
+    pf['com_sd'] = pf_sds
+    pf['com_min'] = pf['com'] - pf['com_sd']
+    pf['com_max'] = pf['com'] + pf['com_sd']
+
+    # Get position of each place field with respect to reward zones.
+    prev_border = 0
+    for idx, border in enumerate(zone_borders.flatten()):
+        pf[columns[idx]] = pf['com'].between(prev_border, border)
+        prev_border = border
+    pf[columns[idx+1]] = pf['com'].between(prev_border, 80)
+
+    # Add columns for in vs outside of RZs
+    pf['in_RZ'] = pf[columns[rz_mask]].any(axis=1)
+    pf['out_RZ'] = pf[columns[~rz_mask]].any(axis=1)
+
+    # Make summaries
+    n_cells = pf['mask_id'].nunique()
+    summary = {col: pf[col].sum()/n_cells for col in columns}
+    summary['in_RZ'] = pf['in_RZ'].sum()/n_cells
+    summary['out_RZ'] = pf['out_RZ'].sum() / n_cells
+    pc_location.append(pd.DataFrame(data=[dict(mouse_id=pk['mouse_id'], day=pk['day'], rel_day=rel_day, **summary)]))
+
+    summary = {col: pf[col].sum()/len(pf) for col in columns}
+    summary['in_RZ'] = pf['in_RZ'].sum()/len(pf)
+    summary['out_RZ'] = pf['out_RZ'].sum() / len(pf)
+    pf_location.append(pd.DataFrame(data=[dict(mouse_id=pk['mouse_id'], day=pk['day'], rel_day=rel_day, **summary)]))
+
+pf_loc = pd.concat(pf_location)
+pc_loc = pd.concat(pc_location)
+
+# Export in/out data for line plots in Prism
+pf_loc_export = pf_loc.pivot(index='rel_day', columns='mouse_id', values='in_RZ')
+pf_loc_export.to_csv(r'C:\Users\hheise.UZH\Desktop\pc_location\pf_loc.csv')
+# Todo: finish analysing, plotting with Prism --> across mice, days
+
+curr_df = pf_loc
+for mouse_id in curr_df['mouse_id'].unique():
+
+    curr_mouse = curr_df[curr_df['mouse_id'] == mouse_id].set_index('day')
+
+    small = curr_mouse[columns]
+    big = curr_mouse[['in_RZ', 'out_RZ']]
+
+    ax = small.plot(kind='bar', stacked=True)
+    ax = big.plot(kind='bar', stacked=True)
