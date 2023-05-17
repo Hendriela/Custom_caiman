@@ -921,6 +921,38 @@ def characterize_class3(influence_df):
 
         return axis
 
+    def plot_rzs(data_df, axis, m_id, var, num_cells):
+
+        # Get fraction of corridor occupied by RZs
+        zones = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(120)
+        total_zones = np.sum(zones[:, 1] - zones[:, 0]) / 120
+
+        # Remap relative days to a contiguous integer scale to remove gaps between poststroke days
+        remapped_values = {value: index for index, value in enumerate(data_df['rel_day'].unique())}
+        remapped_days = np.array([remapped_values[value] for value in data_df['rel_day']])
+        data_df['x'] = remapped_days
+
+        # For each day, get the fraction of in_RZ and out_RZ
+        fracs = data_df.groupby('x').mean()
+        fracs['out_rz'] = 1-fracs[var]
+        rel_day = fracs.pop('rel_day')
+        fracs.columns = ['in RZ', 'out RZ']
+
+        # plt.figure()
+        # axis = plt.subplot(111)
+        axis = fracs.plot(kind='bar', stacked=True, ax=axis, width=1, color=['green', 'royalblue'], legend=False)
+        axis.spines[['right', 'top']].set_visible(False)
+        axis.set_xticklabels(axis.get_xticks(), rotation=0)
+        axis.set(xticks=axis.get_xticks(), xticklabels=rel_day.astype(int), ylim=(0, 1),
+                 ylabel='PFs in reward zones [%]', xlabel='')
+
+        # Draw a horizontal line at chance level
+        axis.axhline(total_zones, linestyle='--', c='black')
+        axis.axvline(np.where(data_df['rel_day'].unique() > 0)[0][0]-0.5, linestyle='--', c='red')
+        axis.set_title(f'M{m_id} - {num_cells} "Always-PC" cells')
+
+        return axis
+
     attributes = {'com': plot_coms, 'pf_quad': plot_quadrants, 'pf_rz': plot_rzs, 'pf_zone': plot_zones}
 
     # Plot CoM location in corridor across sessions
