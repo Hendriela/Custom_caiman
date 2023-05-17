@@ -24,6 +24,10 @@ from preprint import data_cleaning as dc
 DAY_DIFF = 3
 BACKWARDS = True
 
+# Classes of possible PF locations
+FINE_ZONES = np.array(['pre_RZ1', 'in_RZ1', 'RZ1-RZ2', 'in_RZ2', 'RZ2-RZ3', 'in_RZ3', 'RZ3-RZ4', 'in_RZ4', 'post_RZ4'])
+RZ_MASK = np.array([False, True, False, True, False, True, False, True, False])
+
 # Deficit
 queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),
@@ -371,10 +375,6 @@ pks = (hheise_placecell.PlaceCell() & 'corridor_type=0' & 'place_cell_id=2' & 'm
 # Only get fully accepted place fields from accepted place cells
 pf_key = dict(is_place_cell=1, large_enough=1, strong_enough=1, transients=1)
 
-# Classes of possible PF locations
-columns = np.array(['pre_RZ1', 'in_RZ1', 'RZ1-RZ2', 'in_RZ2', 'RZ2-RZ3', 'in_RZ3', 'RZ3-RZ4', 'in_RZ4', 'post_RZ4'])
-rz_mask = np.array([False, True, False, True, False, True, False, True, False])
-
 pc_location = []    # Preferred location of place cells. Can be above 100% due to PCs with more than 1 PF.
 pf_location = []    # Location of place fields. Always adds up to 100%.
 for pk in pks:
@@ -392,7 +392,7 @@ for pk in pks:
     if len(key) <= 2:
 
         # Make summaries
-        summary = {col: np.nan for col in columns}
+        summary = {col: np.nan for col in FINE_ZONES}
         summary['in_RZ'] = -1
         summary['out_RZ'] = -1
         pc_location.append(pd.DataFrame(data=[dict(mouse_id=pk['mouse_id'], day=pk['day'], rel_day=rel_day, **summary)]))
@@ -425,22 +425,22 @@ for pk in pks:
     # Get position of each place field with respect to reward zones.
     prev_border = 0
     for idx, border in enumerate(zone_borders.flatten()):
-        pf[columns[idx]] = pf['com'].between(prev_border, border)
+        pf[FINE_ZONES[idx]] = pf['com'].between(prev_border, border)
         prev_border = border
-    pf[columns[idx+1]] = pf['com'].between(prev_border, 80)
+    pf[FINE_ZONES[idx+1]] = pf['com'].between(prev_border, 80)
 
     # Add columns for in vs outside of RZs
-    pf['in_RZ'] = pf[columns[rz_mask]].any(axis=1)
-    pf['out_RZ'] = pf[columns[~rz_mask]].any(axis=1)
+    pf['in_RZ'] = pf[FINE_ZONES[RZ_MASK]].any(axis=1)
+    pf['out_RZ'] = pf[FINE_ZONES[~RZ_MASK]].any(axis=1)
 
     # Make summaries
     n_cells = pf['mask_id'].nunique()
-    summary = {col: pf[col].sum()/n_cells for col in columns}
+    summary = {col: pf[col].sum()/n_cells for col in FINE_ZONES}
     summary['in_RZ'] = pf['in_RZ'].sum()/n_cells
     summary['out_RZ'] = pf['out_RZ'].sum() / n_cells
     pc_location.append(pd.DataFrame(data=[dict(mouse_id=pk['mouse_id'], day=pk['day'], rel_day=rel_day, **summary)]))
 
-    summary = {col: pf[col].sum()/len(pf) for col in columns}
+    summary = {col: pf[col].sum()/len(pf) for col in FINE_ZONES}
     summary['in_RZ'] = pf['in_RZ'].sum()/len(pf)
     summary['out_RZ'] = pf['out_RZ'].sum() / len(pf)
     pf_location.append(pd.DataFrame(data=[dict(mouse_id=pk['mouse_id'], day=pk['day'], rel_day=rel_day, **summary)]))
@@ -650,10 +650,7 @@ def measure_newly_coding_influence(cell_class, pf_center, mouse_id, match_matrix
             if len(c_loc) != 1:
                 return 'ERROR'
             else:
-                return fine_zones[c_loc[0]]
-
-        fine_zones = np.array(['pre_RZ1', 'in_RZ1', 'RZ1-RZ2', 'in_RZ2', 'RZ2-RZ3', 'in_RZ3',
-                               'RZ3-RZ4', 'in_RZ4', 'post_RZ4'])
+                return FINE_ZONES[c_loc[0]]
 
         try:
             return [single_zone(c, borders) for c in centers]
@@ -885,7 +882,44 @@ def characterize_class3(influence_df):
 
         return axis
 
+    def plot_zones(data_df, axis, m_id, var, num_cells):
 
+        # Remap relative days to a contiguous integer scale to remove gaps between poststroke days
+        remapped_values = {value: index for index, value in enumerate(data_df['rel_day'].unique())}
+        remapped_days = np.array([remapped_values[value] for value in data_df['rel_day']])
+        data_df['x'] = remapped_days
+
+        # Make custom heatmap to get percentages per x-bin (day)
+        com_heat = np.zeros((len(FINE_ZONES), len(data_df['x'].unique())))
+        for d in data_df['x'].unique():
+            # Count occurrence of each zone in the current session
+            zone_counts = np.array([np.sum((data_df[data_df['x'] == d][var] == z)) for z in FINE_ZONES])
+            com_heat[:, d] = (zone_counts / np.sum(zone_counts)) * 100
+
+        # plt.figure()
+        # axis = plt.subplot(111)
+        axis = sns.heatmap(com_heat, ax=axis, cmap='magma', cbar_kws={'label': '% per session', 'pad': 0.02})
+        axis.invert_yaxis()
+
+        # Draw a barplot of the zone counts on the side
+        divider = make_axes_locatable(axis)  # Create a divider for the existing axes
+        new_ax = divider.append_axes('right', size='20%', pad=0.1)  # Add a new axes to the right of the main axes
+        # Use a reversed dark green color palette
+        sns.barplot(y=FINE_ZONES, x=np.array([np.sum((data_df[var] == z)) for z in FINE_ZONES]), ax=new_ax,
+                    width=1, palette=reversed(sns.color_palette("Greens_d", len(FINE_ZONES))))
+        new_ax.invert_yaxis()
+        new_ax.spines[['right', 'top', 'bottom']].set_visible(False)
+        new_ax.set(xticks=[], xlabel='', yticks=[], ylabel='')
+
+        # Set X-ticks to relative days and draw red line at smallest positive day for Microsphere injection
+        axis.set_xticklabels(axis.get_xticks(), rotation=0)
+        axis.set_yticklabels(axis.get_yticks(), rotation=0)
+        axis.set(yticks=np.arange(len(FINE_ZONES)) + 0.5, yticklabels=FINE_ZONES)
+        axis.set(xticks=data_df['x'].unique() + 0.5, xticklabels=data_df['rel_day'].unique())
+        axis.axvline(np.where(data_df['rel_day'].unique() > 0)[0][0], linestyle='--', c='red')
+        axis.set_title(f'M{m_id} - {num_cells} "Always-PC" cells')
+
+        return axis
 
     attributes = {'com': plot_coms, 'pf_quad': plot_quadrants, 'pf_rz': plot_rzs, 'pf_zone': plot_zones}
 
