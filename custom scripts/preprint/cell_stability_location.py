@@ -532,7 +532,7 @@ def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, 
         except TypeError:
             return single_zone(centers, borders)
 
-    print(mouse_id)
+    # print(mouse_id)
 
     # Only take accepted PFs from accepted PCs
     pf_k = dict(place_cell_id=2, corridor_type=0, is_place_cell=1, large_enough=1, strong_enough=1, transients=1)
@@ -543,6 +543,7 @@ def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, 
     class3 = np.where(cell_class == 3)[0]
     class3_df = []
     for day, relative_day in zip(pf_center.columns, days):
+
         # If there are class-3-cells in this session, start loading data for all place cells
         if not pf_center[day].iloc[class3].isna().all():
 
@@ -571,31 +572,45 @@ def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, 
                 all_class3_cells = all_pc[all_pc['mask_id'].isin(real_curr_class3_ids)]
                 all_pc = all_pc[~all_pc['mask_id'].isin(real_curr_class3_ids)]
 
-            for df_idx, dj_mask_id in zip(class3, real_curr_class3_ids):
+            for df_idx, dj_mask_id in zip(curr_active_class3, real_curr_class3_ids):
                 # for each currently PC class3 cell, compute distance/similarity of the c3 cell to all other PCs
                 # (also non-tracked) at that session
                 # print(df_idx, dj_mask_id)
 
                 if exclude_other_class3_cells:
                     # If we excluded all class3 cells before, we dont have to do it for each cell
-                    curr_class3 = all_class3_cells[all_class3_cells['mask_id'] == dj_mask_id].squeeze().to_dict()
+                    curr_class3 = all_class3_cells[all_class3_cells['mask_id'] == dj_mask_id]
                     rest_pc = all_pc
                 else:
                     # Otherwise, remove the current class 3 cell from the DF for processing
-                    curr_class3 = all_pc[all_pc['mask_id'] == dj_mask_id].squeeze().to_dict()
+                    curr_class3 = all_pc[all_pc['mask_id'] == dj_mask_id]
                     rest_pc = all_pc[all_pc['mask_id'] != dj_mask_id]
 
-                class3_df.append(pd.DataFrame(
-                    [dict(df_integer_idx=df_idx, df_label_idx=match_matrix.index[df_idx], day=day, rel_day=relative_day,
-                          mask_idx=int(dj_mask_id), n_rest_pc=len(rest_pc), com=curr_class3['com'],
-                          pf_quad=curr_class3['pf_quad'], pf_rz=curr_class3['pf_rz'], pf_zone=curr_class3['pf_zone'],
-                          avg_dist=(rest_pc['com'] - curr_class3['com']).abs().mean() * (400/80),               # Average distance of PF CoM to other accepted PFs in cm
-                          avg_quad_dist=(rest_pc['pf_quad'] - curr_class3['pf_quad']).abs().mean() * (400/80),  # Average distance of PF CoM to other accepted PFs, normalized by quadrants, in cm
-                          share_rz=(rest_pc['pf_rz'] == curr_class3['pf_rz']).sum()/len(rest_pc),      # Fraction of PFs that are also in a reward zone/not in reward zone
-                          share_zone=(rest_pc['pf_zone'] == curr_class3['pf_zone']).sum()/len(rest_pc),
-                          )
-                     ]))
-    class3_df = pd.concat(class3_df)
+                # curr_class3 contains all PFs of the current stable PC. Make separate analysis for all accepted PFs.
+                # Treating multiple PFs of the same PC like separate PCs makes sense, since the hypothesis is that the
+                # stable cells drive other cells to be the same, which would also mean having the same number of PFs.
+                # However, if a stable cell has 2 PFs, and another cell has the same 2 PFs, this analysis would give a
+                # bad score, since the two PFs might be different from each other. Todo: Figure out how to deal with this.
+                for i, pf_row in curr_class3.iterrows():
+
+                    class3_df.append(pd.DataFrame(
+                        [dict(
+                            # General info about the current class3 place cell/field, to find it again in the database
+                            df_label_idx=df_idx, df_integer_idx=np.where(match_matrix[day].index == df_idx)[0][0],
+                            day=day, rel_day=relative_day, mask_idx=int(dj_mask_id), pf_id=pf_row['place_field_id'],
+                            # Attributes of the class3 field that were compared to the rest of the place cells
+                            n_rest_pc=len(rest_pc), com=pf_row['com'],
+                            pf_quad=pf_row['pf_quad'], pf_rz=pf_row['pf_rz'], pf_zone=pf_row['pf_zone'],
+                            # Comparison of class3 field vs other PCs
+                            avg_dist=(rest_pc['com'] - pf_row['com']).abs().mean() * (400/80),               # Average distance of PF CoM to other accepted PFs in cm
+                            avg_quad_dist=(rest_pc['pf_quad'] - pf_row['pf_quad']).abs().mean() * (400/80),  # Average distance of PF CoM to other accepted PFs, normalized by quadrants, in cm
+                            share_rz=(rest_pc['pf_rz'] == pf_row['pf_rz']).sum()/len(rest_pc),      # Fraction of PFs that are also in a reward zone/not in reward zone
+                            share_zone=(rest_pc['pf_zone'] == pf_row['pf_zone']).sum()/len(rest_pc),
+                        )
+                        ]))
+    class3_df = pd.concat(class3_df, ignore_index=True)
+    # class3_df.sort_values(by=['df_label_idx', 'rel_day', 'pf_id'], inplace=True)    # sort final DF by Dataframe index/global matched_matrix ID (easier to follow up single cells)
+    class3_df.sort_values(by=['rel_day', 'df_label_idx', 'pf_id'], inplace=True)    # sort final DF by date (easier to plot time course)
     return class3_df
 
 
