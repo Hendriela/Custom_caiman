@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from scipy import spatial
 import bisect
 import datajoint as dj
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from schema import common_match, common_img, hheise_placecell, hheise_behav, common_mice, hheise_hist
 from util import helper
@@ -614,6 +615,128 @@ def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, 
     return class3_df
 
 
+def measure_newly_coding_influence(cell_class, pf_center, mouse_id, match_matrix, days):
+
+    # Transform PF centers into quadrant coordinates (distance to next RZ start) -> applied to each pf center
+    def get_distance(centers, borders):
+
+        def comp_dist(cent, b):
+            dist = b - cent
+            return np.min(dist[dist > 0])  # Get distance to next RZ (only positive distances)
+
+        try:
+            return [comp_dist(c, borders) for c in centers]
+        except TypeError:
+            return comp_dist(centers, borders)
+
+    # Transform PF centers into binary values (in RZ or not) -> applied to each pf center
+    def in_reward_zone(centers, borders):
+        try:
+            return [any([b[0] <= c <= b[1] for b in borders]) for c in centers]
+        except TypeError:
+            return any([b[0] <= centers <= b[1] for b in borders])
+
+    def get_zone(centers, borders):
+
+        def single_zone(cent, b):
+            # Get fine-grained location of PF
+            cent_loc = []
+            prev_bord = 0
+            for i, bor in enumerate(b.flatten()):
+                cent_loc.append(prev_bord <= cent < bor)
+                prev_bord = bor
+            cent_loc.append(prev_bord <= cent <= 80)
+            c_loc = np.where(cent_loc)[0]
+            if len(c_loc) != 1:
+                return 'ERROR'
+            else:
+                return fine_zones[c_loc[0]]
+
+        fine_zones = np.array(['pre_RZ1', 'in_RZ1', 'RZ1-RZ2', 'in_RZ2', 'RZ2-RZ3', 'in_RZ3',
+                               'RZ3-RZ4', 'in_RZ4', 'post_RZ4'])
+
+        try:
+            return [single_zone(c, borders) for c in centers]
+        except TypeError:
+            return single_zone(centers, borders)
+
+    # print(mouse_id)
+
+    # Only take accepted PFs from accepted PCs
+    pf_k = dict(place_cell_id=2, corridor_type=0, is_place_cell=1, large_enough=1, strong_enough=1, transients=1)
+    bord = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(80)
+
+    # For all class-3 cells, compute fraction of other place cells that are similar/average distance of place fields
+    # all sessions where class-3 cells are actually place cells
+    class3 = np.where(cell_class == 3)[0]
+    class1 = np.where(cell_class == 1)[0]       # Newly coding cells (never PC pre, at least once PC early post)
+    class3_df = []
+    for day, relative_day in zip(pf_center.columns, days):
+
+        # Only process poststroke sessions
+        if relative_day < 1:
+            continue
+
+        # If there are class-3-cells in this session, start loading data for all place cells
+        if not pf_center[day].iloc[class3].isna().all():
+
+            # Get dataframe indices of all class3-cells that are place cells in the current session
+            curr_active_class3 = pf_center[day].iloc[class3].index[np.where(~pf_center[day].iloc[class3].isna())[0]]
+            # Use these to get the global mask_id for the class3 neurons in the current session
+            real_curr_class3_ids = match_matrix[day][curr_active_class3].values
+
+            # Get dataframe label indices of all class-1 cells that are place cells in the current session
+            curr_active_class1 = pf_center[day].iloc[class1].index[np.where(~pf_center[day].iloc[class1].isna())[0]]
+            # Use these to get the global mask_id for the class3 neurons in the current session
+            real_curr_class1_ids = match_matrix[day][curr_active_class1].values
+
+            # Compute PF CoM for all (tracked) place cells of the current session
+            all_pc = pd.DataFrame(dict(day=day, rel_day=relative_day, mask_id=match_matrix[day][~pf_center[day].isna()],
+                                       com=pf_center[day][~pf_center[day].isna()]))
+            # Query database for correct place_field_id
+            pf_ids = pd.DataFrame((hheise_placecell.PlaceCell.PlaceField & f'mouse_id={mouse_id}' & pf_k &
+                                   common_match.MatchedIndex().string2key(title=day) &
+                                   f'mask_id in {helper.in_query(all_pc["mask_id"])}'
+                                   ).fetch('mask_id', 'place_field_id', as_dict=True))
+            # Match place fields to place field IDs (merge does not work for PCs with more than 1 PF)
+            all_pc['place_field_id'] = [pf_ids[pf_ids['mask_id'] == row['mask_id']]['place_field_id'].values
+                                        for i, row in all_pc.iterrows()]
+            all_pc = all_pc.explode(['com', 'place_field_id'])
+            # Make a dummy 5th border (same distance as RZ1-RZ2) for place fields after the 4th RZ
+            all_pc['pf_quad'] = all_pc['com'].apply(get_distance, borders=np.append(bord[:, 0], bord[-1, 0]+(bord[1, 0]-bord[0, 0])))
+            all_pc['pf_rz'] = all_pc['com'].apply(in_reward_zone, borders=bord)
+            all_pc['pf_zone'] = all_pc['com'].apply(get_zone, borders=bord)
+
+            # Extract data for class3 and class1 cells
+            class3_data = all_pc.loc[curr_active_class3]
+            class1_data = all_pc.loc[curr_active_class1]
+
+            # Skip session if there are no newly coding place cells
+            if len(class1_data) == 0:
+                continue
+
+            for int_idx, (row_idx, row) in enumerate(class3_data.iterrows()):
+
+                class3_df.append(pd.DataFrame(
+                    [dict(
+                        # General info about the current class3 place cell/field, to find it again in the database
+                        df_label_idx=row_idx, df_integer_idx=int_idx, day=day, rel_day=relative_day,
+                        mask_idx=row['mask_id'], pf_id=row['place_field_id'],
+                        # Attributes of the class3 field that were compared to the rest of the place cells
+                        n_rest_pc=len(class1_data), com=row['com'],
+                        pf_quad=row['pf_quad'], pf_rz=row['pf_rz'], pf_zone=row['pf_zone'],
+                        # Comparison of class3 field vs other PCs
+                        avg_dist=(class1_data['com'] - row['com']).abs().mean() * (400/80),               # Average distance of PF CoM to newly coding PFs in cm
+                        avg_quad_dist=(class1_data['pf_quad'] - row['pf_quad']).abs().mean() * (400/80),  # Average distance of PF CoM to newly coding PFs, normalized by quadrants, in cm
+                        share_rz=(class1_data['pf_rz'] == row['pf_rz']).sum()/len(class1_data),           # Fraction of newly coding PFs that are in the same area as the class3 cell
+                        share_zone=(class1_data['pf_zone'] == row['pf_zone']).sum()/len(class1_data),
+                    )
+                    ]))
+    class3_df = pd.concat(class3_df, ignore_index=True)
+    # class3_df.sort_values(by=['df_label_idx', 'rel_day', 'pf_id'], inplace=True)    # sort final DF by Dataframe index/global matched_matrix ID (easier to follow up single cells)
+    class3_df.sort_values(by=['rel_day', 'df_label_idx', 'pf_id'], inplace=True)    # sort final DF by date (easier to plot time course)
+    return class3_df
+
 # 1.
 pc_fractions = {41: compute_placecell_fractions(pc=is_pc[0]['41_1'][0], days=np.array(is_pc[0]['41_1'][1])),
                 69: compute_placecell_fractions(pc=is_pc[1]['69_1'][0], days=np.array(is_pc[1]['69_1'][1])),
@@ -628,7 +751,149 @@ pf_centers = {41: get_pf_location(match_matrix=match_matrices[0]['41_1'], spatia
               115: get_pf_location(match_matrix=match_matrices[3]['115_1'], spatial_dff=spat_dff_maps[3]['115_1'][0], place_fields=pfs[3]['115_1'][0]),
               122: get_pf_location(match_matrix=match_matrices[4]['122_1'], spatial_dff=spat_dff_maps[4]['122_1'][0], place_fields=pfs[4]['122_1'][0])}
 
-# 3.
-influence = {k: measure_cell_influence(cell_class=pc_fractions[k], pf_center=pf_centers[k], mouse_id=k,
-                                       match_matrix=match_matrices[i][f'{k}_1'], days=pfs[i][f'{k}_1'][1])
-             for i, k in enumerate(pf_centers)}
+# 3.a
+influence_dict = {k: measure_cell_influence(cell_class=pc_fractions[k], pf_center=pf_centers[k], mouse_id=k,
+                                            match_matrix=match_matrices[i][f'{k}_1'], days=pfs[i][f'{k}_1'][1])
+                  for i, k in enumerate(pf_centers)}
+influence = pd.concat([df.assign(mouse_id=key) for key, df in influence_dict.items()], ignore_index=True)
+influence_long = influence.melt(id_vars=influence.columns[~influence.columns.isin(['avg_dist', 'avg_quad_dist',
+                                                                                   'share_rz', 'share_zone'])])
+
+# 3.b
+newly_coding_dict = {k: measure_newly_coding_influence(cell_class=pc_fractions[k], pf_center=pf_centers[k], mouse_id=k,
+                                                       match_matrix=match_matrices[i][f'{k}_1'], days=pfs[i][f'{k}_1'][1])
+                     for i, k in enumerate(pf_centers)}
+new_coding = pd.concat([df.assign(mouse_id=key) for key, df in newly_coding_dict.items()], ignore_index=True)
+new_coding_long = new_coding.melt(id_vars=new_coding.columns[~new_coding.columns.isin(['avg_dist', 'avg_quad_dist',
+                                                                                      'share_rz', 'share_zone'])])
+
+# Plotting
+g = sns.FacetGrid(new_coding_long, col='mouse_id', row='variable', sharey='row', col_order=newly_coding_dict.keys(),
+                  margin_titles=True)
+# for (row_val, col_val), ax in g.axes_dict.items():
+#     ax.axvline(0.5, linestyle='--', c='r')
+g.map_dataframe(sns.lineplot, x='rel_day', y='value')
+g.set_titles(col_template="M{col_name}", row_template="{row_name}")
+
+
+#%% Characterize class 3 place cells
+
+def characterize_class3(influence_df):
+
+    def draw_heatmap(dataset, ax_obj, cbar_pad=0.02):
+        ax_obj = sns.heatmap(dataset, ax=ax_obj, cmap='magma', cbar_kws={'label': '% per session', 'pad': cbar_pad})
+        ax_obj.invert_yaxis()
+        return ax_obj
+
+    def add_histplot(dataset, ax_obj, yvar, nbins, max_bin, kde_smoothing=1.0):
+        divider = make_axes_locatable(ax_obj)  # Create a divider for the existing axes
+        new_ax = divider.append_axes('right', size='20%', pad=0.1)  # Add a new axes to the right of the main axes
+        new_ax = sns.histplot(dataset, y=yvar, ax=new_ax, bins=nbins, binrange=(0, max_bin),
+                              stat='density', color='lightblue')
+        new_ax = sns.kdeplot(dataset, y=yvar, ax=new_ax, bw_adjust=kde_smoothing)
+        new_ax.spines[['right', 'top', 'bottom']].set_visible(False)
+        new_ax.set(xticks=[], xlabel='', yticks=[], ylabel='', ylim=(0, max_bin))
+
+    def plot_coms(data_df, axis, m_id, var, num_cells):
+
+        n_bins = 120
+        zones = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(n_bins)
+
+        # Remap relative days to a contiguous integer scale to remove gaps between poststroke days
+        remapped_values = {value: index for index, value in enumerate(data_df['rel_day'].unique())}
+        remapped_days = np.array([remapped_values[value] for value in data_df['rel_day']])
+        data_df['x'] = remapped_days
+
+        # Make custom heatmap to get percentages per x-bin (day)
+        com_heat = np.zeros((n_bins, len(data_df['x'].unique())))
+        for d in data_df['x'].unique():
+            histo = np.histogram(data_df[data_df['x'] == d][var], bins=n_bins, range=(0, 80), density=True)[0]
+            com_heat[:, d] = (histo/np.sum(histo))*100
+
+        # plt.figure()
+        # axis = plt.subplot(111)
+        axis = draw_heatmap(com_heat, axis)
+
+        # Draw a KDE-Histogram on the side
+        add_histplot(data_df, axis, var, n_bins, 80, 0.2)
+
+        # Draw reward zone borders
+        for z in zones:
+            axis.axhline(z[0], linestyle='--', c='green')
+            axis.axhline(z[1], linestyle='--', c='green')
+
+        # Set X-ticks to relative days and draw red line at smallest positive day for Microsphere injection
+        axis.set_xticklabels(axis.get_xticks(), rotation=0)
+        axis.set(xticks=data_df['x'].unique()+0.5, xticklabels=data_df['rel_day'].unique())
+        axis.axvline(np.where(data_df['rel_day'].unique() > 0)[0][0], linestyle='--', c='red')
+        axis.set_title(f'M{m_id} - {num_cells} "Always-PC" cells')
+        # # Using seaborns default histplot (normalizes across whole heatmap)
+        # plt.figure()
+        # axis = plt.subplot(111)
+        # out = sns.histplot(coms, x='dummy_x', y='com', ax=axis, bins=120, discrete=(True, False), thresh=None,
+        #                    stat='percent', binrange=(None, (0, 80)), cmap='magma', cbar=True)
+        # out = axis.set(xticks=np.arange(len(coms['rel_day'].unique())), xticklabels=coms['rel_day'].unique())
+
+        return axis
+
+    def plot_quadrants(data_df, axis, m_id, var, num_cells):
+
+        # Compute total quadrant length (distance from one RZ start to the next)
+        size_factor = 120/80        # Size factor between VR units (integer bins of RZ zones) and spatial map units (5 cm)
+        zones = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(80)
+        raw_quadrant_length = np.mean(zones[1:, 0] - zones[:-1, 0])
+        quadrant_length = int(np.round(raw_quadrant_length * size_factor))
+        zone_length = int(np.round(np.mean(zones[:, 1] - zones[:, 0]) * size_factor))
+
+        # Remap relative days to a contiguous integer scale to remove gaps between poststroke days
+        remapped_values = {value: index for index, value in enumerate(data_df['rel_day'].unique())}
+        remapped_days = np.array([remapped_values[value] for value in data_df['rel_day']])
+        data_df['x'] = remapped_days
+
+        # Make custom heatmap to get percentages per x-bin (day)
+        com_heat = np.zeros((quadrant_length, len(data_df['x'].unique())))
+        for d in data_df['x'].unique():
+            histo = np.histogram(data_df[data_df['x'] == d][var], bins=quadrant_length, range=(0, raw_quadrant_length),
+                                 density=True)[0]
+            com_heat[:, d] = (histo/np.sum(histo))*100
+
+        # plt.figure()
+        # axis = plt.subplot(111)
+        axis = sns.heatmap(com_heat, ax=axis, cmap='magma', cbar_kws={'label': '% per session', 'pad': 0.02})
+        axis.invert_yaxis()
+
+        # Draw a KDE-Histogram on the side
+        add_histplot(data_df, axis, var, quadrant_length, raw_quadrant_length, 0.75)
+        # divider = make_axes_locatable(axis)        # Create a divider for the existing axes
+        # new_ax = divider.append_axes('right', size='20%', pad=0.01)   # Add a new axes to the right of the main axes
+        # new_ax = sns.histplot(data_df, y=var, ax=new_ax, bins=quadrant_length, binrange=(0, raw_quadrant_length),
+        #                       stat='density', color='lightblue')
+        # new_ax = sns.kdeplot(data_df, y=var, ax=new_ax, bw_adjust=.75)
+        # new_ax.spines[['right', 'top', 'bottom']].set_visible(False)
+        # new_ax.set(xticks=[], xlabel='', yticks=[], ylabel='', ylim=(0, raw_quadrant_length))
+
+        # Draw reward zone borders
+        axis.axhline(zone_length, linestyle='--', c='green', linewidth=3)
+
+        # Set X-ticks to relative days and draw red line at smallest positive day for Microsphere injection
+        axis.set_xticklabels(axis.get_xticks(), rotation=0)
+        axis.set_yticklabels(axis.get_yticks(), rotation=0)
+        axis.set(yticks=np.arange(quadrant_length)[::2]+0.5, yticklabels=np.arange(quadrant_length)[::2])
+        axis.set(xticks=data_df['x'].unique() + 0.5, xticklabels=data_df['rel_day'].unique())
+        axis.axvline(np.where(data_df['rel_day'].unique() > 0)[0][0], linestyle='--', c='red')
+        axis.set_title(f'M{m_id} - {num_cells} "Always-PC" cells')
+
+        return axis
+
+
+
+    attributes = {'com': plot_coms, 'pf_quad': plot_quadrants, 'pf_rz': plot_rzs, 'pf_zone': plot_zones}
+
+    # Plot CoM location in corridor across sessions
+    for a, func in attributes.items():
+        fig, ax = plt.subplots(2, 3, sharey='all')
+        ax_flat = ax.flatten()
+        for i, mouse in enumerate(influence_df['mouse_id'].unique()):
+            func(data_df=influence_df[influence_df['mouse_id'] == mouse][['rel_day', a]], axis=ax_flat[i], m_id=mouse,
+                 var=a, num_cells=influence_df[influence_df['mouse_id'] == mouse]['df_label_idx'].nunique())
+        ax_flat[-1].set_visible(False)
