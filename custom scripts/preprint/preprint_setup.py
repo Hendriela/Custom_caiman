@@ -605,6 +605,108 @@ def plot_performance_neural_correlations():
                 index=False,
                 columns=['mouse_id', 'performance', 'pc_si', 'mean_stab'])
 
+#%% Figure 2
+# Sphere count behavior groups
+spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric &
+                        'metric_name="spheres"').fetch('mouse_id','count_extrap', as_dict=True))
+merge = spheres.merge(grouping_2, on='mouse_id')
+merge = merge.rename(columns={'count_extrap': 'sphere count'})
+
+plt.figure()
+sns.set(font_scale=1.25)
+strp = sns.stripplot(merge, y='group', x='sphere count', size=12, orient='h',
+                     order=['no_deficit', 'recovery', 'deficit_flicker', 'deficit_no_flicker'])
+# strp.set_xscale('log')
+label = [10, 50, 100, 200, 500, 1000, 2000]
+strp.set(xticks=label, xticklabels=label)
+for i, point in enumerate(strp.collections):
+    # Extract the x and y coordinates of the data point
+    x = point.get_offsets()[:, 1]
+    y = point.get_offsets()[:, 0]
+
+    # Add labels to the data point
+    for j, y_ in enumerate(y):
+        plt.text(y[j], x[j]-0.05, merge[merge['sphere count'] == y_]['mouse_id'].iloc[0], ha='center', va='bottom',
+                 fontsize=15)
+
+#%% Figure 3
+
+# Place Cells per FOV over time
+pc_ratios = pd.DataFrame((hheise_placecell.PlaceCell() & 'place_cell_id=2' & f'mouse_id in {helper.in_query(mice)}' &
+                          'corridor_type=0').fetch('KEY', 'place_cell_ratio', as_dict=True))
+pc_ratios['place_cell_ratio'] *= 100
+
+rel_days = []
+for i, row in pc_ratios.iterrows():
+    surg_day = (common_mice.Surgery & f'mouse_id={row["mouse_id"]}' &
+                'surgery_type="Microsphere injection"').fetch1('surgery_date')
+    rel_days.append((row['day'] - surg_day.date()).days)
+pc_ratios['rel_days'] = rel_days
+
+g = sns.FacetGrid(data=pc_ratios, col='mouse_id', col_wrap=6, sharex=False, sharey=False)
+g.map_dataframe(sns.lineplot, x='rel_days', y='place_cell_ratio')
+for col_val, ax in g.axes_dict.items():
+    ax.axvline(0.5, linestyle='--', c='r')
+
+
+def compute_pc_ratio_change(pc_df, relative_diff=False):
+    """ To be applied to a DF from a single mouse via groupby(). """
+
+    three_day_pre = np.sort(pc_df[pc_df['rel_days'] <= 0]['rel_days'].values)[-3]
+
+    pre_avg = np.nanmean(pc_df[pc_df['rel_days'].between(three_day_pre, 0)]['place_cell_ratio'])
+
+    if relative_diff:
+        out = pd.DataFrame([dict(
+            early_post_avg=(np.nanmean(pc_df[pc_df['rel_days'].between(1, 9)]['place_cell_ratio']) / pre_avg) * 100,
+            late_post_avg=(np.nanmean(pc_df[pc_df['rel_days'] > 9]['place_cell_ratio']) / pre_avg) * 100,
+            total_post_avg=(np.nanmean(pc_df[pc_df['rel_days'] > 0]['place_cell_ratio']) / pre_avg) * 100
+        )])
+    else:
+        out = pd.DataFrame([dict(
+            early_post_avg=np.nanmean(pc_df[pc_df['rel_days'].between(1, 9)]['place_cell_ratio']) - pre_avg,
+            late_post_avg=np.nanmean(pc_df[pc_df['rel_days'] > 9]['place_cell_ratio']) - pre_avg,
+            total_post_avg=np.nanmean(pc_df[pc_df['rel_days'] > 0]['place_cell_ratio']) - pre_avg
+        )])
+    return out
+
+
+pc_abs_change = pc_ratios.groupby('mouse_id').apply(compute_pc_ratio_change).droplevel(1)
+pc_rel_change = pc_ratios.groupby('mouse_id').apply(compute_pc_ratio_change, relative_diff=True).droplevel(1)
+
+spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric &
+                        'metric_name="spheres"').fetch('mouse_id', 'count_extrap', as_dict=True))
+spheres.rename(columns={'count_extrap': 'sphere_count'}, inplace=True)
+
+pc_abs = pc_abs_change.merge(spheres, left_index=True, right_on='mouse_id')
+pc_rel = pc_rel_change.merge(spheres, left_index=True, right_on='mouse_id')
+pc_abs.to_csv(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\abs_pc_ratio_change.csv')
+pc_rel.to_csv(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\rel_pc_ratio_change.csv')
+
+pc_abs_melt = pc_abs.melt(id_vars=['mouse_id', 'sphere_count'], var_name='time_point', value_name='abs_pc_diff')
+pc_rel_melt = pc_rel.melt(id_vars=['mouse_id', 'sphere_count'], var_name='time_point', value_name='rel_pc_diff')
+
+ax = sns.scatterplot(data=pc_abs_melt, x='sphere_count', y='abs_pc_diff', hue='time_point')
+ax.set_xscale('log')
+
+# Correlate metrics (PC ratio, within-session stability, firing rate) with behavioral performance
+stab = pd.DataFrame((hheise_placecell.SpatialInformation.ROI & 'place_cell_id=2' & f'mouse_id in {helper.in_query(mice)}' &
+                     'corridor_type=0').fetch('mouse_id', 'day', 'stability', as_dict=True))
+stab_avg = stab.groupby(['mouse_id', 'day']).mean().reset_index()
+
+# Firing rate (only normal trials)
+pks = (common_img.Deconvolution & f'mouse_id in {helper.in_query(mice)}' & 'decon_id=1').fetch('KEY')
+fr_avg = []
+for pk in pks:
+    spikes = (common_img.Segmentation & pk).get_traces('decon', decon_id=pk['decon_id'])
+    fps = (common_img.ScanInfo & pk).fetch1('fr')
+    trial_mask = (hheise_placecell.PCAnalysis & pk & 'place_cell_id=2').fetch1('trial_mask')
+    normal_trials = (hheise_behav.VRSession & pk).get_normal_trials()
+    normal_trial_mask = np.isin(trial_mask, normal_trials)
+    spikes = spikes[:, normal_trial_mask]
+    fr_avg.append(pd.DataFrame([dict(mouse_id=pk['mouse_id'], day=pk['day'],
+                                     avg_fr=np.mean(np.sum(spikes, axis=1) / spikes.shape[1] * fps))]))
+fr_avg = pd.concat(fr_avg)
 
 #%% Single-cell plots
 
