@@ -450,7 +450,7 @@ pc_loc = pd.concat(pc_location)
 
 # Export in/out data for line plots in Prism
 pf_loc_export = pf_loc.pivot(index='rel_day', columns='mouse_id', values='in_RZ')
-pf_loc_export.to_csv(r'C:\Users\hheise.UZH\Desktop\pc_location\pf_loc.csv')
+pf_loc_export.to_csv(r'C:\Users\hheise.UZH\Desktop\pc_location\pf_in_RZ.csv')
 # Todo: finish analysing, plotting with Prism --> across mice, days
 
 
@@ -619,7 +619,8 @@ def measure_newly_coding_influence(cell_class, pf_center, mouse_id, match_matrix
 
     # Transform PF centers into quadrant coordinates (distance to next RZ start) -> applied to each pf center
     def get_distance(centers, borders):
-
+        # Distance to next RZ start: Minimal right before the start, maximum right after the start
+        # The resulting quadrant goes from max_dist (in RZ) -> min_dist (before next RZ)
         def comp_dist(cent, b):
             dist = b - cent
             return np.min(dist[dist > 0])  # Get distance to next RZ (only positive distances)
@@ -764,11 +765,11 @@ new_coding = pd.concat([df.assign(mouse_id=key) for key, df in newly_coding_dict
 new_coding_long = new_coding.melt(id_vars=new_coding.columns[~new_coding.columns.isin(['avg_dist', 'avg_quad_dist',
                                                                                       'share_rz', 'share_zone'])])
 
-# Plotting
-g = sns.FacetGrid(new_coding_long, col='mouse_id', row='variable', sharey='row', col_order=newly_coding_dict.keys(),
-                  margin_titles=True)
-# for (row_val, col_val), ax in g.axes_dict.items():
-#     ax.axvline(0.5, linestyle='--', c='r')
+# Plotting Influence and Newly Coding overview FacetGrids
+g = sns.FacetGrid(influence_long[influence_long['variable'] != 'share_zone'], col='mouse_id', row='variable',
+                  sharey='row', col_order=influence_dict.keys(), margin_titles=True)
+for (row_val, col_val), ax in g.axes_dict.items():
+    ax.axvline(0.5, linestyle='--', c='r')
 g.map_dataframe(sns.lineplot, x='rel_day', y='value')
 g.set_titles(col_template="M{col_name}", row_template="{row_name}")
 
@@ -790,6 +791,7 @@ def characterize_class3(influence_df):
         new_ax = sns.kdeplot(dataset, y=yvar, ax=new_ax, bw_adjust=kde_smoothing)
         new_ax.spines[['right', 'top', 'bottom']].set_visible(False)
         new_ax.set(xticks=[], xlabel='', yticks=[], ylabel='', ylim=(0, max_bin))
+        return new_ax
 
     def plot_coms(data_df, axis, m_id, var, num_cells):
 
@@ -857,20 +859,15 @@ def characterize_class3(influence_df):
         # plt.figure()
         # axis = plt.subplot(111)
         axis = sns.heatmap(com_heat, ax=axis, cmap='magma', cbar_kws={'label': '% per session', 'pad': 0.02})
-        axis.invert_yaxis()
+        # axis.invert_yaxis()       # Quadrant location is distance to next RZ -> inverse position (gets smaller along the corridor), so no axis reversion is needed)
+
 
         # Draw a KDE-Histogram on the side
-        add_histplot(data_df, axis, var, quadrant_length, raw_quadrant_length, 0.75)
-        # divider = make_axes_locatable(axis)        # Create a divider for the existing axes
-        # new_ax = divider.append_axes('right', size='20%', pad=0.01)   # Add a new axes to the right of the main axes
-        # new_ax = sns.histplot(data_df, y=var, ax=new_ax, bins=quadrant_length, binrange=(0, raw_quadrant_length),
-        #                       stat='density', color='lightblue')
-        # new_ax = sns.kdeplot(data_df, y=var, ax=new_ax, bw_adjust=.75)
-        # new_ax.spines[['right', 'top', 'bottom']].set_visible(False)
-        # new_ax.set(xticks=[], xlabel='', yticks=[], ylabel='', ylim=(0, raw_quadrant_length))
+        hist_ax = add_histplot(data_df, axis, var, quadrant_length, raw_quadrant_length, 0.75)
+        hist_ax.invert_yaxis()  # Y-axis has to be inverted, since sns.heatmap() inverts it as well
 
         # Draw reward zone borders
-        axis.axhline(zone_length, linestyle='--', c='green', linewidth=3)
+        axis.axhline(quadrant_length-zone_length, linestyle='--', c='green', linewidth=3)
 
         # Set X-ticks to relative days and draw red line at smallest positive day for Microsphere injection
         axis.set_xticklabels(axis.get_xticks(), rotation=0)
@@ -879,6 +876,7 @@ def characterize_class3(influence_df):
         axis.set(xticks=data_df['x'].unique() + 0.5, xticklabels=data_df['rel_day'].unique())
         axis.axvline(np.where(data_df['rel_day'].unique() > 0)[0][0], linestyle='--', c='red')
         axis.set_title(f'M{m_id} - {num_cells} "Always-PC" cells')
+        axis.set_ylabel('Distance to next RZ')
 
         return axis
 
