@@ -57,20 +57,20 @@ for query in queries:
     is_pc.append(query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
                                         extra_restriction=dict(corridor_type=0, place_cell_id=2),
                                         return_array=True, relative_dates=True, surgery='Microsphere injection'))
-
-    pfs.append(query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
-                                      extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                      return_array=False, relative_dates=True, surgery='Microsphere injection'))
-
-    spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
-                                               extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                               return_array=True, relative_dates=True,
-                                               surgery='Microsphere injection'))
-
-    spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
-                                                extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                                return_array=True, relative_dates=True,
-                                                surgery='Microsphere injection'))
+    #
+    # pfs.append(query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
+    #                                   extra_restriction=dict(corridor_type=0, place_cell_id=2),
+    #                                   return_array=False, relative_dates=True, surgery='Microsphere injection'))
+    #
+    # spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
+    #                                            extra_restriction=dict(corridor_type=0, place_cell_id=2),
+    #                                            return_array=True, relative_dates=True,
+    #                                            surgery='Microsphere injection'))
+    #
+    # spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
+    #                                             extra_restriction=dict(corridor_type=0, place_cell_id=2),
+    #                                             return_array=True, relative_dates=True,
+    #                                             surgery='Microsphere injection'))
 
 
 #%% Compute cross-session stability
@@ -333,28 +333,28 @@ pc_fractions = {41: compute_placecell_fractions(pc=is_pc[0]['41_1'][0], days=np.
 
 
 # Make categorical colormap
-cat_cm = matplotlib.colors.ListedColormap(np.array([[0.5, 0.5, 0.5, 1],     # Class 0: brown
-                                                    [0.0, 0.6, 1.0, 1],     # Class 0: blue
-                                                    [0.2, 0.8, 0.2, 1],     # Class 0: green
-                                                    [1.0, 0.4, 0.0, 1]]))   # Class 0: orange
+cat_cm = matplotlib.colors.ListedColormap(np.array([[0.4, 0.2, 0, 1],     # Class 0: brown
+                                                    [0.0, 0.6, 1.0, 1],     # Class 1: blue
+                                                    [0.2, 0.8, 0.2, 1],     # Class 2: green
+                                                    [1.0, 0.4, 0.0, 1]]))   # Class 3: orange
 
 fig, ax = plt.subplots(2, 3)
 ax[0, 0] = plot_colored_cells(match_matrix=match_matrices[0]['41_1'], mouse_id=41, day='2020-08-27', axis=ax[0, 0],
                               row_ids=np.arange(len(pc_fractions[41])), color=pc_fractions[41], title='41', cmap=cat_cm,
-                              draw_cbar=False, background=None)
+                              draw_cbar=False, background='cor_image')
 ax[0, 1] = plot_colored_cells(match_matrix=match_matrices[1]['69_1'], mouse_id=69, day='2021-03-11', axis=ax[0, 1],
                               row_ids=np.arange(len(pc_fractions[69])), color=pc_fractions[69], title='69', cmap=cat_cm,
-                              cbar_ticklabels=['Never PC', 'PC post only', 'PC pre only', 'Always PC'], background=None)
+                              cbar_ticklabels=['Never PC', 'Newly coding', 'Lost coding', 'Remaining PC'], background='cor_image')
 ax[0, 2].set_visible(False)
 ax[1, 0] = plot_colored_cells(match_matrix=match_matrices[2]['121_1'], mouse_id=121, day='2022-08-15', axis=ax[1, 0],
                               row_ids=np.arange(len(pc_fractions[121])), color=pc_fractions[121], title='121',
-                              cmap=cat_cm, draw_cbar=False, background=None)
+                              cmap=cat_cm, draw_cbar=False, background='cor_image')
 ax[1, 1] = plot_colored_cells(match_matrix=match_matrices[3]['115_1'], mouse_id=115, day='2022-08-12', axis=ax[1, 1],
                               row_ids=np.arange(len(pc_fractions[115])), color=pc_fractions[115], title='115',
-                              cmap=cat_cm, draw_cbar=False, background=None)
+                              cmap=cat_cm, draw_cbar=False, background='cor_image')
 ax[1, 2] = plot_colored_cells(match_matrix=match_matrices[4]['122_1'], mouse_id=122, day='2022-08-15', axis=ax[1, 2],
                               row_ids=np.arange(len(pc_fractions[122])), color=pc_fractions[122], title='122',
-                              cmap=cat_cm, draw_cbar=False, background=None)
+                              cmap=cat_cm, draw_cbar=False, background='cor_image')
 
 
 #%% Compute phase of the periodic spatial map (position of maxima in each corridor quadrant) and plot in FOV
