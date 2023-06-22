@@ -962,7 +962,7 @@ plot_matched_cells_across_sessions(traces=map_dff_data[cell_means < lower_quanti
                                    normalize=True, across_sessions=True, smooth=1)
 
 
-# %% Place Cell/Place field qualitative analysis
+#%% Place Cell/Place field qualitative analysis (Pie Charts)
 
 def place_cell_qualitative():
     """
@@ -971,13 +971,92 @@ def place_cell_qualitative():
     are not place cells anymore.
     """
 
+    def get_remaining_newlycoding_cellcounts(dataset):
+        """ Dataset is the output of is_pc queried for only prestroke sessions of a single network. """
+        arr = list(dataset.items())[0][1][0]
+        n_newly = 0
+        n_remaining = 0
+        for i in range(1, arr.shape[1]):
+            curr_pc = arr[arr[:, i] == 1]  # Take all PCs at the current session
+            # curr_pc = curr_pc[~np.isnan(curr_pc[:, i - 1])]  # Ignore PCs that were not tracked in the previous session
+            n_remaining += np.nansum(curr_pc[:, i - 1])
+            n_newly += len(curr_pc) - np.nansum(curr_pc[:, i - 1])
+
+        return n_newly, n_remaining
+
+    def get_stability_cellcounts(is_pc_dataset, placefield_dataset, spatial_dff_dataset):
+        """ Dataset is the output of is_pc, pfs and spat_dff_maps of a single network. """
+        pc_arr = list(is_pc_dataset.items())[0][1][0]
+        pf_arr = np.array(list(placefield_dataset.items())[0][1][0])
+        dff_arr = list(spatial_dff_dataset.items())[0][1][0]
+
+        # Go through every session
+        dfs = []
+
+        # for i in range(placecell_data.shape[1] - 1):      # This checks PCs on the next day (forward)
+        #     i_next = i+1
+        for i in range(1, pc_arr.shape[1]):  # This checks PCs on the previous day (backward)
+            i_next = i - 1
+
+            # Idx of PCs in session i that are also PCs in the other session
+            stable_pc_idx = np.where(np.nansum(pc_arr[:, [i, i_next]], axis=1) == 2)[0]
+            pfs_1 = pf_arr[stable_pc_idx, i]
+            pfs_2 = pf_arr[stable_pc_idx, i_next]
+
+            # For each stable place cell, compare place fields
+            for cell_idx, pf_1, pf_2 in zip(stable_pc_idx, pfs_1, pfs_2):
+
+                # Get center of mass for current place fields in both sessions
+                pf_com_1 = [dc.place_field_com(spatial_map_data=dff_arr[cell_idx, i], pf_indices=pf) for pf in pf_1]
+                pf_com_2 = [dc.place_field_com(spatial_map_data=dff_arr[cell_idx, i_next], pf_indices=pf) for pf in pf_2]
+
+                # For each place field in day i, check if there is a place field on day 2 that overlaps with its CoM
+                pc_is_stable = np.nan
+                dist = np.nan
+                if len(pf_com_1) == len(pf_com_2):
+                    # If cell has one PF on both days, check if the day-1 CoM is located inside day-2 PF -> stable
+                    if len(pf_com_1) == 1:
+                        if pf_2[0][0] < pf_com_1[0][0] < pf_2[0][-1]:
+                            pc_is_stable = True
+                        else:
+                            pc_is_stable = False
+
+                        # Compute distance for now only between singular PFs (positive distance means shift towards end)
+                        dist = pf_com_2[0][0] - pf_com_1[0][0]
+
+                    # If the cell has more than 1 PF on both days, check if all PFs overlap -> stable
+                    else:
+                        same_pfs = [True if pf2[0] < pf_com1[0] < pf2[-1] else False for pf_com1, pf2 in
+                                    zip(pf_com_1, pf_2)]
+                        pc_is_stable = all(
+                            same_pfs)  # This sets pc_is_stable to True if all PFs match, otherwise its False
+
+                # If cell has different number of place fields on both days, for now don't process
+                else:
+                    pass
+
+                # Get difference in place field numbers to quantify how many cells change number of place fields
+                pf_num_change = len(pf_com_2) - len(pf_com_1)
+
+                dfs.append(pd.DataFrame([dict(mouse_id=list(is_pc_dataset.items())[0][0], cell_idx=cell_idx, day=i,
+                                              day_next=i_next, stable=pc_is_stable, dist=dist, num_pf_1=len(pf_com_1),
+                                              num_pf_2=len(pf_com_2), pf_num_change=pf_num_change)]))
+        return pd.concat(dfs)
+
     # Construct query to include only intended matched cells
     queries = ((common_match.MatchedIndex & 'mouse_id=33' & 'day<="2020-08-24"'),
                # (common_match.MatchedIndex & 'mouse_id=38' & 'day<="2020-08-24"'),
                (common_match.MatchedIndex & 'mouse_id=41' & 'day<="2020-08-24"'),
+               (common_match.MatchedIndex & 'mouse_id=69' & 'day<="2021-03-08"'),
+               (common_match.MatchedIndex & 'mouse_id=85' & 'day<="2021-07-16"'),
+               (common_match.MatchedIndex & 'mouse_id=90' & 'day<="2021-07-16"'),
+               (common_match.MatchedIndex & 'mouse_id=93' & 'day<="2021-07-21"'),
                (common_match.MatchedIndex & 'mouse_id=108' & 'day<="2022-08-12"'),
                (common_match.MatchedIndex & 'mouse_id=110' & 'day<="2022-08-09"'),
-               (common_match.MatchedIndex & 'mouse_id=121' & 'day<="2022-08-12"'))
+               (common_match.MatchedIndex & 'mouse_id=121' & 'day<="2022-08-12"'),
+               (common_match.MatchedIndex & 'mouse_id=115' & 'day<="2022-08-09"'),
+               (common_match.MatchedIndex & 'mouse_id=122' & 'day<="2022-08-09"'),
+               (common_match.MatchedIndex & 'mouse_id=114' & 'day<="2022-08-09"'))
 
     is_pc = []
     pfs = []
@@ -996,127 +1075,29 @@ def place_cell_qualitative():
                                           extra_restriction=dict(corridor_type=0, place_cell_id=2),
                                           return_array=False, relative_dates=True, surgery='Microsphere injection'))
 
-        spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
-                                                   extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                                   return_array=True, relative_dates=True,
-                                                   surgery='Microsphere injection'))
+        # spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
+        #                                            extra_restriction=dict(corridor_type=0, place_cell_id=2),
+        #                                            return_array=True, relative_dates=True,
+        #                                            surgery='Microsphere injection'))
 
         spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
                                                     extra_restriction=dict(corridor_type=0, place_cell_id=2),
                                                     return_array=True, relative_dates=True,
                                                     surgery='Microsphere injection'))
 
-    placecell_data, mouse_idx = dc.filter_matched_data(is_pc, keep_nomatch=True)
-    placefield_data, mouse_idx = dc.filter_matched_data(pfs, keep_nomatch=True)
-    spatial_data, mouse_idx = dc.filter_matched_data(spatial_maps, keep_nomatch=True)
-    spatial_dff_data, mouse_idx = dc.filter_matched_data(spat_dff_maps, keep_nomatch=True)
-
-    # For all place cells on a specific day, how many are also place cells on other days?
-    pc_d5 = placecell_data[placecell_data[:, 4] == 1]
-    print(np.nansum(pc_d5, axis=0))
-
-    # How many place cells are newly mapped (have not been a place cell on the previous day)?
-    mice_data = []
-    for mouse in np.unique(mouse_idx):
-        curr_mouse = placecell_data[mouse_idx == mouse]
-        print(f'\nMouse {mouse}:')
-        mouse_data = []
-        for i in range(1, curr_mouse.shape[1]):
-            curr_pc = curr_mouse[curr_mouse[:, i] == 1]  # Take all PCs at the current session
-            # curr_pc = curr_pc[~np.isnan(curr_pc[:, i - 1])]  # Ignore PCs that were not tracked in the previous session
-            other_pc = np.nansum(curr_pc[:, i - 1])
-            print(f'Day {i}: {len(curr_pc)} Place Cells, {int(len(curr_pc)-other_pc)} place cells on day {i - 1} '
-                  f'({((len(curr_pc)-other_pc) / len(curr_pc)) * 100})')
-            mouse_data.append(((len(curr_pc)-other_pc) / len(curr_pc)) * 100)
-        mice_data.append(np.array(mouse_data))
-    mice_data = np.stack(mice_data)
-
-    # How many place cells are still place cells on the next day?
-    mice_data = []
-    for mouse in np.unique(mouse_idx):
-        curr_mouse = placecell_data[mouse_idx == mouse]
-        print(f'\nMouse {mouse}:')
-        mouse_data = []
-        for i in range(curr_mouse.shape[1] - 1):
-            curr_pc = curr_mouse[curr_mouse[:, i] == 1]     # Take all PCs at the current session
-            # curr_pc = curr_pc[~np.isnan(curr_pc[:, i+1])]   # Ignore PCs that were not tracked in the next session
-            print(f'Day {i}: {len(curr_pc)} Place Cells, {int(np.nansum(curr_pc[:, i + 1]))} place cells on day {i + 1} '
-                  f'({(np.nansum(curr_pc[:, i + 1]) / len(curr_pc)) * 100})')
-            mouse_data.append((np.nansum(curr_pc[:, i + 1]) / len(curr_pc)) * 100)
-        mice_data.append(np.array(mouse_data))
-    mice_data = np.stack(mice_data)
-
-    # np.nanmean(mice_data[[True, False, True, True, True]], axis=0)
-    np.nanmean(mice_data, axis=0)
-    np.nanstd(mice_data, axis=0)
-
-    # Of these cells, how many have the place field in approximately the same position?
-    pfs = []
-    for query in queries:
-        pfs.append(query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
-                                          extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                          return_array=False, relative_dates=True, surgery='Microsphere injection'))
-
-    placefield_data, mouse_idx = dc.filter_matched_data(pfs, keep_nomatch=True)
-
-    pf_data = []
-
-    # Go through every session
-    dfs = []
-
-    # for i in range(placecell_data.shape[1] - 1):      # This checks PCs on the next day (forward)
-    #     i_next = i+1
-    for i in range(1, placecell_data.shape[1]):         # This checks PCs on the previous day (backward)
-        i_next = i-1
-
-        # Idx of PCs in session i that are also PCs in the other session
-        stable_pc_idx = np.where(np.nansum(placecell_data[:, [i, i_next]], axis=1) == 2)[0]
-        pfs_1 = placefield_data[stable_pc_idx, i]
-        pfs_2 = placefield_data[stable_pc_idx, i_next]
-
-        # For each stable place cell, compare place fields
-        for cell_idx, pf_1, pf_2 in zip(stable_pc_idx, pfs_1, pfs_2):
-
-            # Get center of mass for current place fields in both sessions
-            pf_com_1 = [dc.place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i], pf_indices=pf) for pf in pf_1]
-            pf_com_2 = [dc.place_field_com(spatial_map_data=spatial_dff_data[cell_idx, i_next], pf_indices=pf) for pf in
-                        pf_2]
-
-            # For each place field in day i, check if there is a place field on day 2 that overlaps with its CoM
-            pc_is_stable = np.nan
-            dist = np.nan
-            if len(pf_com_1) == len(pf_com_2):
-                # If cell has one PF on both days, check if the day-1 CoM is located inside day-2 PF -> stable
-                if len(pf_com_1) == 1:
-                    if pf_2[0][0] < pf_com_1[0][0] < pf_2[0][-1]:
-                        pc_is_stable = True
-                    else:
-                        pc_is_stable = False
-
-                    # Compute distance for now only between singular PFs (positive distance means shift towards end)
-                    dist = pf_com_2[0][0] - pf_com_1[0][0]
-
-                # If the cell has more than 1 PF on both days, check if all PFs overlap -> stable
-                else:
-                    same_pfs = [True if pf2[0] < pf_com1[0] < pf2[-1] else False for pf_com1, pf2 in
-                                zip(pf_com_1, pf_2)]
-                    pc_is_stable = all(same_pfs)  # This sets pc_is_stable to True if all PFs match, otherwise its False
-
-            # If cell has different number of place fields on both days, for now don't process
-            else:
-                pass
-
-            # Get difference in place field numbers to quantify how many cells change number of place fields
-            pf_num_change = len(pf_com_2) - len(pf_com_1)
-
-            dfs.append(pd.DataFrame([dict(mouse_id=mouse_idx[cell_idx], cell_idx=cell_idx, day=i, day_next=i_next,
-                                          stable=pc_is_stable, dist=dist, num_pf_1=len(pf_com_1),
-                                          num_pf_2=len(pf_com_2), pf_num_change=pf_num_change)]))
-
-    stability_df = pd.concat(dfs)
+    # Get number of tracked cells
+    n_tracked_cells = np.sum([len(list(mouse.items())[0][1]) for mouse in match_matrices])
+    remain_newly = [get_remaining_newlycoding_cellcounts(mouse) for mouse in is_pc]
+    remain_newly = np.array(remain_newly)
+    print('Number of cells Newly coding: ', np.sum(remain_newly[:, 0]))
+    print('Number of cells Remaining PCs: ', np.sum(remain_newly[:, 1]))
 
     ### Create array with stable/remapping PCs
-    stable_pcs = stability_df.pivot(index='cell_idx', columns='day', values='stable')
+    stability_dfs = [get_stability_cellcounts(pc_data, pf_data, dff_maps) for pc_data, pf_data, dff_maps in
+                     zip(is_pc, pfs, spat_dff_maps)]
+    stability_df = pd.concat(stability_dfs)
+    print('Number of stable PCs: ', stability_df['stable'].sum())
+    print('Number of remapping PCs: ', len(stability_df) - stability_df['stable'].sum())
 
     # Plot activity of single cell across days vertically
     """
@@ -1252,6 +1233,8 @@ pc_ratios = {np.unique(query.fetch('mouse_id'))[0]: query.fetch('place_cell_rati
 # Place cells/non place cells
 place_cells = len(hheise_placecell.PlaceCell.ROI & pks & 'is_place_cell=1')
 non_place_cells = len(common_img.Segmentation.ROI & pks & 'accepted=1') - place_cells
+
+
 
 #%% Figure 2
 

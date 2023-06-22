@@ -38,11 +38,19 @@ queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & '
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"'))
 
 # All
-queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"')
+queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=33'),   # 407 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),   # 140 cells
+           # (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=63'),   # 87 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),  # 333 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=85'),   # 229 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=90'),   # 131 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=93'),   # 397 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=108' & 'day<"2022-09-09"'),  # 316 cells
+           # (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=110' & 'day<"2022-09-09"'),  # 21 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=114' & 'day<"2022-09-09"'),  # 307 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),  # 331 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'),  # 791 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"')   # 401 cells
            )
 
 is_pc = []
@@ -57,27 +65,45 @@ for query in queries:
     is_pc.append(query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
                                         extra_restriction=dict(corridor_type=0, place_cell_id=2),
                                         return_array=True, relative_dates=True, surgery='Microsphere injection'))
-    #
-    # pfs.append(query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
-    #                                   extra_restriction=dict(corridor_type=0, place_cell_id=2),
-    #                                   return_array=False, relative_dates=True, surgery='Microsphere injection'))
-    #
-    # spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
-    #                                            extra_restriction=dict(corridor_type=0, place_cell_id=2),
-    #                                            return_array=True, relative_dates=True,
-    #                                            surgery='Microsphere injection'))
-    #
-    # spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
-    #                                             extra_restriction=dict(corridor_type=0, place_cell_id=2),
-    #                                             return_array=True, relative_dates=True,
-    #                                             surgery='Microsphere injection'))
+
+    pfs.append(query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
+                                      extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                      return_array=False, relative_dates=True, surgery='Microsphere injection'))
+
+    # M63 has sessions with 170cm corridor, bin sizes dont match up. Skip analysis until fixed.
+    # if np.unique(query.fetch('mouse_id'))[0] != 63:
+    spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
+                                               extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                               return_array=True, relative_dates=True,
+                                               surgery='Microsphere injection'))
+
+    spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
+                                                extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                                return_array=True, relative_dates=True,
+                                                surgery='Microsphere injection'))
+
+
+#%% Save matched/fetched data to files for faster re-loading
+import pickle
+import os
+
+dir = r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Data\analysis\matched_data'
+with open(os.path.join(dir, 'match_matrices.pickle'), "wb") as output_file:
+    pickle.dump(match_matrices, output_file)
+with open(os.path.join(dir, 'is_pc.pickle'), "wb") as output_file:
+    pickle.dump(is_pc, output_file)
+with open(os.path.join(dir, 'pfs.pickle'), "wb") as output_file:
+    pickle.dump(pfs, output_file)
+with open(os.path.join(dir, 'spatial_maps.pickle'), "wb") as output_file:
+    pickle.dump(spatial_maps, output_file)
+with open(os.path.join(dir, 'spat_dff_maps.pickle'), "wb") as output_file:
+    pickle.dump(spat_dff_maps, output_file)
 
 
 #%% Compute cross-session stability
 
 def compute_crosssession_stability(spat_maps, days):
     """ Correlate spatial maps across days for a single network. """
-
 
     curr_df = pd.DataFrame({})
 
@@ -488,7 +514,8 @@ total_mean_sphere.to_csv(r'C:\Users\hheise.UZH\Desktop\pc_location\in_RZ_spheres
     b. Do the newly coding PCs share more often than expected (how to test?) a preferred location with the stable cells?
 """
 
-def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, exclude_other_class3_cells=False):
+def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, exclude_other_class3_cells=False,
+                           rz_border_buffer=0):
 
     # Transform PF centers into quadrant coordinates (distance to next RZ start) -> applied to each pf center
     def get_distance(centers, borders):
@@ -538,6 +565,10 @@ def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, 
     # Only take accepted PFs from accepted PCs
     pf_k = dict(place_cell_id=2, corridor_type=0, is_place_cell=1, large_enough=1, strong_enough=1, transients=1)
     bord = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(80)
+    bord[:, 0] -= rz_border_buffer
+    bord[:, 1] += rz_border_buffer
+
+    # print('Using borders', bord)
 
     # For all class-3 cells, compute fraction of other place cells that are similar/average distance of place fields
     # all sessions where class-3 cells are actually place cells
@@ -560,7 +591,10 @@ def measure_cell_influence(cell_class, pf_center, mouse_id, match_matrix, days, 
             # Compute PF CoM for all place cells of the current session
             dff_pks, all_spat_dff = (hheise_placecell.BinnedActivity.ROI & all_curr_pfs).get_normal_act(trace='dff', return_pks=True)
             all_spat = pd.DataFrame(dff_pks)
-            all_spat['spat_dff'] = list(all_spat_dff)
+            if len(dff_pks) == 1:
+                all_spat['spat_dff'] = [all_spat_dff]
+            else:
+                all_spat['spat_dff'] = list(all_spat_dff)
             all_pc = pd.merge(all_curr_pfs, all_spat)
             all_pf_com = [dc.place_field_com(dff, bin_idx)[0] for bin_idx, dff in zip(all_pc['bin_idx'], all_pc['spat_dff'])]
             all_pc['com'] = all_pf_com
@@ -742,6 +776,27 @@ pc_fractions = {41: compute_placecell_fractions(pc=is_pc[0]['41_1'][0], days=np.
                 115: compute_placecell_fractions(pc=is_pc[3]['115_1'][0], days=np.array(is_pc[3]['115_1'][1])),
                 122: compute_placecell_fractions(pc=is_pc[4]['122_1'][0], days=np.array(is_pc[4]['122_1'][1]))}
 
+pc_fractions = {33: compute_placecell_fractions(pc=is_pc[0]['33_1'][0], days=np.array(is_pc[0]['33_1'][1])),
+                63: compute_placecell_fractions(pc=is_pc[4]['63_1'][0], days=np.array(is_pc[4]['63_1'][1])),
+                85: compute_placecell_fractions(pc=is_pc[1]['85_1'][0], days=np.array(is_pc[1]['85_1'][1])),
+                90: compute_placecell_fractions(pc=is_pc[2]['90_1'][0], days=np.array(is_pc[2]['90_1'][1])),
+                93: compute_placecell_fractions(pc=is_pc[3]['93_1'][0], days=np.array(is_pc[3]['93_1'][1])),}
+                # 108: compute_placecell_fractions(pc=is_pc[4]['108_1'][0], days=np.array(is_pc[4]['108_1'][1])),
+                # 114: compute_placecell_fractions(pc=is_pc[5]['114_1'][0], days=np.array(is_pc[5]['114_1'][1]))}
+
+pc_fractions = {33: compute_placecell_fractions(pc=is_pc[0]['33_1'][0], days=np.array(is_pc[0]['33_1'][1])),
+                41: compute_placecell_fractions(pc=is_pc[1]['41_1'][0], days=np.array(is_pc[1]['41_1'][1])),
+                # 63: compute_placecell_fractions(pc=is_pc[4]['63_1'][0], days=np.array(is_pc[4]['63_1'][1])),
+                69: compute_placecell_fractions(pc=is_pc[2]['69_1'][0], days=np.array(is_pc[2]['69_1'][1])),
+                85: compute_placecell_fractions(pc=is_pc[3]['85_1'][0], days=np.array(is_pc[3]['85_1'][1])),
+                90: compute_placecell_fractions(pc=is_pc[4]['90_1'][0], days=np.array(is_pc[4]['90_1'][1])),
+                93: compute_placecell_fractions(pc=is_pc[5]['93_1'][0], days=np.array(is_pc[5]['93_1'][1])),
+                121: compute_placecell_fractions(pc=is_pc[7]['121_1'][0], days=np.array(is_pc[7]['121_1'][1])),
+                115: compute_placecell_fractions(pc=is_pc[6]['115_1'][0], days=np.array(is_pc[6]['115_1'][1])),
+                122: compute_placecell_fractions(pc=is_pc[8]['122_1'][0], days=np.array(is_pc[8]['122_1'][1]))}
+                # 108: compute_placecell_fractions(pc=is_pc[4]['108_1'][0], days=np.array(is_pc[4]['108_1'][1])),
+                # 114: compute_placecell_fractions(pc=is_pc[5]['114_1'][0], days=np.array(is_pc[5]['114_1'][1]))}
+
 # 2.
 pf_centers = {41: get_pf_location(match_matrix=match_matrices[0]['41_1'], spatial_dff=spat_dff_maps[0]['41_1'][0], place_fields=pfs[0]['41_1'][0]),
               69: get_pf_location(match_matrix=match_matrices[1]['69_1'], spatial_dff=spat_dff_maps[1]['69_1'][0], place_fields=pfs[1]['69_1'][0]),
@@ -749,9 +804,23 @@ pf_centers = {41: get_pf_location(match_matrix=match_matrices[0]['41_1'], spatia
               115: get_pf_location(match_matrix=match_matrices[3]['115_1'], spatial_dff=spat_dff_maps[3]['115_1'][0], place_fields=pfs[3]['115_1'][0]),
               122: get_pf_location(match_matrix=match_matrices[4]['122_1'], spatial_dff=spat_dff_maps[4]['122_1'][0], place_fields=pfs[4]['122_1'][0])}
 
+pf_centers = {33: get_pf_location(match_matrix=match_matrices[0]['33_1'], spatial_dff=spat_dff_maps[0]['33_1'][0], place_fields=pfs[0]['33_1'][0]),
+              41: get_pf_location(match_matrix=match_matrices[1]['41_1'], spatial_dff=spat_dff_maps[1]['41_1'][0], place_fields=pfs[1]['41_1'][0]),
+              69: get_pf_location(match_matrix=match_matrices[2]['69_1'], spatial_dff=spat_dff_maps[2]['69_1'][0], place_fields=pfs[2]['69_1'][0]),
+              # 63: get_pf_location(match_matrix=match_matrices[1]['63_1'], spatial_dff=spat_dff_maps[1]['63_1'][0], place_fields=pfs[1]['69_1'][0]),
+              85: get_pf_location(match_matrix=match_matrices[3]['85_1'], spatial_dff=spat_dff_maps[3]['85_1'][0], place_fields=pfs[3]['85_1'][0]),
+              90: get_pf_location(match_matrix=match_matrices[4]['90_1'], spatial_dff=spat_dff_maps[4]['90_1'][0], place_fields=pfs[4]['90_1'][0]),
+              93: get_pf_location(match_matrix=match_matrices[5]['93_1'], spatial_dff=spat_dff_maps[5]['93_1'][0], place_fields=pfs[5]['93_1'][0]),
+              121: get_pf_location(match_matrix=match_matrices[7]['121_1'], spatial_dff=spat_dff_maps[7]['121_1'][0], place_fields=pfs[7]['121_1'][0]),
+              115: get_pf_location(match_matrix=match_matrices[6]['115_1'], spatial_dff=spat_dff_maps[6]['115_1'][0], place_fields=pfs[6]['115_1'][0]),
+              122: get_pf_location(match_matrix=match_matrices[8]['122_1'], spatial_dff=spat_dff_maps[8]['122_1'][0], place_fields=pfs[8]['122_1'][0])}
+              # 108: get_pf_location(match_matrix=match_matrices[4]['108_1'], spatial_dff=spat_dff_maps[4]['108_1'][0], place_fields=pfs[4]['108_1'][0]),
+              # 114: get_pf_location(match_matrix=match_matrices[5]['114_1'], spatial_dff=spat_dff_maps[5]['114_1'][0], place_fields=pfs[5]['114_1'][0])}
+
 # 3.a
 influence_dict = {k: measure_cell_influence(cell_class=pc_fractions[k], pf_center=pf_centers[k], mouse_id=k,
-                                            match_matrix=match_matrices[i][f'{k}_1'], days=pfs[i][f'{k}_1'][1])
+                                            match_matrix=match_matrices[i][f'{k}_1'], days=pfs[i][f'{k}_1'][1],
+                                            rz_border_buffer=0)
                   for i, k in enumerate(pf_centers)}
 influence = pd.concat([df.assign(mouse_id=key) for key, df in influence_dict.items()], ignore_index=True)
 influence_long = influence.melt(id_vars=influence.columns[~influence.columns.isin(['avg_dist', 'avg_quad_dist',
@@ -774,9 +843,59 @@ g.map_dataframe(sns.lineplot, x='rel_day', y='value')
 g.set_titles(col_template="M{col_name}", row_template="{row_name}")
 
 
+# Get number of class 3 cells that are focussed on reward zones for each mouse
+# How often are class 3 cells focussed on reward zones, per mouse
+class3_rz = []
+for mouse in influence['mouse_id'].unique():
+    curr_mouse = influence[influence['mouse_id'] == mouse]
+
+    for cell_id in curr_mouse['df_label_idx'].unique():
+        curr_cell = curr_mouse[curr_mouse['df_label_idx'] == cell_id]
+
+        occurrence_pre = (curr_cell['rel_day'] <= 0).sum()
+        rz_pre = curr_cell[curr_cell['rel_day'] <= 0]['pf_rz'].sum()
+        pre_frac = rz_pre/occurrence_pre
+
+        occurrence_early = ((curr_cell['rel_day'] > 0) & (curr_cell['rel_day'] <= 9)).sum()
+        rz_early = curr_cell[(curr_cell['rel_day'] > 0) & (curr_cell['rel_day'] <= 9)]['pf_rz'].sum()
+        early_frac = rz_early/occurrence_early
+
+        occurrence_late = (curr_cell['rel_day'] > 9).sum()
+        rz_late = curr_cell[curr_cell['rel_day'] > 9]['pf_rz'].sum()
+        late_frac = rz_late/occurrence_late
+
+        class3_rz.append(pd.DataFrame([dict(mouse_id=mouse, df_label_idx=cell_id,
+                                            occ_pre=occurrence_pre, rz_pre=rz_pre, pre_frac=pre_frac*100,
+                                            occ_early=occurrence_early, rz_early=rz_early, early_frac=early_frac*100,
+                                            occ_late=occurrence_late, rz_late=rz_late, late_frac=late_frac*100)]))
+class3_rz = pd.concat(class3_rz)
+
+class3_rz['occ_post'] = class3_rz['occ_early'] + class3_rz['occ_late']
+class3_rz['rz_post'] = class3_rz['rz_early'] + class3_rz['rz_late']
+class3_rz['post_frac'] = class3_rz['rz_post'] / class3_rz['occ_post']
+class3_rz['occ_total'] = class3_rz['occ_pre'] + class3_rz['occ_post']
+class3_rz['rz_total'] = class3_rz['rz_pre'] + class3_rz['rz_post']
+class3_rz['total_frac'] = class3_rz['rz_total'] / class3_rz['occ_total']
+
+class3_rz.to_csv(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\pc_location\class3_rz_fractions_buffer.csv')
+
+# Transform to Prism format (nested columns)
+arrs = []
+mice = []
+for mouse in class3_rz['mouse_id'].unique():
+    mice.append(mouse)
+    curr_mouse = class3_rz[class3_rz['mouse_id'] == mouse][['pre_frac', 'early_frac', 'late_frac']]
+    curr_mouse = curr_mouse.rename(columns={col: str(mouse) + '_' + str(col) for col in curr_mouse.columns})
+    arrs.append(curr_mouse)
+
+arrs = [df.reset_index(drop=True) for df in arrs]
+nested = pd.concat(arrs, axis=1)
+nested.to_csv(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\pc_location\class3_rz_fractions_buffer_prism.csv')
+
+
 #%% Characterize class 3 place cells
 
-def characterize_class3(influence_df):
+def characterize_class3(influence_df, rz_border_buffer, mouse_order=None):
 
     def draw_heatmap(dataset, ax_obj, cbar_pad=0.02):
         ax_obj = sns.heatmap(dataset, ax=ax_obj, cmap='magma', cbar_kws={'label': '% per session', 'pad': cbar_pad})
@@ -923,6 +1042,9 @@ def characterize_class3(influence_df):
 
         # Get fraction of corridor occupied by RZs
         zones = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(120)
+        # *1.5 because here corridor is binned to 120 instead of 80 bins, making each bin 50% smaller
+        zones[:, 0] -= rz_border_buffer * 1.5
+        zones[:, 1] += rz_border_buffer * 1.5
         total_zones = np.sum(zones[:, 1] - zones[:, 0]) / 120
 
         # Remap relative days to a contiguous integer scale to remove gaps between poststroke days
@@ -955,9 +1077,13 @@ def characterize_class3(influence_df):
 
     # Plot CoM location in corridor across sessions
     for a, func in attributes.items():
-        fig, ax = plt.subplots(2, 3, sharey='all')
+        fig, ax = plt.subplots(3, 3, sharey='all', layout='constrained')
         ax_flat = ax.flatten()
-        for i, mouse in enumerate(influence_df['mouse_id'].unique()):
+        if mouse_order is None:
+            mouse_order = influence_df['mouse_id'].unique()
+        for i, mouse in enumerate(mouse_order):
             func(data_df=influence_df[influence_df['mouse_id'] == mouse][['rel_day', a]], axis=ax_flat[i], m_id=mouse,
                  var=a, num_cells=influence_df[influence_df['mouse_id'] == mouse]['df_label_idx'].nunique())
-        ax_flat[-1].set_visible(False)
+        # ax_flat[-1].set_visible(False)
+
+characterize_class3(influence_df=influence, rz_border_buffer=0, mouse_order=[41, 69, 85, 90, 33, 93, 121, 115, 122])
