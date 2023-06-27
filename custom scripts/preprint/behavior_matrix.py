@@ -108,8 +108,8 @@ def plot_pca(model, ax, reduced_data=None, mean_offset: Union[np.ndarray, int] =
 
 
 # Get normalized performance
-metrics = ['binned_lick_ratio', 'si_binned_run', 'distance', 'autocorr', 'entropy_single']
-plot_pca_mapping = True
+metrics = ['binned_lick_ratio', 'si_binned_run', 'distance', 'autocorr']
+plot_pca_mapping = False
 
 fig, axes = plt.subplots(nrows=2, ncols=len(metrics), layout='constrained')
 
