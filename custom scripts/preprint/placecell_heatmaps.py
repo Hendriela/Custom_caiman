@@ -401,7 +401,7 @@ def plot_transition_heatmaps(early_maps, late_maps, cmap='turbo', title=None):
     if title is not None:
         fig.suptitle(title)
 
-
+#%%
 # Deficit (recovery or no recovery) mice
 queries = (
            # (common_match.MatchedIndex & 'mouse_id=33'),
@@ -448,7 +448,7 @@ queries = (
 
 is_pc = []
 pfs = []
-spatial_maps = []
+# spatial_maps = []
 match_matrices = []
 spat_dff_maps = []
 
@@ -463,10 +463,10 @@ for query in queries:
                                       extra_restriction=dict(corridor_type=0, place_cell_id=2),
                                       return_array=False, relative_dates=True, surgery='Microsphere injection'))
 
-    spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
-                                               extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                               return_array=True, relative_dates=True,
-                                               surgery='Microsphere injection'))
+    # spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
+    #                                            extra_restriction=dict(corridor_type=0, place_cell_id=2),
+    #                                            return_array=True, relative_dates=True,
+    #                                            surgery='Microsphere injection'))
 
     spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
                                                 extra_restriction=dict(corridor_type=0, place_cell_id=2),
@@ -580,7 +580,7 @@ spat_noncoding_sort = np.delete(spat_noncoding_sort, [133, 228, 428], axis=0)
 draw_heatmap_across_days(data_arrays=[spat_stable_sort, spat_unstable_sort, spat_noncoding_sort],
                          titles=['pre', 'first post', 'early', 'late'], draw_empty_row=True, draw_zone_borders=True)
 
-
+#%%
 ############################################### QUANTIFICATION #########################################################
 
 
@@ -768,18 +768,85 @@ ax[1, 0].set_ylabel('From Cell Class Early')
 
 ### Transition heatmaps
 # Cell numbers in early and late dont sum up because there are some cells that transitioned from noncoding to PC
-def_heat_early = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(deficit)], spat_arr=spat_dff_maps,
+def_heat_early = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(deficit)], spat_arr=spatial_maps,
                                     to_period='early', place_cells=True)
-def_heat_late = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(deficit)], spat_arr=spat_dff_maps,
+def_heat_late = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(deficit)], spat_arr=spatial_maps,
                                    to_period='late', place_cells=True)
 
-sham_heat_early = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(sham)], spat_arr=spat_dff_maps,
+sham_heat_early = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(sham)], spat_arr=spatial_maps,
                                      to_period='early', place_cells=True)
-sham_heat_late = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(sham)], spat_arr=spat_dff_maps,
+sham_heat_late = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(sham)], spat_arr=spatial_maps,
                                     to_period='late', place_cells=True)
 
 ## Plot heatmaps
 plot_transition_heatmaps(early_maps=def_heat_early, late_maps=def_heat_late)     # Deficit place cells
 plot_transition_heatmaps(early_maps=sham_heat_early, late_maps=sham_heat_late)     # Deficit place cells
 
+#%% Transition matrix visualizations
+### Visualize transition matrices with hmmviz
+from hmmviz import TransGraph
 
+# Use pandas for cross-tabulation (transition matrix)
+classes = ['lost', 'non-coding', 'unstable', 'stable']
+deficit_early_tab = pd.DataFrame(deficit_early, columns=classes, index=classes)
+deficit_late_tab = pd.DataFrame(deficit_late, columns=classes, index=classes)
+no_recovery_early_tab = pd.DataFrame(no_recovery_early, columns=classes, index=classes)
+no_recovery_late_tab = pd.DataFrame(no_recovery_late, columns=classes, index=classes)
+recovery_early_tab = pd.DataFrame(recovery_early, columns=classes, index=classes)
+recovery_late_tab = pd.DataFrame(recovery_late, columns=classes, index=classes)
+sham_early_tab = pd.DataFrame(sham_early, columns=classes, index=classes)
+sham_late_tab = pd.DataFrame(sham_late, columns=classes, index=classes)
+
+graph = TransGraph(deficit_early_tab/100)
+fig = plt.figure(figsize=(6, 6))
+graph.draw(edgelabels=True)
+
+# Export classes for Plotly Sankey Diagram
+matrices = []
+for i, mouse in enumerate(class_df.mouse_id.unique()):
+    mask_pre = class_df[(class_df['mouse_id'] == mouse) & (class_df['period'] == 'pre')]['classes'].iloc[0]
+    mask_early = class_df[(class_df['mouse_id'] == mouse) & (class_df['period'] == 'early')]['classes'].iloc[0]
+    mask_late = class_df[(class_df['mouse_id'] == mouse) & (class_df['period'] == 'late')]['classes'].iloc[0]
+
+    pre_early_trans = transition_matrix(mask_pre, mask_early, percent=False)
+    early_late_trans = transition_matrix(mask_early, mask_late, percent=False)
+
+    matrices.append(pd.DataFrame([dict(mouse_id=mouse, pre_early=pre_early_trans, early_late=early_late_trans)]))
+matrices = pd.concat(matrices, ignore_index=True)
+
+# Make average transition matrices
+deficit_early = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(deficit)]['pre_early'])), axis=0)
+deficit_late = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(deficit)]['early_late'])), axis=0)
+
+no_recovery_early = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(no_recovery)]['pre_early'])), axis=0)
+no_recovery_late = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(no_recovery)]['early_late'])), axis=0)
+
+recovery_early = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(recovery)]['pre_early'])), axis=0)
+recovery_late = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(recovery)]['early_late'])), axis=0)
+
+sham_early = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(sham)]['pre_early'])), axis=0)
+sham_late = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(sham)]['early_late'])), axis=0)
+
+
+def unravel_matrix(mat_early, mat_late):
+    source_early = [it for sl in [[i]*4 for i in range(4)] for it in sl]  # "From" class
+    target_early = [4,5,6,7]*4                      # "To" classes (shifted by 4)
+    source_late = np.array(source_early) + 4
+    target_late = np.array(target_early) + 4        # Classes from early->late have different labels (shifted by 4 again)
+
+    early_flat = mat_early.flatten()
+    late_flat = mat_late.flatten()
+
+    # Concatenate everything into three rows (source, target, value)
+    out = np.array([[*source_early, *source_late], [*target_early, *target_late], [*early_flat, *late_flat]])
+    return out
+
+
+np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\pc_heatmaps\sankey_matrices\deficit.csv',
+           unravel_matrix(deficit_early, deficit_late), fmt="%d", delimiter=',')
+np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\pc_heatmaps\sankey_matrices\no_recovery.csv',
+           unravel_matrix(no_recovery_early, no_recovery_late), fmt="%d", delimiter=',')
+np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\pc_heatmaps\sankey_matrices\recovery.csv',
+           unravel_matrix(recovery_early, recovery_late), fmt="%d", delimiter=',')
+np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\pc_heatmaps\sankey_matrices\sham.csv',
+           unravel_matrix(sham_early, sham_late), fmt="%d", delimiter=',')
