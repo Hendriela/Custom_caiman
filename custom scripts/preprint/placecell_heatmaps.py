@@ -9,6 +9,7 @@ import pickle
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import seaborn as sns
 import pandas as pd
 
@@ -288,6 +289,119 @@ def draw_heatmap_across_days(data_arrays, titles=None, draw_empty_row=True, draw
                 ax[i].axvline(z[1], linestyle='--', c='green')
 
 
+def transition_heatmap(classes: pd.DataFrame, spat_arr: list, to_period: str, place_cells: bool):
+    """ Class_df from quantify_stability_split(), already selected all mice whose cells should be included."""
+    # Transform list into dict for easier querying
+    spat_dict = {k: v for dic in spat_arr for k, v in dic.items()}
+
+    if to_period == 'early':
+        from_period = 'pre'
+    elif to_period == 'late':
+        from_period = 'early'
+    else:
+        raise NameError(f'Argument "to_period" has invalid value: {to_period}')
+
+    from_act = []
+    to_stable = []
+    to_unstable = []
+    to_noncoding = []
+    for curr_mouse in classes['mouse_id'].unique():
+
+        # Make date masks
+        curr_dates = np.array(spat_dict[curr_mouse][1])
+        if to_period == 'early':
+            from_dates = curr_dates <= 0
+            to_dates = (curr_dates > 0) & (curr_dates <= 9)
+        else:
+            from_dates = (curr_dates > 0) & (curr_dates <= 9)
+            to_dates = curr_dates > 9
+
+        # Heatmap 1: All PCs (classes 2+3) in phase 1 (pre or early)
+        from_classes = classes[(classes['mouse_id'] == curr_mouse) & (classes['period'] == from_period)]['classes'].iloc[0]
+        if place_cells:
+            cell_mask = (from_classes == 2) | (from_classes == 3)
+        else:
+            cell_mask = from_classes == 1
+
+        # Average activity across the whole to_period for the first heatmap
+        curr_act = spat_dict[curr_mouse][0][cell_mask]
+        curr_act = curr_act[:, from_dates]
+        from_act.append(np.nanmean(curr_act, axis=1))
+
+        # Heatmap 2: All PCs that remained stable in phase 2 (early or late)
+        to_classes = classes[(classes['mouse_id'] == curr_mouse) & (classes['period'] == to_period)]['classes'].iloc[0]
+        curr_act = spat_dict[curr_mouse][0][cell_mask & (to_classes == 3)]
+        to_stable.append(np.nanmean(curr_act[:, to_dates], axis=1))
+
+        # Heatmap 3: All PCs that became unstable in phase 2
+        curr_act = spat_dict[curr_mouse][0][cell_mask & (to_classes == 2)]
+        to_unstable.append(np.nanmean(curr_act[:, to_dates], axis=1))
+
+        # Heatmap 4: All PCs that became non-coding in phase 2
+        curr_act = spat_dict[curr_mouse][0][cell_mask & (to_classes == 1)]
+        to_noncoding.append(np.nanmean(curr_act[:, to_dates], axis=1))
+
+    output = {'from_act': np.concatenate(from_act), 'to_stable': np.concatenate(to_stable),
+              'to_unstable': np.concatenate(to_unstable), 'to_noncoding': np.concatenate(to_noncoding)}
+
+    return output
+
+
+def plot_transition_heatmaps(early_maps, late_maps, cmap='turbo', title=None):
+
+    def plot_transition_heatmap(maps, f, gs, from_title=None, to_title=None):
+
+        def sort_array(arr):
+            sort_key = [(i, np.argmax(trace)) for i, trace in enumerate(arr)]
+            sort_key = [y[0] for y in sorted(sort_key, key=lambda x: x[1])]
+            return arr[sort_key]
+
+        gs1 = gs.subgridspec(1, 2)      # Create inner Gridspec (1 row, 2 columns)
+
+        ax_from = f.add_subplot(gs1[0])      # Axis for "from" large heatmap
+        ax_to = f.add_subplot(gs1[1])        # Axis for to_stable heatmap
+
+        # Plot "from" data sorted by maximum
+        sns.heatmap(sort_array(maps['from_act']), ax=ax_from, cbar=False, cmap=cmap)
+
+        # Sort "to" data by maximum separately for each group, and concatenate to single array, separated by single row
+        to_arr = [sort_array(x) for x in [maps['to_stable'], maps['to_unstable'], maps['to_noncoding']]]
+        empty_row = np.zeros((1, *to_arr[0].shape[1:])) * np.nan
+        stacked_data = [np.vstack([x, empty_row]) for x in to_arr[:-1]]
+        stacked_data.append(to_arr[-1])
+        stacked_data.append(np.zeros((len(maps['from_act'])-len(np.vstack(to_arr))-2, *to_arr[0].shape[1:])) * np.nan)   # Append empty rows for lost neurons
+        stacked_data = np.vstack(stacked_data)
+
+        sns.heatmap(stacked_data, ax=ax_to, cbar=False, cmap=cmap)
+
+        # Use Y-axis labels for cell numbers
+        ax_from.set_yticks([])
+        ax_from.set_xticklabels(np.floor(ax_from.get_xticks()).astype(int), rotation=0)
+        y_pos = 0
+        y_tick_pos = []
+        y_tick_label = []
+        for a in to_arr:
+            y_tick_pos.append(len(a)//2 + y_pos)
+            y_tick_label.append(f'{len(a)}\n{(len(a)/len(maps["from_act"]))*100:.0f}%')
+            y_pos += len(a)
+        ax_to.set(yticks=y_tick_pos, yticklabels=y_tick_label)
+        ax_to.set_xticklabels(np.floor(ax_to.get_xticks()).astype(int), rotation=0)
+
+        if from_title is not None:
+            ax_from.set_title(from_title)
+        if to_title is not None:
+            ax_to.set_title(to_title)
+
+    fig = plt.figure()
+    gs_outer = gridspec.GridSpec(1, 2, figure=fig)   # Splits figure into two halves (early and late)
+
+    plot_transition_heatmap(maps=early_maps, f=fig, gs=gs_outer[0], from_title='Pre', to_title='Early')
+    plot_transition_heatmap(maps=late_maps, f=fig, gs=gs_outer[1], from_title='Early', to_title='Late')
+
+    if title is not None:
+        fig.suptitle(title)
+
+
 # Deficit (recovery or no recovery) mice
 queries = (
            # (common_match.MatchedIndex & 'mouse_id=33'),
@@ -349,10 +463,10 @@ for query in queries:
                                       extra_restriction=dict(corridor_type=0, place_cell_id=2),
                                       return_array=False, relative_dates=True, surgery='Microsphere injection'))
 
-    # spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
-    #                                            extra_restriction=dict(corridor_type=0, place_cell_id=2),
-    #                                            return_array=True, relative_dates=True,
-    #                                            surgery='Microsphere injection'))
+    spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
+                                               extra_restriction=dict(corridor_type=0, place_cell_id=2),
+                                               return_array=True, relative_dates=True,
+                                               surgery='Microsphere injection'))
 
     spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
                                                 extra_restriction=dict(corridor_type=0, place_cell_id=2),
@@ -593,7 +707,8 @@ for i, mouse in enumerate(mice):
     df['mouse_id'] = mouse
     df['classes'] = [classes_pre, classes_early, classes_late]
     dfs.append(df)
-class_df = pd.concat(dfs)
+class_df = pd.concat(dfs, ignore_index=True)
+
 
 # Plot transition matrices
 def label_row(label, axis, pad=5):
@@ -616,7 +731,7 @@ for i, mouse in enumerate(class_df.mouse_id.unique()):
     ax[0, i].set_title(mouse)
 
     matrices.append(pd.DataFrame([dict(mouse_id=mouse, pre_early=pre_early_trans, early_late=early_late_trans)]))
-matrices = pd.concat(matrices)
+matrices = pd.concat(matrices, ignore_index=True)
 
 # label_row('Pre->Early', ax[0, 0])
 # label_row('Early->Late', ax[1, 0])
@@ -649,3 +764,22 @@ ax[0, 0].set_xlabel('To Cell Class Early')
 ax[0, 0].set_ylabel('From Cell Class Pre')
 ax[1, 0].set_xlabel('To Cell Class Late')
 ax[1, 0].set_ylabel('From Cell Class Early')
+
+
+### Transition heatmaps
+# Cell numbers in early and late dont sum up because there are some cells that transitioned from noncoding to PC
+def_heat_early = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(deficit)], spat_arr=spat_dff_maps,
+                                    to_period='early', place_cells=True)
+def_heat_late = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(deficit)], spat_arr=spat_dff_maps,
+                                   to_period='late', place_cells=True)
+
+sham_heat_early = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(sham)], spat_arr=spat_dff_maps,
+                                     to_period='early', place_cells=True)
+sham_heat_late = transition_heatmap(classes=class_df[class_df['mouse_id'].isin(sham)], spat_arr=spat_dff_maps,
+                                    to_period='late', place_cells=True)
+
+## Plot heatmaps
+plot_transition_heatmaps(early_maps=def_heat_early, late_maps=def_heat_late)     # Deficit place cells
+plot_transition_heatmaps(early_maps=sham_heat_early, late_maps=sham_heat_late)     # Deficit place cells
+
+
