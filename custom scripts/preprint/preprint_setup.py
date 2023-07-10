@@ -33,19 +33,36 @@ from preprint import data_cleaning as dc
 
 mouse_ids = [33, 41,  # Batch 3
              63, 69,  # Batch 5
-             83, 85, 86, 89, 90, 91, 93, 94, 95,  # Batch 7
+             83, 85, 86, 89, 90, 91, 93, 95,  # Batch 7
              108, 110, 111, 112, 113, 114, 115, 116, 121, 122]  # Batch 8
 
-no_deficit = [93, 91, 94, 95]
+#%% Different ways of grouping
+
+# Old grouping (behavior-based, with flicker)
+no_deficit = [93, 91, 95]
 no_deficit_flicker = [111, 114, 116]
 recovery = [33, 83, 85, 86, 89, 90, 113]
 deficit_no_flicker = [41, 63, 69, 121]
 deficit_flicker = [108, 110, 112]
 sham_injection = [115, 122]
 
+# Split sham (no spheres) and no_deficit (no deficit, but > 50 spheres), based on bin-lick-ratio (except 93 and 69 on SI, ignore flicker)
+sham = [33, 91, 115, 122, 111]               # no deficit, and < 50 spheres
+no_deficit = [83, 95, 108, 112, 114, 116, 121]   # no deficit, but > 50 spheres (merge with sham if spheres should be ignored)
+late_deficit = [93]                          # Debatable, might be merged with sham
+recovery = [85, 86, 89, 90, 113]
+no_recovery = [41, 63, 69, 110]
+
+# Split sham (no spheres) and no_deficit (no deficit, but > 50 spheres), based on SI (ignore flicker)
+sham = [91, 115, 122]                  # no deficit, and < 50 spheres
+no_deficit = [83, 95, 112, 114, 116]   # no deficit, but > 50 spheres
+late_deficit = [111, 93, 108]                          # Debatable, might be merged with sham
+recovery = [33, 85, 86, 90, 113]
+no_recovery = [41, 63, 69, 89, 110, 121]
+
 # Grouping by number of spheres (extrapolated for whole brain)
 low = [38, 91, 111, 115, 122]   # < 50 spheres
-mid = [33, 83, 86, 89, 93, 94, 95, 108, 110, 112, 113, 114, 116, 121]  # 50 - 500 spheres
+mid = [33, 83, 86, 89, 93, 95, 108, 110, 112, 113, 114, 116, 121]  # 50 - 500 spheres
 high = [41, 63, 69, 85, 90, 109, 123]   # > 500 spheres
 
 mice = [*no_deficit, *no_deficit_flicker, *recovery, *deficit_no_flicker, *deficit_flicker, *sham_injection]
@@ -148,21 +165,27 @@ def learning_curves():
             'surgery_date')[0].date()
         # Get date and performance for each session before the surgery day
         days = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}' & f'day<="{surgery_day}"').fetch('day')
-        perf = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}' & f'day<="{surgery_day}"').get_mean('binned_lick_ratio')
+        perf_lick = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}' & f'day<="{surgery_day}"').get_mean('binned_lick_ratio')
+        perf_si = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}' & f'day<="{surgery_day}"').get_mean('si_binned_run')
+        perf_dist = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}' & f'day<="{surgery_day}"').get_mean('distance')
 
         # Transform dates into days before surgery
         rel_days = [(d - surgery_day).days for d in days]
         # Get session number before surgery
-        rel_sess = np.arange(-len(perf), 0)
+        rel_sess = np.arange(-len(perf_lick), 0)
 
-        dfs.append(pd.DataFrame(dict(mouse_id=mouse, days=days, rel_days=rel_days, rel_sess=rel_sess, perf=perf)))
+        df_wide = pd.DataFrame(dict(mouse_id=mouse, days=days, rel_days=rel_days, rel_sess=rel_sess, blr=perf_lick,
+                                    si=perf_si, dist=perf_dist))
+        dfs.append(df_wide.melt(id_vars=['mouse_id', 'days', 'rel_days', 'rel_sess'], var_name='metric',
+                                value_name='perf'))
     df = pd.concat(dfs, ignore_index=True)
 
-    # sns.lineplot(data=df_all, x='rel_sess', y='perf')
+    sns.lineplot(data=df, x='rel_sess', y='perf', hue='metric')
 
     # Export for prism
-    df_exp = df.pivot(index='rel_sess', columns='mouse_id', values='perf')
-    df_exp.to_csv(os.path.join(folder, 'figure1', 'learning_curve1.csv'))
+    for metric in ['blr', 'si', 'dist']:
+        df_exp = df[df['metric']==metric].pivot(index='rel_sess', columns='mouse_id', values='perf')
+        df_exp.to_csv(os.path.join(folder, 'figure1\\learning_curve', f'learning_curve_{metric}.csv'), sep=',')
 
 
 def place_cell_plot():
@@ -628,6 +651,37 @@ for i, point in enumerate(strp.collections):
     for j, y_ in enumerate(y):
         plt.text(y[j], x[j]-0.05, merge[merge['sphere count'] == y_]['mouse_id'].iloc[0], ha='center', va='bottom',
                  fontsize=15)
+
+### Behavior curve after stroke groups
+dfs = []
+for mouse in mice:
+    # Get day of surgery
+    surgery_day = (common_mice.Surgery() & 'surgery_type="Microsphere injection"' & f'mouse_id={mouse}').fetch(
+        'surgery_date')[0].date()
+    # Get date and performance for each session before the surgery day
+    days = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').fetch('day')
+    perf_lick = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('binned_lick_ratio')
+    perf_si = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('si_binned_run')
+    perf_dist = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('distance')
+
+    # Transform dates into days before surgery
+    rel_days = [(d - surgery_day).days for d in days]
+    # Get session number before surgery
+    rel_sess = np.arange(-len(perf_lick), 0)
+
+    df_wide = pd.DataFrame(dict(mouse_id=mouse, days=days, rel_days=rel_days, rel_sess=rel_sess, blr=perf_lick,
+                                si=perf_si, dist=perf_dist))
+    dfs.append(df_wide.melt(id_vars=['mouse_id', 'days', 'rel_days', 'rel_sess'], var_name='metric',
+                            value_name='perf'))
+df = pd.concat(dfs, ignore_index=True)
+
+sns.lineplot(data=df, x='rel_sess', y='perf', hue='metric')
+
+# Export for prism
+for metric in ['blr', 'si', 'dist']:
+    df_exp = df[df['metric'] == metric].pivot(index='rel_days', columns='mouse_id', values='perf')
+    df_exp.to_csv(os.path.join(folder, 'figure2', f'performance_over_time_{metric}.csv'), sep=',')
+
 
 #%% Figure 3
 

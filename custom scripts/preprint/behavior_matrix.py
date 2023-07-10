@@ -57,7 +57,7 @@ def compute_behavior_coordinates(behavior_df, n_last_days=3, late_thresh_day=15)
     return pd.concat(result, ignore_index=True)
 
 
-def plot_scatter(data, ax, title=None, legend=True):
+def plot_scatter(data, ax, title=None, legend=True, thresh=None):
     sns.scatterplot(data=data, x='early', y='late', hue='spheres', palette='flare', hue_norm=LogNorm(), s=100, ax=ax,
                     legend=legend)
     if legend:
@@ -72,6 +72,10 @@ def plot_scatter(data, ax, title=None, legend=True):
         for j, y_ in enumerate(y):
             ax.text(y[j], x[j] - 0.05, data[data['early'] == y_]['mouse_id'].iloc[0],
                     ha='center', va='bottom', fontsize=12)
+
+    if thresh is not None:
+        ax.axvline(thresh, linestyle='--', color='grey')
+        ax.axhline(thresh, linestyle='--', color='grey')
 
     if title is not None:
         ax.set_title(title)
@@ -176,7 +180,11 @@ for j, norm in enumerate([True, False]):    # Plot both normalized and raw perfo
                         horizontalalignment='right', bbox=props, fontfamily='monospace')
 
         # Plot raw, not centered, data
-        plot_scatter(data=matrix, ax=axes[j, i], legend=legend, title=metric)
+        if j == 0:
+            thresh = 0.75
+        else:
+            thresh = None
+        plot_scatter(data=matrix, ax=axes[j, i], legend=legend, title=metric, thresh=thresh)
         if plot_pca_mapping:
             plot_pca(model=pca, ax=axes[j, i], reduced_data=pca.inverse_transform(reduced_metric),
                      mean_offset=np.array(data_mean))
@@ -223,3 +231,5 @@ g.map_dataframe(annotate, 'early', 'late')
 #     y = arr['late']
 #     linreg = LinearRegression().fit(x, y)
 #     r_sq = linreg.score(x, y)
+
+
