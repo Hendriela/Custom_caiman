@@ -60,6 +60,12 @@ for curr_group, group_name in zip(group, group_names):
     group_data['lesion_vol_rel'] = group_data['lesion_vol'] / tot_struct_vol * 100  # make it percentage for nicer values
     group_data['lesion_vol_rel'] /= rel_img_vol     # Extrapolate via relative imaged volume to whole structure
 
+    # Extrapolate sphere counts
+    group_data['spheres_total_extrap'] = group_data['spheres_total'] / rel_img_vol
+    group_data['spheres_rel_extrap'] = group_data['spheres_rel'] / rel_img_vol
+    group_data['spheres_lesion_extrap'] = group_data['spheres_lesion'] / rel_img_vol
+    group_data['spheres_lesion_rel_extrap'] = group_data['spheres_lesion_rel'] / rel_img_vol
+
     # Add column of group name to the data points, and make the mouse ID a separate column to make later merge easier
     group_data['region'] = group_name
     group_data['mouse_id'] = group_data.index
