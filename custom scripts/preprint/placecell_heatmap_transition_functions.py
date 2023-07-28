@@ -327,7 +327,7 @@ def transition_heatmap(classes: pd.DataFrame, spat_arr: list, to_period: str, pl
     return output
 
 
-def plot_transition_heatmaps(early_maps, late_maps, cmap='turbo', title=None, draw_zone_borders=True):
+def plot_transition_heatmaps(early_maps, late_maps, cmap='turbo', title=None, draw_zone_borders=True, n_empty=1):
     def plot_transition_heatmap(maps, f, gs, from_title=None, to_title=None, rw_zones=None):
 
         def sort_array(arr):
@@ -341,18 +341,21 @@ def plot_transition_heatmaps(early_maps, late_maps, cmap='turbo', title=None, dr
         ax_to = f.add_subplot(gs1[1])  # Axis for to_stable heatmap
 
         # Plot "from" data sorted by maximum
-        sns.heatmap(sort_array(maps['from_act']), ax=ax_from, cbar=False, cmap=cmap)
+        sns.heatmap(sort_array(maps['from_act']), ax=ax_from, cbar=False, cmap=cmap, vmin=0)
 
         # Sort "to" data by maximum separately for each group, and concatenate to single array, separated by single row
         to_arr = [sort_array(x) for x in [maps['to_stable'], maps['to_unstable'], maps['to_noncoding']]]
-        empty_row = np.zeros((1, *to_arr[0].shape[1:])) * np.nan
+        empty_row = np.zeros((n_empty, *to_arr[0].shape[1:])) * np.nan
         stacked_data = [np.vstack([x, empty_row]) for x in to_arr[:-1]]
         stacked_data.append(to_arr[-1])
-        stacked_data.append(np.zeros((len(maps['from_act']) - len(np.vstack(to_arr)) - 2,
-                                      *to_arr[0].shape[1:])) * np.nan)  # Append empty rows for lost neurons
+        try:
+            stacked_data.append(np.zeros((len(maps['from_act']) - len(np.vstack(to_arr)) - 2,
+                                          *to_arr[0].shape[1:])) * np.nan)  # Append empty rows for lost neurons
+        except ValueError:
+            pass    # If no neurons are lost, dont add empty rows
         stacked_data = np.vstack(stacked_data)
 
-        sns.heatmap(stacked_data, ax=ax_to, cbar=False, cmap=cmap)
+        sns.heatmap(stacked_data, ax=ax_to, cbar=False, cmap=cmap, vmin=0)
 
         # Use Y-axis labels for cell numbers
         ax_from.set_yticks([])

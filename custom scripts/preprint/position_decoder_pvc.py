@@ -132,15 +132,27 @@ def pvc_across_sessions(session1, session2, plot_heatmap=False, plot_in_ax=None,
 
 
 # Fetch the spatial activity maps of matched cells
-queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'))
-
-queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"'))
+queries = (
+           (common_match.MatchedIndex & 'mouse_id=33'),       # 407 cells
+           # (common_match.MatchedIndex & 'mouse_id=38'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),   # 246 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),     # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=85'),   # 250 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=86'),   # 86 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=90'),   # 131 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=91'),   # 299 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=93'),   # 397 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=108' & 'day<"2022-09-09"'),     # 316 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=114' & 'day<"2022-09-09"'),     # 307 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),     # 331 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"'),     # 401 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'),     # 791 cells
+           # (common_match.MatchedIndex & 'mouse_id=110' & 'day<"2022-09-09"'),     # 21 cells
+)
 
 spatial_maps = []
 for query in queries:
+    # PVC matrices with spikerate instead of dFF activity are a bit sharper, improving contrast
     spatial_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
                                          extra_restriction=dict(corridor_type=0, place_cell_id=2),
                                          return_array=True, relative_dates=True, surgery='Microsphere injection')
@@ -148,17 +160,17 @@ for query in queries:
 
 # For each network, compute PVC matrices between two sessions
 fig, axes = plt.subplots(1, 4, sharex='all', sharey='all')
-pvc_pre = pvc_across_sessions(session1=spatial_maps[2]['121_1'][0][:, 1],
-                              session2=spatial_maps[2]['121_1'][0][:, 4],
+pvc_pre = pvc_across_sessions(session1=spatial_maps[1]['121_1'][0][:, 1],
+                              session2=spatial_maps[1]['121_1'][0][:, 4],
                               plot_heatmap=True, plot_in_ax=axes[0], plot_zones=True)
-pvc_pre_post = pvc_across_sessions(session1=spatial_maps[2]['121_1'][0][:, 4],
-                                   session2=spatial_maps[2]['121_1'][0][:, 5],
+pvc_pre_post = pvc_across_sessions(session1=spatial_maps[1]['121_1'][0][:, 4],
+                                   session2=spatial_maps[1]['121_1'][0][:, 5],
                                    plot_heatmap=True, plot_in_ax=axes[1], plot_zones=True)
-pvc_early = pvc_across_sessions(session1=spatial_maps[2]['121_1'][0][:, 6],
-                                session2=spatial_maps[2]['121_1'][0][:, 7],
+pvc_early = pvc_across_sessions(session1=spatial_maps[1]['121_1'][0][:, 6],
+                                session2=spatial_maps[1]['121_1'][0][:, 7],
                                 plot_heatmap=True, plot_in_ax=axes[2], plot_zones=True)
-pvc_late = pvc_across_sessions(session1=spatial_maps[2]['121_1'][0][:, 10],
-                               session2=spatial_maps[2]['121_1'][0][:, 11],
+pvc_late = pvc_across_sessions(session1=spatial_maps[1]['121_1'][0][:, 10],
+                               session2=spatial_maps[1]['121_1'][0][:, 11],
                                plot_heatmap=True, plot_in_ax=axes[3], plot_zones=True)
 
 # Make plot pretty
@@ -168,9 +180,9 @@ for ax, title in zip(axes, titles):
 
 ### Take average of all pre, early and post pvc matrices
 DAY_DIFF = 3    # The day difference between sessions to be compared (usually 3)
-days = np.array(spatial_maps[1]['122_1'][1])
-s_maps = spatial_maps[1]['122_1'][0]
-last_pre_day = days[np.searchsorted(days, 0, side='right')-1]   # Find last prestroke day
+# days = np.array(spatial_maps[1]['69_1'][1])
+# s_maps = spatial_maps[1]['122_1'][0]
+# last_pre_day = days[np.searchsorted(days, 0, side='right')-1]   # Find last prestroke day
 vmin = 0
 vmax = 1
 
@@ -182,6 +194,9 @@ else:
 
 for mouse in spatial_maps:
     mouse_id = list(mouse.keys())[0]
+    if mouse_id not in ('41_1', '69_1', '85_1', '86_1', '90_1', '91_1'):
+        continue
+    print('Mouse_ID:', mouse_id)
     days = np.array(mouse[mouse_id][1])
     last_pre_day = days[np.searchsorted(days, 0, side='right') - 1]  # Find last prestroke day
     pre = []
@@ -191,20 +206,31 @@ for mouse in spatial_maps:
     for day_idx, day in enumerate(days):
         next_day_idx = np.where(days == day + DAY_DIFF)[0]
 
+        # After stroke, ignore small differences between sessions (do not have to be 3 days apart, sometimes 2 days)
+        # In that case, use the next session irrespective of distance
+        if (len(next_day_idx) == 0) and (1 < day < np.max(days)):
+            next_day_idx = [day_idx + 1]
+
         # If a session 3 days later exists, compute the correlation of all cells between these sessions
         # Do not analyze session 1 day after stroke (unreliable data)
         if len(next_day_idx) == 1:
             curr_mat = pvc_across_sessions(session1=mouse[mouse_id][0][:, day_idx],
                                            session2=mouse[mouse_id][0][:, next_day_idx[0]],
                                            plot_heatmap=False)
+            print('Day', day, '- next_day', days[next_day_idx[0]])
             if day < last_pre_day:
                 pre.append(curr_mat)
+                print('\t-> Pre')
             elif day == last_pre_day:
                 pre_post.append(curr_mat)
-            elif last_pre_day < day < 9:
+                print('\t-> Pre-Post')
+            # elif last_pre_day < days[next_day_idx[0]] <= 6:
+            elif last_pre_day < day < 6:
                 early.append(curr_mat)
-            elif 9 < day:
+                print('\t-> Early Post')
+            elif 6 <= day:
                 late.append(curr_mat)
+                print('\t-> Late Post')
 
     avg_pre = np.mean(np.stack(pre), axis=0)
     pre_post = pre_post[0]

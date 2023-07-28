@@ -286,7 +286,7 @@ for i, mouse in enumerate(mice):
 class_df = pd.concat(dfs, ignore_index=True)
 
 class_df_prism = func.pivot_classdf_prism(class_df, percent=True, col_order=['pre', 'early', 'late'])
-class_df_prism.to_clipboard()
+class_df_prism.to_clipboard(index=False)
 
 # Plot transition matrices
 def label_row(label, axis, pad=5):
@@ -301,8 +301,8 @@ for i, mouse in enumerate(class_df.mouse_id.unique()):
     mask_early = class_df[(class_df['mouse_id'] == mouse) & (class_df['period'] == 'early')]['classes'].iloc[0]
     mask_late = class_df[(class_df['mouse_id'] == mouse) & (class_df['period'] == 'late')]['classes'].iloc[0]
 
-    pre_early_trans = func.transition_matrix(mask_pre, mask_early, percent=False)
-    early_late_trans = func.transition_matrix(mask_early, mask_late, percent=False)
+    pre_early_trans = func.transition_matrix(mask_pre, mask_early, percent=True)
+    early_late_trans = func.transition_matrix(mask_early, mask_late, percent=True)
 
     # sns.heatmap(pre_early_trans, ax=ax[0, i], square=True, annot=True, cbar=False)
     # sns.heatmap(early_late_trans, ax=ax[1, i], square=True, annot=True, cbar=False)
@@ -341,35 +341,36 @@ ax[1, 0].set_ylabel('From Cell Class Early')
 
 ### QUANTIFY TRANSITION MATRICES WITH STATISTICAL TESTS ###
 from scipy import stats
-stroke_early = np.array(list(matrices[matrices['mouse_id'].isin(stroke)]['pre_early']))
-stroke_late = np.array(list(matrices[matrices['mouse_id'].isin(stroke)]['early_late']))
-no_deficit_early = np.array(list(matrices[matrices['mouse_id'].isin(no_deficit)]['pre_early']))
-no_deficit_late = np.array(list(matrices[matrices['mouse_id'].isin(no_deficit)]['early_late']))
+stroke_early = np.array(list(matrices[matrices['mouse_id'].isin(stroke_with121)]['pre_early']))
+stroke_late = np.array(list(matrices[matrices['mouse_id'].isin(stroke_with121)]['early_late']))
+control_early = np.array(list(matrices[matrices['mouse_id'].isin(control)]['pre_early']))
+control_late = np.array(list(matrices[matrices['mouse_id'].isin(control)]['early_late']))
 
-early_ttest = func.transition_matrix_ttest(stroke_early, no_deficit_early)
-late_ttest = func.transition_matrix_ttest(stroke_late, no_deficit_late)
+early_ttest = func.transition_matrix_ttest(stroke_early, control_early)
+late_ttest = func.transition_matrix_ttest(stroke_late, control_late)
 
-export_early = func.export_trans_matrix(stroke_early, no_deficit_early)
-export_late = func.export_trans_matrix(stroke_late, no_deficit_late)
+export_early = func.export_trans_matrix(stroke_early, control_early)
+export_late = func.export_trans_matrix(stroke_late, control_late)
 
 ### Transition heatmaps
 # Cell numbers in early and late dont sum up because there are some cells that transitioned from noncoding to PC
-def_heat_early = func.transition_heatmap(classes=class_df[class_df['mouse_id'].isin(deficit)], spat_arr=spat_dff_maps,
-                                    to_period='early', place_cells=False)
-def_heat_late = func.transition_heatmap(classes=class_df[class_df['mouse_id'].isin(deficit)], spat_arr=spat_dff_maps,
-                                   to_period='late', place_cells=False)
+def_heat_early = func.transition_heatmap(classes=class_df[class_df['mouse_id'].isin(stroke)], spat_arr=spat_dff_maps,
+                                         to_period='early', place_cells=False)
+def_heat_late = func.transition_heatmap(classes=class_df[class_df['mouse_id'].isin(stroke)], spat_arr=spat_dff_maps,
+                                        to_period='late', place_cells=False)
 
-sham_heat_early = func.transition_heatmap(classes=class_df[class_df['mouse_id'].isin(sham)], spat_arr=spat_dff_maps,
-                                     to_period='early', place_cells=False)
-sham_heat_late = func.transition_heatmap(classes=class_df[class_df['mouse_id'].isin(sham)], spat_arr=spat_dff_maps,
-                                    to_period='late', place_cells=False)
+sham_heat_early = func.transition_heatmap(classes=class_df[class_df['mouse_id'].isin(control)], spat_arr=spat_dff_maps,
+                                          to_period='early', place_cells=False)
+sham_heat_late = func.transition_heatmap(classes=class_df[class_df['mouse_id'].isin(control)], spat_arr=spat_dff_maps,
+                                         to_period='late', place_cells=False)
 
 # Stroke noncoding prestroke transition heatmaps have some outliers
-def_heat_early['from_act'] = np.delete(def_heat_early['from_act'], [394, 424, 425, 442, 372], axis=0)
+def_heat_early['from_act'] = np.delete(def_heat_early['from_act'], [748, 770], axis=0)
+def_heat_late['to_noncoding'] = np.delete(def_heat_early['to_noncoding'], [671], axis=0)
 
 ## Plot heatmaps
 func.plot_transition_heatmaps(early_maps=def_heat_early, late_maps=def_heat_late)     # Deficit place cells
-func.plot_transition_heatmaps(early_maps=sham_heat_early, late_maps=sham_heat_late)     # Sham place cells
+func.plot_transition_heatmaps(early_maps=sham_heat_early, late_maps=sham_heat_late, n_empty=3)     # Sham place cells
 
 #%% Transition matrix visualizations
 ### Visualize transition matrices with hmmviz
