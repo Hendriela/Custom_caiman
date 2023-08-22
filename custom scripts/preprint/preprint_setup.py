@@ -1350,12 +1350,29 @@ queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),
 queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"'))
 
-queries = ((common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"')
-           )
+queries = (
+           (common_match.MatchedIndex & 'mouse_id=33'),       # 407 cells
+           # (common_match.MatchedIndex & 'mouse_id=38'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),   # 246 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),     # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=83'),   # 270 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=85'),   # 250 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=86'),   # 86 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=89'),   # 183 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=90'),   # 131 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=91'),   # 299 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=93'),   # 397 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=95'),   # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=108' & 'day<"2022-09-09"'),     # 316 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=110' & 'day<"2022-09-09"'),     # 218 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=111' & 'day<"2022-09-09"'),     # 201 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=113' & 'day<"2022-09-09"'),     # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=114' & 'day<"2022-09-09"'),     # 307 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),     # 331 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=113' & 'day<"2022-09-09"'),     # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"'),     # 401 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'),     # 791 cells
+)
 
 is_pc = []
 pfs = []
@@ -1440,11 +1457,11 @@ def spatial_map_correlations_single_cells(spatial_maps=list):
                                       axis=1))
 
     # Early Post
-    early_post_avg = np.tanh(np.nanmean(np.arctanh(final_df[sorted_days[(0 < sorted_days) & (sorted_days <= 9)]]),
+    early_post_avg = np.tanh(np.nanmean(np.arctanh(final_df[sorted_days[(0 < sorted_days) & (sorted_days <= 7)]]),
                                         axis=1))
 
     # Late Post
-    late_post_avg = np.tanh(np.nanmean(np.arctanh(final_df[sorted_days[(9 < sorted_days)]]), axis=1))
+    late_post_avg = np.tanh(np.nanmean(np.arctanh(final_df[sorted_days[(7 < sorted_days)]]), axis=1))
 
     # All Post
     all_post_avg = np.tanh(np.nanmean(np.arctanh(final_df[sorted_days[(0 < sorted_days)]]), axis=1))
