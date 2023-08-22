@@ -8,9 +8,10 @@ Created on 18/07/2023 13:07
 import numpy as np
 import pandas as pd
 import os
+import pickle
 
 import common_hist
-from schema import common_mice, hheise_behav, hheise_hist, hheise_placecell
+from schema import common_mice, common_img, common_match, hheise_behav, hheise_hist, hheise_placecell
 from util import helper
 import functools
 
@@ -36,6 +37,7 @@ for mouse in mice:
     perf_lick = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('binned_lick_ratio')
     perf_si = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('si_binned_run')
     perf_dist = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('distance')
+    perf_si_raw = (hheise_behav.VRPerformanceTest & 'username="hheise"' & f'mouse_id={mouse}').get_mean('si_binned_run')
 
     pc_ratios = pd.DataFrame((hheise_placecell.PlaceCell & f'mouse_id={mouse}' & 'corridor_type=0' & 'place_cell_id=2').fetch('day', 'place_cell_ratio', as_dict=True))
 
@@ -43,7 +45,7 @@ for mouse in mice:
     rel_days = [(d - surgery_day).days for d in days]
 
     df_wide = pd.DataFrame(dict(mouse_id=mouse, days=days, rel_days=rel_days,
-                                blr=perf_lick, si=perf_si, dist=perf_dist))
+                                blr=perf_lick, si=perf_si, dist=perf_dist, si_raw=perf_si_raw))
     df_wide['rel_sess'] = df_wide.index - np.argmax(np.where(df_wide['rel_days'] <= 0, df_wide['rel_days'], -np.inf))
 
     df_melt = df_wide.melt(id_vars=['mouse_id', 'days', 'rel_days', 'rel_sess'], var_name='metric', value_name='perf')
@@ -157,7 +159,37 @@ df_pivot = df_filt.pivot(columns='rel_days', index='mouse_id', values='licks')
 
 df_pivot.to_pickle('.\\20230726\\bin_licks.pickle')
 
-# Sphere location
+#%% Sphere location
+
+def clean_dataframe(old_df, mice_ids):
+
+    # Only keep mice that are included in mice_ids
+    new_df = old_df[old_df['mouse_id'].isin(mice_ids)]
+    new_rows = []
+
+    # Find mice that dont have a value for all regions and enter dummy data (zeros)
+    for region in new_df.region.unique():
+        for mouse in mice_ids:
+            if mouse not in new_df[new_df['region'] == region]['mouse_id']:
+                if mouse < 108:
+                    dummy_data = np.zeros(10)
+                else:
+                    dummy_data = np.array([0, 0, np.nan, np.nan, np.nan, np.nan, 0, 0, np.nan, np.nan])
+                dummy_data = np.append(dummy_data, [region, mouse])
+
+                new_rows.append(pd.DataFrame(dummy_data.reshape(1, -1), columns=list(new_df)))
+
+    if len(new_rows) > 0:
+        new_df = pd.concat([new_df, pd.concat(new_rows, ignore_index=True)], ignore_index=True)
+
+    new_df = new_df[new_df['mouse_id'] != '63']
+    new_df = new_df[new_df['mouse_id'] != '69']
+    new_df_sort = new_df.sort_values(by=['region', 'mouse_id'], ignore_index=True)
+
+    conversion = {col: (str if col in ['region', 'mouse_id'] else float) for col in new_df_sort.columns}
+    new_df_sort = new_df_sort.astype(conversion)
+
+    return new_df_sort
 
 # Non-summed locations
 mic = pd.DataFrame(hheise_hist.Microsphere().fetch('mouse_id', 'hemisphere', 'structure_id', 'lesion', 'spheres', as_dict=True))
@@ -182,7 +214,7 @@ df = hheise_hist.Microsphere().get_structure_groups(grouping={'cognitive': ['HPF
                                                               'basal_ganglia': ['CP', 'ACB', 'FS', 'LSX', 'sAMY', 'PAL'],
                                                               'brainstem': ['MB', 'HB']},
                                                     columns=columns)
-df = df[df['mouse_id'] != 94]
+df = clean_dataframe(df, mice)
 df.to_csv('.\\20230726\\old_grouping.csv', sep=',', index=False)
 
 # Hippocampal formation
@@ -193,13 +225,13 @@ df = hheise_hist.Microsphere().get_structure_groups(grouping={'hippocampus': ['H
                                                               'brainstem': ['MB', 'HB'],
                                                               'white_matter': ['fiber tracts']},
                                                     columns=columns)
-df = df[df['mouse_id'] != 94]
+df = clean_dataframe(df, mice)
 df.to_csv('.\\20230726\\hippocampus.csv', sep=',', index=False)
 
 # Only Hippocampal formation
 df = hheise_hist.Microsphere().get_structure_groups(grouping={'hippocampal_formation': ['HPF']},
                                                     columns=columns)
-df = df[df['mouse_id'] != 94]
+df = clean_dataframe(df, mice)
 df.to_csv('.\\20230726\\hippocampal_formation.csv', sep=',', index=False)
 
 # Hippocampal subregions
@@ -211,7 +243,7 @@ df = hheise_hist.Microsphere().get_structure_groups(grouping={'subiculum': ['SUB
                                                               'ca3': ['CA3'],
                                                               },
                                                     columns=columns)
-df = df[df['mouse_id'] != 94]
+df = clean_dataframe(df, mice)
 df.to_csv('.\\20230726\\hippocampal_subregions.csv', sep=',', index=False)
 
 # Silasi grouping
@@ -222,17 +254,84 @@ df = hheise_hist.Microsphere().get_structure_groups(grouping={'hippocampus': ['H
                                                               'neocortex': ['Isocortex'],
                                                               },
                                                     columns=columns)
-df = df[df['mouse_id'] != 94]
+df = clean_dataframe(df, mice)
 df.to_csv('.\\20230726\\literature.csv', sep=',', index=False)
 
 # Functional grouping (?)
-df = hheise_hist.Microsphere().get_structure_groups(grouping={'cognitive': ['HPF', 'PL', 'ACA', 'ILA', 'RSP', 'PERI',
-                                                                            ],
-                                                              'cortex': ['Isocortex', 'OLF'],
-                                                              'thalamus': ['TH'],
-                                                              'basal_ganglia': ['CNU'],
-                                                              'brainstem': ['MB', 'HB'],
-                                                              'white_matter': ['fiber tracts']},
+df = hheise_hist.Microsphere().get_structure_groups(grouping={'hippocampus': ['HIP'],
+                                                              'retrohippocampus': ['RHP'],
+                                                              'association': ['ECT', 'PERI', 'TEa', 'PTLp', 'RSP'],
+                                                              'mPFC': ['PL', 'ACA', 'ILA'],
+                                                              'Insular': ['AI']},
                                                     columns=columns)
-df = df[df['mouse_id'] != 94]
-df.to_csv('.\\20230726\\hippocampus.csv', sep=',', index=False)
+df = clean_dataframe(df, mice)
+df.to_csv('.\\20230726\\cognitive.csv', sep=',', index=False)
+
+# Other regions
+df = hheise_hist.Microsphere().get_structure_groups(grouping={'cortex': ['CTXpl'],
+                                                              'amygdala': ['CTXsp'],
+                                                              'thalamus': ['TH'],
+                                                              'striatum': ['CNU'],
+                                                              'hypothalamus': ['HY'],
+                                                              'midbrain': ['MB'],
+                                                              'hindbrain': ['HB'],
+                                                              'white_matter': ['fiber tracts']},
+                                                    columns=columns, include_other=False)
+df = clean_dataframe(df, mice)
+df.to_csv('.\\20230726\\others.csv', sep=',', index=False)
+
+#%% NEURAL DATA
+
+def save_dict(dic, fname):
+    with open(f'{fname}.pkl', 'wb') as file:
+        pickle.dump(dic, file)
+
+# Cell-matched data
+queries = (
+           (common_match.MatchedIndex & 'mouse_id=33'),       # 407 cells
+           # (common_match.MatchedIndex & 'mouse_id=38'),
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),   # 246 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=63' & 'day<="2021-03-23"'),     # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),     # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=83'),   # 270 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=85'),   # 250 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=86'),   # 86 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=89'),   # 183 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=90'),   # 131 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=91'),   # 299 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=93'),   # 397 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=95'),   # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=108' & 'day<"2022-09-09"'),     # 316 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=110' & 'day<"2022-09-09"'),     # 218 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=111' & 'day<"2022-09-09"'),     # 201 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=113' & 'day<"2022-09-09"'),     # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=114' & 'day<"2022-09-09"'),     # 307 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),     # 331 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=116' & 'day<"2022-09-09"'),     # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"'),     # 401 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'),     # 791 cells
+)
+
+match_matrices = [query.construct_matrix() for query in queries]
+is_pc = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='is_place_cell')
+pfs = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='place_field_idx')
+spatial_maps = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='bin_spikerate')
+spat_dff_maps = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='bin_activity')
+dff = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='dff', as_array=False)
+decon = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='decon')
+coords = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='com')
+pf_com = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='place_field_com')
+pf_sd = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='place_field_sd')
+
+decon = {k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray else x) for k, v in decon.items()}
+dff = {k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray else x) for k, v in dff.items()}
+
+save_dict(is_pc, 'neural_data\\is_pc')
+save_dict(pfs, 'neural_data\\place_field_idx')
+save_dict(spatial_maps, 'neural_data\\spatial_activity_maps_spikerate')
+save_dict(spat_dff_maps, 'neural_data\\spatial_activity_maps_dff')
+save_dict(dff, 'neural_data\\dff')
+save_dict(decon, 'neural_data\\decon')
+save_dict(coords, 'neural_data\\cell_coords')
+save_dict(pf_com, 'neural_data\\pf_com')
+save_dict(pf_sd, 'neural_data\\pf_sd')
