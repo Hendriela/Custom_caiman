@@ -8,7 +8,8 @@ Function that handle and clean data, especially single-cell data, for further an
 """
 import numpy as np
 from typing import Tuple
-
+import pickle
+import os
 import pandas as pd
 
 
@@ -50,7 +51,7 @@ def filter_matched_data(match_list: list, keep_nomatch=False):
         cols = np.sort(df.columns.astype(int))
         df = df[cols]
         df['net_id'] = net_ids
-        d1 = df.pop(1)      # Day 1 should not be analyzed
+        d1 = df.pop(1)  # Day 1 should not be analyzed
 
     # Only keep cells that exist in all sessions
     # Reduce array dimensions in case of more than 2 dimensions
@@ -102,15 +103,13 @@ def place_field_com(spatial_map_data, pf_indices) -> Tuple[float, float]:
 
 
 def sync_days(match_list):
-
     dates = {}
     for list_idx, curr_data in enumerate(match_list):
         for key, net in curr_data.items():
-
             # Assume that...
             # ...the last 5 negative days are prestroke and will be treated as
             stroke_day_idx = np.where(np.array(net[1]) > 0)[0][0]
-            synced_days = net[1][stroke_day_idx-5]
+            synced_days = net[1][stroke_day_idx - 5]
 
 
 def screen_place_cells():
@@ -220,3 +219,25 @@ def screen_place_cells():
     cbar.ax.tick_params(axis=u'both', which=u'both', length=0)
     cbar.ax.set_ylabel('Firing rate [Hz]', fontsize=20, labelpad=-3, rotation=270)
 
+
+def load_data(data_type,
+              folder: str=r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Data\analysis\matched_data'):
+
+    match data_type:
+        case data_type if data_type in ['spatial_activity_maps', 'dff_maps', 'spatial_act_maps', 'spat_act_maps',
+                                        'spatial_activity_maps_dff', 'spat_dff_maps']:
+            fname = 'spatial_activity_maps_dff.pkl'
+        case data_type if data_type in ['spatial_decon_maps', 'decon_maps', 'spatial_maps', 'spat_maps',
+                                        'spatial_activity_maps_spikerate']:
+            fname = 'spatial_activity_maps_spikerate.pkl'
+        case data_type if data_type in ['match_matrix', 'match_matrices', 'matrices']:
+            fname = 'match_matrices.pkl'
+        case data_type if data_type in ['is_pc', 'is_place_cell']:
+            fname = 'is_pc.pkl'
+        case data_type if data_type in ['pfs', 'place_fields', 'place_field_idx']:
+            fname = 'pf_idx.pkl'
+
+    with open(os.path.join(folder, fname), 'rb') as file:
+        data = pickle.load(file)
+
+    return data
