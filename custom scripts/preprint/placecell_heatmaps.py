@@ -86,14 +86,14 @@ queries = (
            (common_match.MatchedIndex & 'mouse_id=33'),       # 407 cells
            # (common_match.MatchedIndex & 'mouse_id=38'),
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),   # 246 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=63' & 'day<="2021-03-23"'),     # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=63' & 'day<="2021-03-23"'),     # 82 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),     # 350 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=83'),   # 270 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=85'),   # 250 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=86'),   # 86 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=89'),   # 183 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=90'),   # 131 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=91'),   # 299 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=90'),   # 146 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=91'),   # 334 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=93'),   # 397 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=95'),   # 350 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=108' & 'day<"2022-09-09"'),     # 316 cells
@@ -102,7 +102,7 @@ queries = (
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=113' & 'day<"2022-09-09"'),     # 350 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=114' & 'day<"2022-09-09"'),     # 307 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),     # 331 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=116' & 'day<"2022-09-09"'),     # 350 cells
+           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=116' & 'day<"2022-09-09"'),     # 309 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"'),     # 401 cells
            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'),     # 791 cells
 )
@@ -113,8 +113,12 @@ pfs = []
 match_matrices = []
 spat_dff_maps = []
 
-for query in queries:
-    match_matrices.append(query.construct_matrix())
+for i, query in enumerate(queries):
+    if i == 2:
+        match_matrices.append(query.construct_matrix(start_with_ref=True))
+    else:
+        match_matrices.append(query.construct_matrix(start_with_ref=False))
+
 
     is_pc.append(query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
                                         extra_restriction=dict(corridor_type=0, place_cell_id=2),
@@ -133,6 +137,20 @@ for query in queries:
                                                 extra_restriction=dict(corridor_type=0, place_cell_id=2),
                                                 return_array=True, relative_dates=True,
                                                 surgery='Microsphere injection'))
+
+
+# Make plot of number of tracked cells per mouse
+df = pd.DataFrame(data={'n_cells': [len(dic[next(iter(dic.keys()))]) for dic in match_matrices],
+                        'mouse_id': [next(iter(dic.keys())).split('_')[0] for dic in match_matrices]})
+sns.set_context('talk')
+plt.figure()
+ax = sns.stripplot(data=df, y='n_cells', jitter=0.4, s=10)
+x = list(ax.collections[0].get_offsets()[:, 0])
+y = list(ax.collections[0].get_offsets()[:, 1])
+
+for x_, y_ in zip(x, y):
+    curr_mouse = df[df['n_cells'] == y_]['mouse_id'].values[0]
+    plt.text(x_ + 0.01, y_ + 10, curr_mouse, fontdict={'fontsize': 12})
 
 #%%
 separate_days = True
@@ -258,8 +276,8 @@ recovery = ['33_1', '85_1', '86_1', '90_1', '113_1']
 no_recovery = ['41_1', '63_1', '69_1', '89_1', '110_1']
 no_recovery_with121 = ['41_1', '63_1', '69_1', '89_1', '110_1', '121_1']
 
-control = ['91_1', '93_1', '108_1', '114_1', '115_1', '122_1']
-stroke = ['33_1', '41_1', '69_1', '85_1', '86_1', '90_1']
+control = ['83_1', '91_1', '93_1', '95_1', '108_1', '111_1', '114_1', '115_1', '122_1', '116_1']
+stroke = ['33_1', '41_1', '63_1', '69_1', '85_1', '86_1', '89_1', '90_1', '110_1', '113_1']
 stroke_with121 = ['33_1', '41_1', '69_1', '85_1', '86_1', '90_1', '121_1']
 
 groups = {'sham': sham, 'no_deficit': no_deficit, 'late_deficit': late_deficit, 'recovery': recovery,

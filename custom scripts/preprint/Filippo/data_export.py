@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import os
 import pickle
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 import common_hist
 from schema import common_mice, common_img, common_match, hheise_behav, hheise_hist, hheise_placecell
@@ -37,15 +39,16 @@ for mouse in mice:
     perf_lick = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('binned_lick_ratio')
     perf_si = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('si_binned_run')
     perf_dist = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('distance')
-    perf_si_raw = (hheise_behav.VRPerformanceTest & 'username="hheise"' & f'mouse_id={mouse}').get_mean('si_binned_run')
+    perf_si_raw = (hheise_behav.VRPerformanceTest & 'username="hheise"' & f'mouse_id={mouse}').get_mean('si_raw_run')
+    perf_si_norm = (hheise_behav.VRPerformanceTest & 'username="hheise"' & f'mouse_id={mouse}').get_mean('si_norm_run')
 
     pc_ratios = pd.DataFrame((hheise_placecell.PlaceCell & f'mouse_id={mouse}' & 'corridor_type=0' & 'place_cell_id=2').fetch('day', 'place_cell_ratio', as_dict=True))
 
     # Transform dates into days before surgery
     rel_days = [(d - surgery_day).days for d in days]
 
-    df_wide = pd.DataFrame(dict(mouse_id=mouse, days=days, rel_days=rel_days,
-                                blr=perf_lick, si=perf_si, dist=perf_dist, si_raw=perf_si_raw))
+    df_wide = pd.DataFrame(dict(mouse_id=mouse, days=days, rel_days=rel_days, blr=perf_lick, si=perf_si,
+                                dist=perf_dist, si_raw=perf_si_raw, si_norm=perf_si_norm))
     df_wide['rel_sess'] = df_wide.index - np.argmax(np.where(df_wide['rel_days'] <= 0, df_wide['rel_days'], -np.inf))
 
     df_melt = df_wide.melt(id_vars=['mouse_id', 'days', 'rel_days', 'rel_sess'], var_name='metric', value_name='perf')
@@ -63,6 +66,23 @@ df = pd.concat(dfs, ignore_index=True)
 df.sort_values(by=['mouse_id', 'metric'], inplace=True, ignore_index=True)
 df.to_csv('.\\20230718\\vr_performance.csv', sep=',')
 
+# Correlate performance metrics
+df_perf = df[['mouse_id', 'days', 'rel_days', 'metric', 'perf']].pivot(columns='metric', values='perf', index=['mouse_id', 'rel_days'])
+fig, ax = plt.subplots(nrows=1, ncols=3, layout='constrained')
+ax[0] = sns.regplot(df_perf, x='si', y='si_norm', ax=ax[0])
+ax[0].set_box_aspect(1)
+ax[0].set_xlabel('si')
+ax[0].set_ylabel('si_norm')
+ax[1] = sns.regplot(df_perf, x='si', y='si_raw', ax=ax[1])
+ax[1].set_box_aspect(1)
+ax[1].set_xlabel('si')
+ax[1].set_ylabel('si_raw')
+ax[2] = sns.regplot(df_perf, x='si_raw', y='si_norm', ax=ax[2])
+ax[2].set_box_aspect(1)
+ax[2].set_xlabel('si_raw')
+ax[2].set_ylabel('si_norm')
+fig.suptitle('Raw performance values', fontsize=16)
+
 # VR Performance for 2D scatter plot
 # take "datas" from behavior_matrix.py
 datas[0]['si_binned_run'].to_csv('.\\20230718\\si_scatterplot_norm.csv', sep=',')
@@ -79,7 +99,7 @@ df_merged = functools.reduce(lambda left, right: pd.merge(left, right, on=['mous
 df_merged.to_csv('.\\20230718\\histology.csv', sep=',')
 
 # PC data (stable/unstable) over time
-class_df.to_csv('.\\20230718\\pc_distribution.csv', sep=',')
+stability_classes.to_csv('.\\20230718\\pc_distribution_without_lost.csv', sep=',')
 
 # PC ratios over time
 dfs = []
@@ -136,7 +156,8 @@ for mouse in mice:
     rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
     rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
     rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
-    rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
+    if 28 not in rel_days:
+        rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
 
     rel_sess = np.arange(len(rel_days)) - np.argmax(np.where(rel_days <= 0, rel_days, -np.inf))
 

@@ -113,7 +113,7 @@ def plot_pca(model, ax, reduced_data=None, mean_offset: Union[np.ndarray, int] =
 
 # Get normalized performance
 metrics = ['binned_lick_ratio', 'si_binned_run', 'distance', 'autocorr']
-plot_pca_mapping = False
+plot_pca_mapping = True
 
 fig, axes = plt.subplots(nrows=2, ncols=len(metrics), layout='constrained')
 
@@ -147,7 +147,7 @@ for j, norm in enumerate([True, False]):    # Plot both normalized and raw perfo
         # Perform PCA to find a single dimension, and correlate the position of each mouse on it to its sphere count
         pca = PCA(n_components=1)
         pca_data = matrix[['early', 'late']]    # Extract the 2D data used for PCA
-        data_mean = pca_data.mean(axis=0)  # Center data before PCA (subtract mean to get mean of 0)
+        data_mean = pca_data.mean(axis=0)       # Center data before PCA (subtract mean to get mean of 0)
         data_centered = pca_data - data_mean
         reduced_metric = pca.fit_transform(data_centered)
 
