@@ -138,11 +138,22 @@ for metric in chance.index:
 t_tests = pd.concat(t_tests)
 
 #%% Correlate metrics against each other
-numeric_only_filt = numeric_only.iloc[:, ~numeric_only.columns.str.contains('shift')]
+numeric_only_filt = numeric_only.iloc[:, (~numeric_only.columns.str.contains('shift')) & (~numeric_only.columns.str.contains('std'))]
+numeric_only_filt['accuracy'] = 1 - numeric_only_filt['accuracy']
+numeric_only_filt['accuracy_quad'] = 1 - numeric_only_filt['accuracy_quad']
+numeric_only_filt['acc_max'] = 1 - numeric_only_filt['acc_max']
+numeric_only_filt['acc_max_quad'] = 1 - numeric_only_filt['acc_max_quad']
 corr = numeric_only_filt.corr()
 plt.figure()
 sns.heatmap(corr, mask=np.triu(np.ones_like(corr, dtype=np.bool)), vmin=-1, vmax=1, annot=True,
             xticklabels=corr.columns, yticklabels=corr.index, cmap='vlag')
+
+useful_metrics = ['accuracy', 'mae', 'mae_quad', 'sensitivity_rz', 'specificity_rz']
+corr = numeric_only_filt[useful_metrics].corr()
+plt.figure()
+sns.heatmap(corr, mask=np.triu(np.ones_like(corr, dtype=np.bool)), vmin=-1, vmax=1, annot=True,
+            xticklabels=corr.columns, yticklabels=corr.index, cmap='vlag')
+
 
 #%% Correlate VR performance with metrics
 
