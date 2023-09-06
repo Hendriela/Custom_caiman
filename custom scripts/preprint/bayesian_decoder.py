@@ -12,8 +12,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import scipy.stats as scistats
 
-from schema import hheise_decoder, hheise_grouping, common_mice, hheise_placecell
+from schema import hheise_decoder, hheise_grouping, common_mice, hheise_placecell, hheise_behav
 
+useful_metrics = ['accuracy', 'mae', 'mae_quad', 'sensitivity_rz', 'specificity_rz']
 #%% Load data
 
 mice = np.unique(hheise_grouping.BehaviorGrouping().fetch('mouse_id'))
@@ -148,7 +149,6 @@ plt.figure()
 sns.heatmap(corr, mask=np.triu(np.ones_like(corr, dtype=np.bool)), vmin=-1, vmax=1, annot=True,
             xticklabels=corr.columns, yticklabels=corr.index, cmap='vlag')
 
-useful_metrics = ['accuracy', 'mae', 'mae_quad', 'sensitivity_rz', 'specificity_rz']
 corr = numeric_only_filt[useful_metrics].corr()
 plt.figure()
 sns.heatmap(corr, mask=np.triu(np.ones_like(corr, dtype=np.bool)), vmin=-1, vmax=1, annot=True,
@@ -157,3 +157,73 @@ sns.heatmap(corr, mask=np.triu(np.ones_like(corr, dtype=np.bool)), vmin=-1, vmax
 
 #%% Correlate VR performance with metrics
 
+### Session-wise
+data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession * hheise_behav.VRPerformance
+                     & 'bayesian_id=1').fetch('mouse_id', 'day', 'si_binned_run', *useful_metrics, as_dict=True))
+pks = (hheise_decoder.BayesianDecoderWithinSession * hheise_behav.VRPerformance & 'bayesian_id=1').fetch('KEY')
+data['binned_lick_ratio'] = [(hheise_behav.VRPerformance & pk).get_mean()[0] for pk in pks]
+
+is_pre = []
+for mouse_id, mouse_data in data.groupby('mouse_id'):
+    surgery_day = (common_mice.Surgery() & 'surgery_type="Microsphere injection"' & f'mouse_id={mouse_id}').fetch(
+        'surgery_date')[0].date()
+    is_pre.append(mouse_data['day'] <= surgery_day)
+data['is_pre'] = pd.concat(is_pre)
+
+behav_metric = 'si_binned_run'
+
+# Scatter plots
+data_long = data.melt(id_vars=['mouse_id', behav_metric], value_vars=useful_metrics)
+g = sns.FacetGrid(data_long, col="variable", col_wrap=3, sharey=False, hue='mouse_id')
+g.map(sns.scatterplot, behav_metric, 'value')
+
+export = data.pivot(columns='mouse_id', values='accuracy')
+
+# Correlate metrics with SI performance
+perf_corr = []
+for mouse_id, mouse_data in data.groupby('mouse_id'):
+    # Pearson
+    # for corr_method in ['pearson', 'spearman']:
+    corr_method = 'spearman'
+    for behav_metric in ['si_binned_run', 'binned_lick_ratio']:
+        corr_all = mouse_data[[*useful_metrics, behav_metric]].corr(method=corr_method)[behav_metric].drop(index=behav_metric)
+        corr_pre = mouse_data[mouse_data['is_pre']][[*useful_metrics, behav_metric]].corr(method=corr_method)[behav_metric].drop(index=behav_metric)
+        corr_post = mouse_data[~mouse_data['is_pre']][[*useful_metrics, behav_metric]].corr(method=corr_method)[behav_metric].drop(index=behav_metric)
+        perf_corr.append(pd.DataFrame([dict(mouse_id=mouse_id, **dict(corr_all), period='both', method=corr_method, metric=behav_metric)]))
+        perf_corr.append(pd.DataFrame([dict(mouse_id=mouse_id, **dict(corr_pre), period='pre', method=corr_method, metric=behav_metric)]))
+        perf_corr.append(pd.DataFrame([dict(mouse_id=mouse_id, **dict(corr_post), period='post', method=corr_method, metric=behav_metric)]))
+perf_corr = pd.concat(perf_corr)
+perf_corr_long = perf_corr.melt(value_vars=useful_metrics, id_vars=['mouse_id', 'period', 'metric'])
+
+dat = perf_corr_long[(perf_corr_long['variable'] == 'accuracy')]
+plt.bar(x=dat['mouse_id'].astype('str'), height=dat['value'])
+sns.barplot(dat, x='period', y='value', hue='mouse_id')
+
+for period in ['both', 'pre', 'post']:
+    g = sns.FacetGrid(perf_corr_long[perf_corr_long['period'] == period], col="variable", col_wrap=3, sharey=False,
+                      ylim=(-1, 1))
+    g.map(sns.barplot, "mouse_id", 'value')
+    g.fig.suptitle(period)
+
+
+g = sns.FacetGrid(perf_corr_long, col="variable", col_wrap=3, sharey=False, ylim=(-1, 1))
+for ax in g.axes:
+    ax.axhline(0, c='grey', ls='--')
+g.map(sns.boxplot, "period", 'value', 'metric')
+g.axes.flatten()[-1].legend()
+
+plt.figure()
+sns.boxplot(perf_corr_long[perf_corr_long['variable'] == 'mae_quad'], x='period', y='value', hue='method')
+
+### Trial-wise
+data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession.Trial * hheise_behav.VRPerformance
+                     & 'bayesian_id=1').fetch('mouse_id', 'day', 'trial_id', 'si_count', 'binned_lick_ratio',
+                                              *useful_metrics, as_dict=True))
+data['blr'] = data.apply(lambda x: x['binned_lick_ratio'][x['trial_id']], axis=1)
+data['si'] = data.apply(lambda x: x['si_count'][x['trial_id']], axis=1)
+
+# Scatter plots
+behav_metric = 'blr'
+data_long = data.melt(id_vars=['mouse_id', behav_metric], value_vars=useful_metrics)
+g = sns.FacetGrid(data_long, col="variable", col_wrap=3, sharey=False, hue='mouse_id')
+g.map(sns.scatterplot, behav_metric, 'value')
