@@ -232,4 +232,12 @@ g.map_dataframe(annotate, 'early', 'late')
 #     linreg = LinearRegression().fit(x, y)
 #     r_sq = linreg.score(x, y)
 
+#%% Correlate behavior metrics with each other
 
+behav = pd.DataFrame(hheise_behav.VRPerformance().fetch('KEY', 'si_binned', 'si_binned_run', 'si_count', as_dict=True))
+pks = (hheise_behav.VRPerformance()).fetch('KEY')
+behav['si_count_mean'] = [(hheise_behav.VRPerformance & pk).get_mean(attr='si_count')[0] for pk in pks]
+behav['si_count_mean_1'] = behav.apply(lambda x: np.mean(x['si_count']), axis=1)
+
+g = sns.lmplot(behav, x='si_binned_run', y='si_count_mean_1')
+helper.equalize_axis(g.axes[0, 0], plot_diagonal=True)
