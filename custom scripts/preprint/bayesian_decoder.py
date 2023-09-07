@@ -112,12 +112,13 @@ df = pd.concat(dfs)
 chance = hheise_decoder.BayesianDecoderErrorChanceLevels().fetch(format='frame').drop(columns=['calculation_procedure']).squeeze()
 chance.name = 'chance_levels'
 chance = chance[~chance.index.str.contains('std')]
+chance = chance[useful_metrics]
 
 # Plot barplots
 df_long = pd.melt(df.reset_index(), value_vars=list(chance.index), id_vars=['mouse_id', 'index'], var_name='metric')
 # g = sns.FacetGrid(df_long, col="metric", col_wrap=6, sharey=False, hue='mouse_id')
 # g.map(sns.barplot, "mouse_id", 'value', order=df_long.mouse_id.unique())
-g = sns.FacetGrid(df_long, col="metric", col_wrap=6, sharey=False)
+g = sns.FacetGrid(df_long, col="metric", col_wrap=3, sharey=False)
 g.map(sns.boxplot, "mouse_id", 'value')
 for col, ax in zip(g.col_names, g.axes):
     ax.axhline(chance[col], c='grey', ls='--')
@@ -159,16 +160,22 @@ sns.heatmap(corr, mask=np.triu(np.ones_like(corr, dtype=np.bool)), vmin=-1, vmax
 
 ### Session-wise
 data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession * hheise_behav.VRPerformance
-                     & 'bayesian_id=1').fetch('mouse_id', 'day', 'si_binned_run', *useful_metrics, as_dict=True))
-pks = (hheise_decoder.BayesianDecoderWithinSession * hheise_behav.VRPerformance & 'bayesian_id=1').fetch('KEY')
+                     & 'bayesian_id=1' & 'day < "2022-09-09"').fetch('mouse_id', 'day', 'si_binned_run', *useful_metrics, as_dict=True))
+pks = (hheise_decoder.BayesianDecoderWithinSession * hheise_behav.VRPerformance & 'bayesian_id=1' & 'day < "2022-09-09"').fetch('KEY')
 data['binned_lick_ratio'] = [(hheise_behav.VRPerformance & pk).get_mean()[0] for pk in pks]
 
-is_pre = []
+periods = []
 for mouse_id, mouse_data in data.groupby('mouse_id'):
     surgery_day = (common_mice.Surgery() & 'surgery_type="Microsphere injection"' & f'mouse_id={mouse_id}').fetch(
         'surgery_date')[0].date()
-    is_pre.append(mouse_data['day'] <= surgery_day)
-data['is_pre'] = pd.concat(is_pre)
+
+    period = pd.Series(['none'] * len(mouse_data['day']))
+    period.iloc[mouse_data['day'] <= surgery_day] = 'pre'
+    period.iloc[((mouse_data['day'] - surgery_day).dt.days > 0) & ((mouse_data['day'] - surgery_day).dt.days <= 7)] = 'early'
+    period.iloc[(mouse_data['day'] - surgery_day).dt.days > 7] = 'late'
+
+    periods.append(period)
+data['period'] = pd.concat(periods).to_numpy()
 
 behav_metric = 'si_binned_run'
 
@@ -177,53 +184,171 @@ data_long = data.melt(id_vars=['mouse_id', behav_metric], value_vars=useful_metr
 g = sns.FacetGrid(data_long, col="variable", col_wrap=3, sharey=False, hue='mouse_id')
 g.map(sns.scatterplot, behav_metric, 'value')
 
-export = data.pivot(columns='mouse_id', values='accuracy')
+export = data.pivot(columns='mouse_id', values='mae')
 
 # Correlate metrics with SI performance
 perf_corr = []
 for mouse_id, mouse_data in data.groupby('mouse_id'):
     # Pearson
     # for corr_method in ['pearson', 'spearman']:
-    corr_method = 'spearman'
+    corr_method = 'pearson'
     for behav_metric in ['si_binned_run', 'binned_lick_ratio']:
         corr_all = mouse_data[[*useful_metrics, behav_metric]].corr(method=corr_method)[behav_metric].drop(index=behav_metric)
-        corr_pre = mouse_data[mouse_data['is_pre']][[*useful_metrics, behav_metric]].corr(method=corr_method)[behav_metric].drop(index=behav_metric)
-        corr_post = mouse_data[~mouse_data['is_pre']][[*useful_metrics, behav_metric]].corr(method=corr_method)[behav_metric].drop(index=behav_metric)
-        perf_corr.append(pd.DataFrame([dict(mouse_id=mouse_id, **dict(corr_all), period='both', method=corr_method, metric=behav_metric)]))
+        corr_pre = mouse_data[mouse_data['period'] == 'pre'][[*useful_metrics, behav_metric]].corr(method=corr_method)[behav_metric].drop(index=behav_metric)
+        corr_early = mouse_data[mouse_data['period'] == 'early'][[*useful_metrics, behav_metric]].corr(method=corr_method)[behav_metric].drop(index=behav_metric)
+        corr_late = mouse_data[mouse_data['period'] == 'late'][[*useful_metrics, behav_metric]].corr(method=corr_method)[behav_metric].drop(index=behav_metric)
+        corr_post = mouse_data[mouse_data['period'] != 'pre'][[*useful_metrics, behav_metric]].corr(method=corr_method)[behav_metric].drop(index=behav_metric)
+
+        perf_corr.append(pd.DataFrame([dict(mouse_id=mouse_id, **dict(corr_all), period='all', method=corr_method, metric=behav_metric)]))
         perf_corr.append(pd.DataFrame([dict(mouse_id=mouse_id, **dict(corr_pre), period='pre', method=corr_method, metric=behav_metric)]))
         perf_corr.append(pd.DataFrame([dict(mouse_id=mouse_id, **dict(corr_post), period='post', method=corr_method, metric=behav_metric)]))
+        perf_corr.append(pd.DataFrame([dict(mouse_id=mouse_id, **dict(corr_early), period='early', method=corr_method, metric=behav_metric)]))
+        perf_corr.append(pd.DataFrame([dict(mouse_id=mouse_id, **dict(corr_late), period='late', method=corr_method, metric=behav_metric)]))
 perf_corr = pd.concat(perf_corr)
-perf_corr_long = perf_corr.melt(value_vars=useful_metrics, id_vars=['mouse_id', 'period', 'metric'])
+perf_corr_long = perf_corr[perf_corr.metric == 'si_binned_run'].melt(value_vars=useful_metrics, id_vars=['mouse_id', 'period', 'metric'])
 
 dat = perf_corr_long[(perf_corr_long['variable'] == 'accuracy')]
 plt.bar(x=dat['mouse_id'].astype('str'), height=dat['value'])
 sns.barplot(dat, x='period', y='value', hue='mouse_id')
 
-for period in ['both', 'pre', 'post']:
-    g = sns.FacetGrid(perf_corr_long[perf_corr_long['period'] == period], col="variable", col_wrap=3, sharey=False,
-                      ylim=(-1, 1))
+for period in perf_corr_long.period.unique():
+    g = sns.FacetGrid(perf_corr_long[perf_corr_long['period'] == period], col="variable", col_wrap=3, sharey=True, ylim=(-1, 1))
     g.map(sns.barplot, "mouse_id", 'value')
     g.fig.suptitle(period)
 
 
-g = sns.FacetGrid(perf_corr_long, col="variable", col_wrap=3, sharey=False, ylim=(-1, 1))
+g = sns.FacetGrid(perf_corr_long[perf_corr_long['metric'] == 'si_binned_run'], col="variable", col_wrap=3, sharey=True, ylim=(-1, 1))
 for ax in g.axes:
     ax.axhline(0, c='grey', ls='--')
-g.map(sns.boxplot, "period", 'value', 'metric')
+g.map(sns.boxplot, "period", 'value')
 g.axes.flatten()[-1].legend()
+
+g = sns.FacetGrid(perf_corr_long[perf_corr_long['metric'] == 'si_binned_run'], col="mouse_id", col_wrap=6, sharey=True, ylim=(-1, 1))
+for ax in g.axes:
+    ax.axhline(0, c='grey', ls='--')
+g.map(sns.boxplot, "variable", 'value')
 
 plt.figure()
 sns.boxplot(perf_corr_long[perf_corr_long['variable'] == 'mae_quad'], x='period', y='value', hue='method')
 
-### Trial-wise
+
+# Does correlation with VR performance depend on model performance?
+df_corr = perf_corr_long[(perf_corr_long['period'] == 'both') & (perf_corr_long['metric'] == 'si_binned_run')].rename(columns={'value': 'model_vr_corr'}).drop(columns=['metric', 'period'])
+df_score = data_long.drop(columns='si_binned_run').groupby(['mouse_id', 'variable']).mean().reset_index().rename(columns={'value': 'model_score'})
+df_merge = pd.merge(df_corr, df_score, on=['mouse_id', 'variable'])
+
+g = sns.FacetGrid(df_merge, col="variable", col_wrap=3, sharey=False, xlim=(-1, 1))
+g.map(sns.scatterplot, "model_vr_corr", 'model_score')
+
+################# Trial-wise ############################
 data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession.Trial * hheise_behav.VRPerformance
-                     & 'bayesian_id=1').fetch('mouse_id', 'day', 'trial_id', 'si_count', 'binned_lick_ratio',
-                                              *useful_metrics, as_dict=True))
+                     & 'bayesian_id=1' & 'day < "2022-09-09"').fetch('mouse_id', 'day', 'trial_id', 'si_count', 'binned_lick_ratio',
+                                                                     *useful_metrics, as_dict=True))
 data['blr'] = data.apply(lambda x: x['binned_lick_ratio'][x['trial_id']], axis=1)
 data['si'] = data.apply(lambda x: x['si_count'][x['trial_id']], axis=1)
 
 # Scatter plots
-behav_metric = 'blr'
+behav_metric = 'si'
 data_long = data.melt(id_vars=['mouse_id', behav_metric], value_vars=useful_metrics)
 g = sns.FacetGrid(data_long, col="variable", col_wrap=3, sharey=False, hue='mouse_id')
 g.map(sns.scatterplot, behav_metric, 'value')
+
+# Middle-ground: Compute trial-wise correlation for each session separately
+trial_corr = []
+for idx, session in data.groupby(by=['mouse_id', 'day']):
+    curr_corr = session[[*useful_metrics, behav_metric]].corr(method='spearman')[behav_metric].drop(index=behav_metric)
+
+    surgery_day = (common_mice.Surgery() & 'surgery_type="Microsphere injection"' & f'mouse_id={idx[0]}').fetch(
+        'surgery_date')[0].date()
+    if idx[1] <= surgery_day:
+        period = 'pre'
+    elif (idx[1] - surgery_day).days <= 7:
+        period = 'early'
+    else:
+        period = 'late'
+
+    trial_corr.append(pd.DataFrame([dict(mouse_id=idx[0], day=idx[1], period=period, **curr_corr)]))
+trial_corr = pd.concat(trial_corr)
+trial_corr['mae'] = -trial_corr['mae']
+trial_corr['mae_quad'] = -trial_corr['mae_quad']
+trial_long = trial_corr.melt(id_vars=['mouse_id', 'period'], value_vars=useful_metrics)
+
+g = sns.FacetGrid(trial_long, col="mouse_id", col_wrap=6, sharey=True)
+g.map(sns.boxplot, 'variable', 'value', 'period')
+for ax in g.axes:
+    ax.axhline(0, c='grey', ls='--')
+
+g = sns.FacetGrid(trial_long, col="variable", col_wrap=3, sharey=True)
+g.map(sns.boxplot, 'period', 'value')
+for ax in g.axes:
+    ax.axhline(0, c='grey', ls='--')
+
+#%% Add behavioral grouping
+
+coarse = (hheise_grouping.BehaviorGrouping & 'grouping_id = 0' & 'cluster = "coarse"').get_groups()
+fine = (hheise_grouping.BehaviorGrouping & 'grouping_id = 0' & 'cluster = "fine"').get_groups()
+
+# Adjust correlations of MAE and MAE_quad (let all be positive)
+perf_corr_long.loc[perf_corr_long['variable'].isin(['mae', 'mae_quad']), 'value'] = -perf_corr_long.loc[perf_corr_long['variable'].isin(['mae', 'mae_quad']), 'value']
+
+merge = perf_corr_long.merge(coarse, how='left', on='mouse_id').rename(columns={'group': 'coarse'})
+merge = merge.merge(fine, how='left', on='mouse_id').rename(columns={'group': 'fine'})
+
+# Coarse
+merge[merge.period == 'pre'].pivot(index='variable', columns='mouse_id', values='value').to_clipboard(header=False, index=False)
+merge[merge.variable == 'accuracy'].pivot(index='period', columns='mouse_id', values='value').loc[['pre', 'post'], :].to_clipboard(header=False)
+
+# Fine
+merge[merge.period == 'all'].pivot(index='variable', columns='mouse_id', values='value').to_clipboard(header=False, index=False)
+merge[merge.variable == 'accuracy'].pivot(index='period', columns='mouse_id', values='value').loc[['pre', 'early', 'late'], :].to_clipboard(header=False)
+
+#%% Decoder performance over time
+
+data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & 'bayesian_id=1' & 'day < "2022-09-09"'
+                     & 'mouse_id!=112').fetch('mouse_id', 'day', *useful_metrics, as_dict=True))
+
+new_dfs = []
+for i, (mouse_id, mouse_data) in enumerate(data.groupby('mouse_id')):
+    #
+    # if i == 1:
+    #     break
+
+    surgery_day = (common_mice.Surgery() & 'surgery_type="Microsphere injection"' & f'mouse_id={mouse_id}').fetch(
+        'surgery_date')[0].date()
+    rel_day = (mouse_data['day'] - surgery_day).dt.days
+    period = pd.Series(['none'] * len(mouse_data['day']))
+    period.iloc[mouse_data['day'] <= surgery_day] = 'pre'
+    period.iloc[(rel_day > 0) & (rel_day <= 7)] = 'early'
+    period.iloc[rel_day > 7] = 'late'
+    period.index = mouse_data.index
+
+    if mouse_id in [63, 69]:
+        rel_day = rel_day.mask(rel_day.isin([1, 2, 4]))
+
+    rel_day[(rel_day == 2) | (rel_day == 3) | (rel_day == 4)] = 3
+    rel_day[(rel_day == 5) | (rel_day == 6) | (rel_day == 7)] = 6
+    rel_day[(rel_day == 8) | (rel_day == 9) | (rel_day == 10)] = 9
+    rel_day[(rel_day == 11) | (rel_day == 12) | (rel_day == 13)] = 12
+    rel_day[(rel_day == 14) | (rel_day == 15) | (rel_day == 16)] = 15
+    rel_day[(rel_day == 17) | (rel_day == 18) | (rel_day == 19)] = 18
+    rel_day[(rel_day == 20) | (rel_day == 21) | (rel_day == 22)] = 21
+    rel_day[(rel_day == 23) | (rel_day == 24) | (rel_day == 25)] = 24
+    if 28 not in rel_day:
+        rel_day[(rel_day == 26) | (rel_day == 27) | (rel_day == 28)] = 27
+
+    rel_sess = np.arange(len(rel_day)) - np.argmax(np.where(rel_day <= 0, rel_day, -np.inf))
+
+    rel_day[(-5 < rel_sess) & (rel_sess < 1)] = np.arange(-4, 1)
+
+    norm = mouse_data[useful_metrics] / mouse_data[rel_day.isin([-2, -1, 0])][useful_metrics].mean()
+    norm = norm.add_suffix('_norm')
+
+    new_dfs.append(pd.DataFrame(dict(mouse_id=mouse_data.mouse_id, day=mouse_data.day,
+                                     period=period, rel_days=rel_day, **norm)))
+new_dfs = pd.concat(new_dfs)
+data = data.merge(new_dfs, on=['mouse_id', 'day'])
+data = data.dropna()
+data = data[data['rel_days'] >= -4]
+data = data[data['rel_days'] != 1]
+
+data.pivot(index='rel_days', columns='mouse_id', values='specificity_rz_norm').to_clipboard(header=False, index=False)
