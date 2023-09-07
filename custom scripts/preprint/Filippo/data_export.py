@@ -147,17 +147,17 @@ for mouse in mice:
     # Transform dates into days before surgery
     rel_days = np.array([(pk['day'] - surgery_day).days for pk in pks])
 
-    if 3 not in rel_days:
-        rel_days[(rel_days == 2) | (rel_days == 4)] = 3
-    rel_days[(rel_days == 5) | (rel_days == 6) | (rel_days == 7)] = 6
-    rel_days[(rel_days == 8) | (rel_days == 9) | (rel_days == 10)] = 9
-    rel_days[(rel_days == 11) | (rel_days == 12) | (rel_days == 13)] = 12
-    rel_days[(rel_days == 14) | (rel_days == 15) | (rel_days == 16)] = 15
-    rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
-    rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
-    rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
-    if 28 not in rel_days:
-        rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
+    # if 3 not in rel_days:
+    #     rel_days[(rel_days == 2) | (rel_days == 4)] = 3
+    # rel_days[(rel_days == 5) | (rel_days == 6) | (rel_days == 7)] = 6
+    # rel_days[(rel_days == 8) | (rel_days == 9) | (rel_days == 10)] = 9
+    # rel_days[(rel_days == 11) | (rel_days == 12) | (rel_days == 13)] = 12
+    # rel_days[(rel_days == 14) | (rel_days == 15) | (rel_days == 16)] = 15
+    # rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
+    # rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
+    # rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
+    # if 28 not in rel_days:
+    #     rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
 
     rel_sess = np.arange(len(rel_days)) - np.argmax(np.where(rel_days <= 0, rel_days, -np.inf))
 
@@ -178,7 +178,7 @@ df = df[df['rel_sess'] <= 9]
 df_filt = df[['mouse_id', 'rel_days', 'licks']]
 df_pivot = df_filt.pivot(columns='rel_days', index='mouse_id', values='licks')
 
-df_pivot.to_pickle('.\\20230726\\bin_licks.pickle')
+df_pivot.to_pickle('.\\20230726\\bin_licks_complete.pickle')
 
 #%% Sphere location
 
