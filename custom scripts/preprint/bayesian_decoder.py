@@ -322,6 +322,9 @@ for i, (mouse_id, mouse_data) in enumerate(data.groupby('mouse_id')):
     period.iloc[rel_day > 7] = 'late'
     period.index = mouse_data.index
 
+    phase_sess = np.concatenate([np.arange(period.value_counts()['pre']), np.arange(period.value_counts()['early']),
+                                 np.arange(period.value_counts()['late'])])
+
     if mouse_id in [63, 69]:
         rel_day = rel_day.mask(rel_day.isin([1, 2, 4]))
 
@@ -344,7 +347,7 @@ for i, (mouse_id, mouse_data) in enumerate(data.groupby('mouse_id')):
     norm = norm.add_suffix('_norm')
 
     new_dfs.append(pd.DataFrame(dict(mouse_id=mouse_data.mouse_id, day=mouse_data.day,
-                                     period=period, rel_days=rel_day, **norm)))
+                                     period=period, rel_days=rel_day, period_day=phase_sess, **norm)))
 new_dfs = pd.concat(new_dfs)
 data = data.merge(new_dfs, on=['mouse_id', 'day'])
 data = data.dropna()
@@ -352,3 +355,65 @@ data = data[data['rel_days'] >= -4]
 data = data[data['rel_days'] != 1]
 
 data.pivot(index='rel_days', columns='mouse_id', values='specificity_rz_norm').to_clipboard(header=False, index=False)
+
+### Summarize phases (single mice)
+merge = data.merge(coarse, how='left', on='mouse_id').rename(columns={'group': 'coarse'})
+merge = merge.merge(fine, how='left', on='mouse_id').rename(columns={'group': 'fine'})
+
+# Copy data for Prism
+prism_data = merge[merge.fine == 'No Recovery'].pivot(index='period', columns=['mouse_id', 'period_day'],
+                                                   values='specificity_rz_norm').loc[['pre', 'early', 'late']]
+prism_data.to_clipboard(header=False, index=False)
+
+# Copy subcolumn names
+columns = pd.Series(merge[merge.fine == 'Stroke'].pivot(index='period', columns=['mouse_id', 'period_day'],
+                                      values='accuracy').loc[['pre', 'early', 'late']].columns.to_flat_index())
+columns.apply(lambda x: f'{x[0]}_{x[1]}').to_clipboard(index=False, header=False)
+
+# Average mice
+avg = merge.groupby(['mouse_id', 'period'])[[*useful_metrics, *[x+'_norm' for x in useful_metrics]]].mean(numeric_only=True)
+avg = avg.join(merge[['mouse_id', 'coarse', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()
+
+avg_prism = avg.pivot(index='period', columns='mouse_id', values='accuracy_norm').loc[['pre', 'early', 'late']]
+avg_prism.to_clipboard(header=False, index=False)
+
+
+#%% Compare stability distribution of cells that the model used across time & mice
+
+# Use "data" from over-time cell above
+# data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & 'bayesian_id=1' & 'day < "2022-09-09"'
+#                      & 'mouse_id!=112').fetch('mouse_id', 'day', *useful_metrics, as_dict=True))
+stab_dist = []
+for i, row in data.iterrows():
+    stab_dist.append(pd.DataFrame([dict(**row, stab=(hheise_placecell.SpatialInformation.ROI & dict(row) &
+                                                     'place_cell_id=2' & 'corridor_type=0').fetch('stability', order_by='stability desc')[:100])]))
+stab = pd.concat(stab_dist)
+
+stab['mean_stab'] = stab.apply(lambda x: np.mean(x['stab']), axis=1)
+stab['median_stab'] = stab.apply(lambda x: np.median(x['stab']), axis=1)
+
+# Plot stability distribution across days
+stab_ex = stab.explode('stab')
+g = sns.displot(stab_ex, col='mouse_id', col_wrap=4, hue='rel_days', x='stab', kind='kde', palette='plasma_r')
+
+### Correlate mean stability of cells in the network with performance
+stab_melt = stab.melt(id_vars=['mouse_id', 'rel_days', 'period', 'mean_stab', 'median_stab'],
+                      value_vars=useful_metrics, var_name='metric')
+
+g = sns.FacetGrid(stab_melt, col="metric", col_wrap=3, sharey=False, hue='mouse_id')
+g.map(sns.scatterplot, 'mean_stab', 'value')
+
+g = sns.FacetGrid(stab_melt, col="metric", col_wrap=3, sharey=False, hue='rel_days', palette='plasma_r')
+g.map(sns.scatterplot, 'mean_stab', 'value')
+g.add_legend()
+
+g = sns.FacetGrid(stab_melt, col="metric", col_wrap=3, sharey=False, hue='rel_days', palette='plasma_r')
+g.map(sns.scatterplot, 'median_stab', 'value')
+g.add_legend()
+
+# Pivot for Prism
+stab[['mean_stab', *useful_metrics]].to_clipboard(index=False)
+
+#%% Check if M89 is 3 standard deviations above chance level --> if not, we can exclude it
+
+
