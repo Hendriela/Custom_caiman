@@ -35,19 +35,36 @@ for mouse in mice:
     surgery_day = (common_mice.Surgery() & 'surgery_type="Microsphere injection"' & f'mouse_id={mouse}').fetch(
         'surgery_date')[0].date()
     # Get date and performance for each session before the surgery day
-    days = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').fetch('day')
-    perf_lick = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('binned_lick_ratio')
-    perf_si = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('si_binned_run')
-    perf_dist = (hheise_behav.VRPerformance & 'username="hheise"' & f'mouse_id={mouse}').get_mean('distance')
-    perf_si_raw = (hheise_behav.VRPerformanceTest & 'username="hheise"' & f'mouse_id={mouse}').get_mean('si_raw_run')
-    perf_si_norm = (hheise_behav.VRPerformanceTest & 'username="hheise"' & f'mouse_id={mouse}').get_mean('si_norm_run')
+    res = {'username': "hheise",  'mouse_id': mouse}
+    days = (hheise_behav.VRPerformance & res & f'day<"2022-09-09"').fetch('day')
+    perf_lick = (hheise_behav.VRPerformance & res & f'day<"2022-09-09"').get_mean('binned_lick_ratio')
+    perf_si = (hheise_behav.VRPerformance & res & f'day<"2022-09-09"').get_mean('si_binned_run')
+    perf_dist = (hheise_behav.VRPerformance & res & f'day<"2022-09-09"').get_mean('distance')
+    perf_si_raw = (hheise_behav.VRPerformanceTest & res & f'day<"2022-09-09"').get_mean('si_raw_run')
+    perf_si_norm = (hheise_behav.VRPerformanceTest & res & f'day<"2022-09-09"').get_mean('si_norm_run')
 
     pc_ratios = pd.DataFrame((hheise_placecell.PlaceCell & f'mouse_id={mouse}' & 'corridor_type=0' & 'place_cell_id=2').fetch('day', 'place_cell_ratio', as_dict=True))
 
     # Transform dates into days before surgery
-    rel_days = [(d - surgery_day).days for d in days]
+    rel_days = np.array([(d - surgery_day).days for d in days])
 
-    df_wide = pd.DataFrame(dict(mouse_id=mouse, days=days, rel_days=rel_days, blr=perf_lick, si=perf_si,
+    if 3 not in rel_days:
+        rel_days[(rel_days == 2) | (rel_days == 4)] = 3
+    rel_days[(rel_days == 5) | (rel_days == 6) | (rel_days == 7)] = 6
+    rel_days[(rel_days == 8) | (rel_days == 9) | (rel_days == 10)] = 9
+    rel_days[(rel_days == 11) | (rel_days == 12) | (rel_days == 13)] = 12
+    rel_days[(rel_days == 14) | (rel_days == 15) | (rel_days == 16)] = 15
+    rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
+    rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
+    rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
+    if 28 not in rel_days:
+        rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
+
+    rel_sess = np.arange(len(rel_days)) - np.argmax(np.where(rel_days <= 0, rel_days, -np.inf))
+
+    rel_days[rel_sess < 1] = np.arange(-np.sum(rel_sess < 1)+1, 1)
+
+    df_wide = pd.DataFrame(dict(mouse_id=mouse, days=days, rel_days=rel_days, rel_sess=rel_sess, blr=perf_lick, si=perf_si,
                                 dist=perf_dist, si_raw=perf_si_raw, si_norm=perf_si_norm))
     df_wide['rel_sess'] = df_wide.index - np.argmax(np.where(df_wide['rel_days'] <= 0, df_wide['rel_days'], -np.inf))
 
@@ -64,7 +81,7 @@ for mouse in mice:
 
 df = pd.concat(dfs, ignore_index=True)
 df.sort_values(by=['mouse_id', 'metric'], inplace=True, ignore_index=True)
-df.to_csv('.\\20230718\\vr_performance.csv', sep=',')
+df.to_csv('.\\20230718\\vr_performance_aligned.csv', sep=',')
 
 # Correlate performance metrics
 df_perf = df[['mouse_id', 'days', 'rel_days', 'metric', 'perf']].pivot(columns='metric', values='perf', index=['mouse_id', 'rel_days'])
