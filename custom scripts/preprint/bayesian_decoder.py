@@ -12,10 +12,10 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import scipy.stats as scistats
 
-from schema import hheise_decoder, hheise_grouping, common_mice, hheise_placecell, hheise_behav
+from schema import hheise_decoder, hheise_grouping, common_mice, common_img, hheise_placecell, hheise_behav
 
 useful_metrics = ['accuracy', 'mae', 'mae_quad', 'sensitivity_rz', 'specificity_rz']
-#%% Load data
+#%% Plot accuracy for all mice in prestroke
 
 mice = np.unique(hheise_grouping.BehaviorGrouping().fetch('mouse_id'))
 
@@ -27,14 +27,13 @@ for mouse in mice:
         'surgery_date')[0].date()
 
     # Fetch model parameters for all available prestroke sessions
-    dfs.append(pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession * hheise_decoder.BayesianParameter & f'mouse_id = {mouse}'
-                             & f'day <= "{surgery_day}"' & 'bayesian_id > 0' & 'bayesian_id < 10').fetch(as_dict=True)))
+    dfs.append(pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & f'mouse_id = {mouse}'
+                             & f'day <= "{surgery_day}"' & 'bayesian_id = 1').fetch('mouse_id', 'day', *useful_metrics, as_dict=True)))
 df = pd.concat(dfs)
 
-#%% Plot accuracy for all mice in prestroke
 plt.figure()
-sns.barplot(df[df['bayesian_id'] == 1], x='mouse_id', y='accuracy')
-sns.stripplot(df[df['bayesian_id'] == 1], x='mouse_id', y='accuracy', color='gray')
+sns.barplot(df, x='mouse_id', y='accuracy')
+sns.stripplot(df, x='mouse_id', y='accuracy', color='gray')
 
 
 #%% Compare differences between neuron subsets
@@ -112,6 +111,7 @@ df = pd.concat(dfs)
 chance = hheise_decoder.BayesianDecoderErrorChanceLevels().fetch(format='frame').drop(columns=['calculation_procedure']).squeeze()
 chance.name = 'chance_levels'
 chance = chance[~chance.index.str.contains('std')]
+chance = chance.drop(['abs_error', 'abs_error_quad', 'failed_prediction'])
 chance = chance[useful_metrics]
 
 # Plot barplots
@@ -138,6 +138,34 @@ for metric in chance.index:
             direction = 'none'
         t_tests.append(pd.DataFrame([{'metric': metric, 'mouse_id': mouse_id, 'p': res.pvalue, 'direction': direction}]))
 t_tests = pd.concat(t_tests)
+
+# Test difference in SDs between mean and chance level
+mouse_means = df.groupby('mouse_id')[chance.index].mean()     # Error metric means
+mouse_sd = df.groupby('mouse_id')[chance.index].std()         # Error metric SDs
+mouse_chance_dif = (mouse_means - chance).abs()                 # Difference between mean and chance level
+chance_dif_sd = mouse_chance_dif / mouse_sd                     # Difference in SDs (sigmas)
+
+# Plot error metrics separately
+g = sns.FacetGrid(chance_dif_sd.reset_index().melt(id_vars='mouse_id'), col='variable', col_wrap=3, sharey=False)
+g.map(sns.barplot, 'mouse_id', 'value')
+g.set_ylabels(r"Mean - Chance [$\sigma$'s]")
+for ax in g.axes.flatten():
+    ax.axhline(2, c='tab:orange', ls='--')
+    ax.axhline(3, c='tab:red', ls='--')
+    ax.text(len(chance_dif_sd)-0.5, 2, r'$2 \sigma$', verticalalignment='top', c='tab:orange')
+    ax.text(len(chance_dif_sd)-0.5, 3, r'$3 \sigma$', verticalalignment='bottom', c='tab:red')
+
+# Average error metrics
+plt.figure()
+ax = sns.barplot(chance_dif_sd.reset_index().melt(id_vars='mouse_id'), x='mouse_id', y='value')
+sns.stripplot(chance_dif_sd.reset_index().melt(id_vars='mouse_id'), x='mouse_id', y='value', ax=ax, c='grey', alpha=0.7)
+ax.set_ylabel(r"Mean - Chance [$\sigma$'s]")
+ax.axhline(2, c='tab:orange', ls='--')
+ax.axhline(3, c='tab:red', ls='--')
+ax.text(len(chance_dif_sd) - 0.5, 2, r'$2 \sigma$', verticalalignment='top', c='tab:orange')
+ax.text(len(chance_dif_sd) - 0.5, 3, r'$3 \sigma$', verticalalignment='bottom', c='tab:red')
+
+mean_chance_dif = chance_dif_sd.mean(axis=1)
 
 #%% Correlate metrics against each other
 numeric_only_filt = numeric_only.iloc[:, (~numeric_only.columns.str.contains('shift')) & (~numeric_only.columns.str.contains('std'))]
@@ -304,7 +332,7 @@ merge[merge.variable == 'accuracy'].pivot(index='period', columns='mouse_id', va
 
 #%% Decoder performance over time
 
-data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & 'bayesian_id=1' & 'day < "2022-09-09"'
+data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & 'bayesian_id=4' & 'day < "2022-09-09"'
                      & 'mouse_id!=112').fetch('mouse_id', 'day', *useful_metrics, as_dict=True))
 
 new_dfs = []
@@ -383,37 +411,65 @@ avg_prism.to_clipboard(header=False, index=False)
 # Use "data" from over-time cell above
 # data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & 'bayesian_id=1' & 'day < "2022-09-09"'
 #                      & 'mouse_id!=112').fetch('mouse_id', 'day', *useful_metrics, as_dict=True))
-stab_dist = []
-for i, row in data.iterrows():
-    stab_dist.append(pd.DataFrame([dict(**row, stab=(hheise_placecell.SpatialInformation.ROI & dict(row) &
-                                                     'place_cell_id=2' & 'corridor_type=0').fetch('stability', order_by='stability desc')[:100])]))
-stab = pd.concat(stab_dist)
 
-stab['mean_stab'] = stab.apply(lambda x: np.mean(x['stab']), axis=1)
-stab['median_stab'] = stab.apply(lambda x: np.median(x['stab']), axis=1)
+# Stability
+# dist = []
+# for i, row in data.iterrows():
+#     dist.append(pd.DataFrame([dict(**row, val=(hheise_placecell.SpatialInformation.ROI & dict(row) &
+#                                                      'place_cell_id=2' & 'corridor_type=0').fetch('stability', order_by='stability desc')[:100])]))
+# dist = pd.concat(dist)
+# dist['mean'] = dist.apply(lambda x: np.mean(x['val']), axis=1)
+# dist['median'] = dist.apply(lambda x: np.median(x['val']), axis=1)
+
+# Spatial Info
+# dist = []
+# for i, row in data.iterrows():
+#     dist.append(pd.DataFrame([dict(**row, val=(hheise_placecell.SpatialInformation.ROI & dict(row) &
+#                                                    'place_cell_id=2' & 'corridor_type=0').fetch('si', order_by='si desc')[:100])]))
+# dist = pd.concat(dist)
+# dist['mean'] = dist.apply(lambda x: np.mean(x['val']), axis=1)
+# dist['median'] = dist.apply(lambda x: np.median(x['val']), axis=1)
+
+# Place Cells
+# dist = []
+# for i, row in data.iterrows():
+#     dist.append(pd.DataFrame([dict(**row, val=(hheise_placecell.PlaceCell.ROI & dict(row) & 'place_cell_id=2' &
+#                                                'corridor_type=0' & 'is_place_cell=1').fetch('p', order_by='p desc')[:100])]))
+# dist = pd.concat(dist)
+# dist['mean'] = dist.apply(lambda x: np.mean(x['val']), axis=1)
+# dist['median'] = dist.apply(lambda x: np.median(x['val']), axis=1)
+
+# Firing rate
+dist = []
+for i, row in data.iterrows():
+    dist.append(pd.DataFrame([dict(**row, val=(common_img.ActivityStatistics.ROI & dict(row)).fetch('rate_spikes', order_by='rate_spikes desc')[:100])]))
+dist = pd.concat(dist)
+dist['mean'] = dist.apply(lambda x: np.mean(x['val']), axis=1)
+dist['median'] = dist.apply(lambda x: np.median(x['val']), axis=1)
+
 
 # Plot stability distribution across days
-stab_ex = stab.explode('stab')
-g = sns.displot(stab_ex, col='mouse_id', col_wrap=4, hue='rel_days', x='stab', kind='kde', palette='plasma_r')
+dist_ex = dist.explode('stab')
+g = sns.displot(dist_ex, col='mouse_id', col_wrap=4, hue='rel_days', x='val', kind='kde', palette='plasma_r')
 
 ### Correlate mean stability of cells in the network with performance
-stab_melt = stab.melt(id_vars=['mouse_id', 'rel_days', 'period', 'mean_stab', 'median_stab'],
+dist_melt = dist.melt(id_vars=['mouse_id', 'rel_days', 'period', 'mean', 'median'],
                       value_vars=useful_metrics, var_name='metric')
 
-g = sns.FacetGrid(stab_melt, col="metric", col_wrap=3, sharey=False, hue='mouse_id')
-g.map(sns.scatterplot, 'mean_stab', 'value')
+g = sns.FacetGrid(dist_melt, col="metric", col_wrap=3, sharey=False, hue='mouse_id')
+g.map(sns.scatterplot, 'mean', 'value')
 
-g = sns.FacetGrid(stab_melt, col="metric", col_wrap=3, sharey=False, hue='rel_days', palette='plasma_r')
-g.map(sns.scatterplot, 'mean_stab', 'value')
+g = sns.FacetGrid(dist_melt, col="metric", col_wrap=3, sharey=False, hue='rel_days', palette='plasma_r')
+g.map(sns.scatterplot, 'mean', 'value')
 g.add_legend()
 
-g = sns.FacetGrid(stab_melt, col="metric", col_wrap=3, sharey=False, hue='rel_days', palette='plasma_r')
-g.map(sns.scatterplot, 'median_stab', 'value')
+g = sns.FacetGrid(dist_melt, col="metric", col_wrap=3, sharey=False, hue='rel_days', palette='plasma_r')
+g.map(sns.scatterplot, 'median', 'value')
 g.add_legend()
 
 # Pivot for Prism
-stab[['mean_stab', *useful_metrics]].to_clipboard(index=False)
+dist[['median', *useful_metrics]].to_clipboard(index=False)
 
-#%% Check if M89 is 3 standard deviations above chance level --> if not, we can exclude it
+
 
 
