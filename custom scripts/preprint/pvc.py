@@ -30,7 +30,7 @@ def plot_pvc_curve(y_vals, session_stdev, bin_size=5, show=False):
            a figure object of the pvc curve
     """
     fig = plt.figure()
-    x_axis = np.arange(0., len(y_vals)* bin_size, bin_size)  # bin size
+    x_axis = np.arange(0., len(y_vals) * bin_size, bin_size)  # bin size
     plt.errorbar(x_axis, y_vals, session_stdev, figure=fig)
     plt.ylim(bottom=0); plt.ylabel('Mean PVC')
     plt.xlim(left=0); plt.xlabel('Offset Distances (cm)')
@@ -39,7 +39,7 @@ def plot_pvc_curve(y_vals, session_stdev, bin_size=5, show=False):
     return fig
 
 
-def pvc_curve(session1, session2, plot=True, max_delta_bins=30):
+def pvc_curve(session1, session2, plot=True, max_delta_bins=79, circular=False):
     """Calculate the mean pvc curve between two sessions.
 
         Parameters
@@ -47,7 +47,7 @@ def pvc_curve(session1, session2, plot=True, max_delta_bins=30):
         activity_matrix : 2D array containing (float, dim1 = bins, dim2 = neurons)
         plot: bool, optional
         max_delta_bins: int, optional
-            max difference in bin distance
+            max difference in bin distance. Default is entire corridor.
 
        Returns
        -------
@@ -55,7 +55,7 @@ def pvc_curve(session1, session2, plot=True, max_delta_bins=30):
            array of mean pvc curve (idx = delta_bin)
     """
 
-    # Filter out neurons that are not active in both cells
+    # Filter out neurons that are not active in both sessions
     neuron_mask = np.sum(np.array([~np.isnan(session1).any(axis=1),
                                    ~np.isnan(session2).any(axis=1)]).astype(int), axis=0) == 2
     session1 = session1[neuron_mask].T
@@ -66,11 +66,25 @@ def pvc_curve(session1, session2, plot=True, max_delta_bins=30):
     num_neurons = np.size(session1, 1)
     curve_yvals = np.empty(max_delta_bins + 1)
     curve_stdev = np.empty(max_delta_bins + 1)
+
+    pvc_mat = np.zeros((max_delta_bins + 1, num_bins)) * np.nan
+
     for delta_bin in range(max_delta_bins + 1):
         pvc_vals = []
-        for offset in range(num_bins - delta_bin):
+
+        if circular:
+            max_offset = num_bins
+        else:
+            max_offset = num_bins - delta_bin
+
+        for offset in range(max_offset):
             idx_x = offset
-            idx_y = offset + delta_bin
+
+            if circular:
+                idx_y = offset + (delta_bin - num_bins)     # This wraps around the end of the corridor
+            else:
+                idx_y = offset + delta_bin  # This only yields the next bin in the same corridor (no wrapping)
+
             pvc_xy_num = pvc_xy_den_term1 = pvc_xy_den_term2 = 0
             for neuron in range(num_neurons):
                 pvc_xy_num += session1[idx_x][neuron] * session2[idx_y][neuron]
@@ -78,6 +92,13 @@ def pvc_curve(session1, session2, plot=True, max_delta_bins=30):
                 pvc_xy_den_term2 += session2[idx_y][neuron] * session2[idx_y][neuron]
             pvc_xy = pvc_xy_num / (np.sqrt(pvc_xy_den_term1 * pvc_xy_den_term2))
             pvc_vals.append(pvc_xy)
+
+        if circular:
+            pvc_mat[delta_bin] = pvc_vals
+        else:
+            # If not wrapping around, the matrix for all delta_bin > 0 do not fill the array completely
+            pvc_mat[delta_bin, :len(pvc_vals)] = pvc_vals
+
         mean_pvc_delta_bin = np.mean(pvc_vals)
         stdev_delta_bin = np.std(pvc_vals)
         curve_yvals[delta_bin] = mean_pvc_delta_bin
@@ -86,7 +107,7 @@ def pvc_curve(session1, session2, plot=True, max_delta_bins=30):
     if plot:
         plot_pvc_curve(curve_yvals, curve_stdev, show=True)
 
-    return curve_yvals, curve_stdev
+    return curve_yvals, curve_stdev, pvc_mat
 
 
 def pvc_across_sessions(session1, session2, plot_heatmap=False, plot_in_ax=None, plot_zones=False,):
@@ -230,7 +251,7 @@ def draw_single_mouse_heatmaps(mouse_dict, day_diff=3, v_min=None, v_max=None, c
         logging.basicConfig(level=logging.WARNING, force=True)
 
 
-#%% Processing code
+#%% PVC Heatmaps
 
 spatial_maps = dc.load_data('decon_maps')
 
@@ -265,14 +286,23 @@ for mouse in spatial_maps:
     draw_single_mouse_heatmaps(mouse_dict=mouse, day_diff=DAY_DIFF, v_min=vmin, v_max=vmax, verbose=False)
 
 
-### Calculate and plot PVC curves
+#%% Calculate and plot PVC curves
+
+spatial_maps = dc.load_data('decon_maps')
 
 DAY_DIFF = 3    # The day difference between sessions to be compared (usually 3)
-days = np.array(spatial_maps[2]['121_1'][1])
+days = np.array(spatial_maps[-1]['121_1'][1])
 pre = []
 pre_post = []
 early = []
 late = []
+
+rz_borders = (hheise_behav.CorridorPattern & 'pattern="training"').rescale_borders(80)
+rz_borders[:, 0] = np.floor(rz_borders[:, 0])
+rz_borders[:, 1] = np.ceil(rz_borders[:, 1])
+rz_mask = np.zeros(80, dtype=bool)
+for b in rz_borders.astype(int):
+    rz_mask[b[0]:b[1]] = True
 
 for day_idx, day in enumerate(days):
     next_day_idx = np.where(days == day + DAY_DIFF)[0]
@@ -280,9 +310,15 @@ for day_idx, day in enumerate(days):
     # If a session 3 days later exists, compute the correlation of all cells between these sessions
     # Do not analyze session 1 day after stroke (unreliable data)
     if day + DAY_DIFF != 1 and len(next_day_idx) == 1:
-        curr_curve, curr_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, day_idx],
-                                         session2=spatial_maps[2]['121_1'][0][:, next_day_idx[0]],
-                                         plot=False)
+
+        curr_curve2, curr_std2, mat2 = pvc_curve(session1=spatial_maps[-1]['121_1'][0][:, day_idx],
+                                              session2=spatial_maps[-1]['121_1'][0][:, next_day_idx[0]],
+                                              plot=False, circular=False, max_delta_bins=30)
+
+        curve_all = np.nanmean(mat, axis=1)
+        curve_rz = np.nanmean(mat[:, rz_mask], axis=1)
+        curve_nonrz = np.nanmean(mat[:, ~rz_mask], axis=1)
+
         if day < 0:
             pre.append(np.array([curr_curve, curr_std]))
             print('\r -> pre')
@@ -296,42 +332,61 @@ for day_idx, day in enumerate(days):
             late.append(np.array([curr_curve, curr_std]))
             print('\r -> late')
 
-avg_pre = np.mean(np.stack(pre), axis=0).T
-pre_post = pre_post[0].T
-avg_early = np.mean(np.stack(early), axis=0).T
-avg_late = np.mean(np.stack(late), axis=0).T
+avg_pre = np.mean(np.stack(pre), axis=0)
+avg_pre_post = pre_post[0]
+avg_early = np.mean(np.stack(early), axis=0)
+avg_late = np.mean(np.stack(late), axis=0)
 
-# Export for prism
-np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\avg_pre.csv', avg_pre, delimiter=',', fmt='%.6f')
-np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\pre_post.csv', pre_post, delimiter=',', fmt='%.6f')
-np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\avg_early.csv', avg_early, delimiter=',', fmt='%.6f')
-np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\avg_late.csv', avg_late, delimiter=',', fmt='%.6f')
 
-# PVC curves for one day per period
+### Quantifications
+# Initial slope (minimum of 1st derivative within first quadrant)
 bin_size = 5
-fig = plt.figure()
+slope_all = np.min((np.diff(curve_all)/bin_size)[:21])
+slope_rz = np.diff(curve_rz)/bin_size
+slope_nonrz = np.diff(curve_nonrz)/bin_size
 
-pvc_curve_pre, pvc_curve_pre_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 1],
-                                             session2=spatial_maps[2]['121_1'][0][:, 4],
-                                             plot=False)
-pvc_curve_pre_post, pvc_curve_pre_post_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 4],
-                                                       session2=spatial_maps[2]['121_1'][0][:, 5],
-                                                       plot=False)
-pvc_curve_early, pvc_curve_early_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 6],
-                                                 session2=spatial_maps[2]['121_1'][0][:, 7],
-                                                 plot=False)
-pvc_curve_late, pvc_curve_late_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 10],
-                                               session2=spatial_maps[2]['121_1'][0][:, 11],
-                                               plot=False)
+## Plot example heatmaps of non-averaged PVC curves
+fig, ax = plt.subplots(1, 2, sharey='all', sharex='all')
+sns.heatmap(pvc_mat_upper, ax=ax[0], cbar=False)
+sns.heatmap(pvc_mat_all, ax=ax[1], cbar=False)
+for axis in ax:
+    axis.set_aspect(1)
+    axis.set_ylabel('$\Delta$X (diff between compared locations)')
+    axis.set_xlabel('Corridor position bin')
+ax[0].set_title('Corridor not wrapping around (straight)')
+ax[1].set_title('Corridor wrapping around (circular)')
 
-x_axis = np.arange(0., len(pvc_curve_pre) * bin_size, bin_size)  # bin size
-plt.errorbar(x_axis, pvc_curve_pre, pvc_curve_pre_std, figure=fig, label='Pre')
-plt.errorbar(x_axis, pvc_curve_pre_post, pvc_curve_pre_post_std, figure=fig, label='Pre-Post')
-plt.errorbar(x_axis, pvc_curve_early, pvc_curve_early_std, figure=fig, label='Early')
-plt.errorbar(x_axis, pvc_curve_late, pvc_curve_late_std, figure=fig, label='Late')
-plt.legend()
-
-plt.ylim(bottom=0)
-plt.ylabel('Mean PVC')
-plt.xlim(left=0)
-plt.xlabel('Offset Distances (cm)')
+# #%% Export for prism
+# np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\avg_pre.csv', avg_pre, delimiter=',', fmt='%.6f')
+# np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\pre_post.csv', pre_post, delimiter=',', fmt='%.6f')
+# np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\avg_early.csv', avg_early, delimiter=',', fmt='%.6f')
+# np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\avg_late.csv', avg_late, delimiter=',', fmt='%.6f')
+#
+# # PVC curves for one day per period
+# bin_size = 5
+# fig = plt.figure()
+#
+# pvc_curve_pre, pvc_curve_pre_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 1],
+#                                              session2=spatial_maps[2]['121_1'][0][:, 4],
+#                                              plot=False)
+# pvc_curve_pre_post, pvc_curve_pre_post_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 4],
+#                                                        session2=spatial_maps[2]['121_1'][0][:, 5],
+#                                                        plot=False)
+# pvc_curve_early, pvc_curve_early_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 6],
+#                                                  session2=spatial_maps[2]['121_1'][0][:, 7],
+#                                                  plot=False)
+# pvc_curve_late, pvc_curve_late_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 10],
+#                                                session2=spatial_maps[2]['121_1'][0][:, 11],
+#                                                plot=False)
+#
+# x_axis = np.arange(0., len(pvc_curve_pre) * bin_size, bin_size)  # bin size
+# plt.errorbar(x_axis, pvc_curve_pre, pvc_curve_pre_std, figure=fig, label='Pre')
+# plt.errorbar(x_axis, pvc_curve_pre_post, pvc_curve_pre_post_std, figure=fig, label='Pre-Post')
+# plt.errorbar(x_axis, pvc_curve_early, pvc_curve_early_std, figure=fig, label='Early')
+# plt.errorbar(x_axis, pvc_curve_late, pvc_curve_late_std, figure=fig, label='Late')
+# plt.legend()
+#
+# plt.ylim(bottom=0)
+# plt.ylabel('Mean PVC')
+# plt.xlim(left=0)
+# plt.xlabel('Offset Distances (cm)')
