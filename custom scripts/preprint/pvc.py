@@ -5,12 +5,13 @@ Created on 11/04/2023 14:00
 @author: hheise
 
 """
-
+import logging
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from schema import hheise_placecell, common_match, hheise_behav
+import preprint.data_cleaning as dc
 
 
 def plot_pvc_curve(y_vals, session_stdev, bin_size=5, show=False):
@@ -59,7 +60,7 @@ def pvc_curve(session1, session2, plot=True, max_delta_bins=30):
                                    ~np.isnan(session2).any(axis=1)]).astype(int), axis=0) == 2
     session1 = session1[neuron_mask].T
     session2 = session2[neuron_mask].T
-    print(f'{np.sum(neuron_mask)} neurons available')
+    logging.info(f'{np.sum(neuron_mask)} neurons available')
 
     num_bins = np.size(session1, 0)
     num_neurons = np.size(session1, 1)
@@ -88,7 +89,7 @@ def pvc_curve(session1, session2, plot=True, max_delta_bins=30):
     return curve_yvals, curve_stdev
 
 
-def pvc_across_sessions(session1, session2, plot_heatmap=False, plot_in_ax=None, plot_zones=False):
+def pvc_across_sessions(session1, session2, plot_heatmap=False, plot_in_ax=None, plot_zones=False,):
     """
     Compute PVC across sessions (see Shuman2020 Fig 3c).
     For each position bin X, compute population vector correlation of all neurons between two sessions.
@@ -102,7 +103,7 @@ def pvc_across_sessions(session1, session2, plot_heatmap=False, plot_in_ax=None,
                                    ~np.isnan(session2).any(axis=1)]).astype(int), axis=0) == 2
     session1 = session1[neuron_mask]
     session2 = session2[neuron_mask]
-    print(f'{np.sum(neuron_mask)} neurons available')
+    logging.info(f'{np.sum(neuron_mask)} neurons available')
 
     ### Compute PVC across all positions between the two sessions
     pvc_matrix = np.zeros((session1.shape[1], session2.shape[1])) * np.nan
@@ -131,34 +132,110 @@ def pvc_across_sessions(session1, session2, plot_heatmap=False, plot_in_ax=None,
     return pvc_matrix
 
 
-# Fetch the spatial activity maps of matched cells
-queries = (
-           (common_match.MatchedIndex & 'mouse_id=33'),       # 407 cells
-           # (common_match.MatchedIndex & 'mouse_id=38'),
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),   # 246 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),     # 350 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=85'),   # 250 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=86'),   # 86 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=90'),   # 131 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=91'),   # 299 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=93'),   # 397 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=108' & 'day<"2022-09-09"'),     # 316 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=114' & 'day<"2022-09-09"'),     # 307 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),     # 331 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"'),     # 401 cells
-           (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'),     # 791 cells
-           # (common_match.MatchedIndex & 'mouse_id=110' & 'day<"2022-09-09"'),     # 21 cells
-)
+def draw_single_mouse_heatmaps(mouse_dict, day_diff=3, v_min=None, v_max=None, cmap='turbo',
+                               draw_zone_borders=True, verbose=False):
+    """
+    Draw PVC heatmaps across time (pre, pre-post, early, late). One figure per mouse.
 
-spatial_maps = []
-for query in queries:
-    # PVC matrices with spikerate instead of dFF activity are a bit sharper, improving contrast
-    spatial_map = query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
-                                         extra_restriction=dict(corridor_type=0, place_cell_id=2),
-                                         return_array=True, relative_dates=True, surgery='Microsphere injection')
-    spatial_maps.append(spatial_map)
+    Args:
+        mouse_dict: Dict with one entry (key is mouse_id). Value is a list with 2 elements -
+            3D array with shape (n_neurons, n_sessions, n_bins) of spatial activity maps for a single mouse
+            List of days relative to microsphere injection per session.
+        day_diff: day difference at which to compare sessions.
+        v_min: minimum scale of the heatmap. If both are set, dont draw color bar.
+        v_max: maximum scale of the heatmap. If both are set, dont draw color bar.
 
-# For each network, compute PVC matrices between two sessions
+    Returns:
+
+    """
+
+    if verbose:
+        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO, force=True)
+
+    if v_min is not None and v_max is not None:
+        plot_cbar = False
+    else:
+        plot_cbar = True
+
+    if len(mouse_dict) != 1:
+        raise KeyError('Only accepting single-key dicts.')
+
+    mouse_id = list(mouse_dict.keys())[0]
+    days = np.array(mouse_dict[mouse_id][1])
+    last_pre_day = days[np.searchsorted(days, 0, side='right') - 1]  # Find last prestroke day
+    spat_map = mouse_dict[mouse_id][0]
+
+    prestroke = []
+    pre_poststroke = []
+    early_stroke = []
+    late_stroke = []
+    for day_idx, day in enumerate(days):
+        next_day_idx = np.where(days == day + day_diff)[0]
+
+        # After stroke, ignore small differences between sessions (do not have to be 3 days apart, sometimes 2 days)
+        # In that case, use the next session irrespective of distance
+        if (len(next_day_idx) == 0) and (1 < day < np.max(days)):
+            next_day_idx = [day_idx + 1]
+
+        # If a session 3 days later exists, compute the correlation of all cells between these sessions
+        # Do not analyze session 1 day after stroke (unreliable data)
+        if len(next_day_idx) == 1:
+            curr_mat = pvc_across_sessions(session1=spat_map[:, day_idx],
+                                           session2=spat_map[:, next_day_idx[0]],
+                                           plot_heatmap=False)
+            logging.info(f'Day {day} - next_day {days[next_day_idx[0]]}')
+            if day < last_pre_day:
+                prestroke.append(curr_mat)
+                logging.info('\t-> Pre')
+            elif day == last_pre_day:
+                pre_poststroke.append(curr_mat)
+                logging.info('\t-> Pre-Post')
+            # elif last_pre_day < days[next_day_idx[0]] <= 6:
+            elif last_pre_day < day < 6:
+                early_stroke.append(curr_mat)
+                logging.info('\t-> Early Post')
+            elif 6 <= day:
+                late_stroke.append(curr_mat)
+                logging.info('\t-> Late Post')
+
+    avg_prestroke = np.mean(np.stack(prestroke), axis=0)
+    pre_poststroke = pre_poststroke[0]
+    avg_early_stroke = np.mean(np.stack(early_stroke), axis=0)
+    avg_late_stroke = np.mean(np.stack(late_stroke), axis=0)
+
+    fig, axes = plt.subplots(1, 4, sharex='all', sharey='all', figsize=(18, 8))
+    sns.heatmap(avg_prestroke, ax=axes[0], vmin=v_min, vmax=v_max, cbar=plot_cbar, cmap=cmap)
+    sns.heatmap(pre_poststroke, ax=axes[1], vmin=v_min, vmax=v_max, cbar=plot_cbar, cmap=cmap)
+    sns.heatmap(avg_early_stroke, ax=axes[2], vmin=v_min, vmax=v_max, cbar=plot_cbar, cmap=cmap)
+    sns.heatmap(avg_late_stroke, ax=axes[3], vmin=v_min, vmax=v_max, cbar=True, cmap=cmap)
+
+    # Make plot pretty
+    titles = ['Prestroke', 'Pre-Post', 'Early Post', 'Late Post']
+    for ax, title in zip(axes, titles):
+        ax.set_title(title)
+
+    if draw_zone_borders:
+        zone_borders = (hheise_behav.CorridorPattern & 'pattern="training"').rescale_borders(n_bins=80)
+        for curr_ax in axes:
+            for zone in zone_borders:
+                # curr_ax.axvspan(zone[0], zone[1], facecolor='gray', alpha=0.4)
+                curr_ax.axvline(zone[0], color='black', linestyle='--')
+                curr_ax.axvline(zone[1], color='black', linestyle='--')
+
+    fig.canvas.manager.set_window_title(mouse_id)
+    plt.tight_layout()
+
+    # Re-set logging level
+    if verbose:
+        logging.basicConfig(level=logging.WARNING, force=True)
+
+
+#%% Processing code
+
+spatial_maps = dc.load_data('decon_maps')
+
+####################################################################################################################
+####### First example plot for a single mouse. For each network, compute PVC matrices between two sessions #########
 fig, axes = plt.subplots(1, 4, sharex='all', sharey='all')
 pvc_pre = pvc_across_sessions(session1=spatial_maps[1]['121_1'][0][:, 1],
                               session2=spatial_maps[1]['121_1'][0][:, 4],
@@ -177,85 +254,15 @@ pvc_late = pvc_across_sessions(session1=spatial_maps[1]['121_1'][0][:, 10],
 titles = ['Prestroke (-3 -> 0)', 'Pre-Post (0 -> 3)', 'Early Post (6 -> 9)', 'Late Post (18 -> 21)']
 for ax, title in zip(axes, titles):
     ax.set_title(title)
+####################################################################################################################
 
 ### Take average of all pre, early and post pvc matrices
 DAY_DIFF = 3    # The day difference between sessions to be compared (usually 3)
-# days = np.array(spatial_maps[1]['69_1'][1])
-# s_maps = spatial_maps[1]['122_1'][0]
-# last_pre_day = days[np.searchsorted(days, 0, side='right')-1]   # Find last prestroke day
 vmin = 0
 vmax = 1
 
-if vmin is not None and vmax is not None:
-    plot_cbar = False
-else:
-    plot_cbar = True
-
-
 for mouse in spatial_maps:
-    mouse_id = list(mouse.keys())[0]
-    if mouse_id not in ('41_1', '69_1', '85_1', '86_1', '90_1', '91_1'):
-        continue
-    print('Mouse_ID:', mouse_id)
-    days = np.array(mouse[mouse_id][1])
-    last_pre_day = days[np.searchsorted(days, 0, side='right') - 1]  # Find last prestroke day
-    pre = []
-    pre_post = []
-    early = []
-    late = []
-    for day_idx, day in enumerate(days):
-        next_day_idx = np.where(days == day + DAY_DIFF)[0]
-
-        # After stroke, ignore small differences between sessions (do not have to be 3 days apart, sometimes 2 days)
-        # In that case, use the next session irrespective of distance
-        if (len(next_day_idx) == 0) and (1 < day < np.max(days)):
-            next_day_idx = [day_idx + 1]
-
-        # If a session 3 days later exists, compute the correlation of all cells between these sessions
-        # Do not analyze session 1 day after stroke (unreliable data)
-        if len(next_day_idx) == 1:
-            curr_mat = pvc_across_sessions(session1=mouse[mouse_id][0][:, day_idx],
-                                           session2=mouse[mouse_id][0][:, next_day_idx[0]],
-                                           plot_heatmap=False)
-            print('Day', day, '- next_day', days[next_day_idx[0]])
-            if day < last_pre_day:
-                pre.append(curr_mat)
-                print('\t-> Pre')
-            elif day == last_pre_day:
-                pre_post.append(curr_mat)
-                print('\t-> Pre-Post')
-            # elif last_pre_day < days[next_day_idx[0]] <= 6:
-            elif last_pre_day < day < 6:
-                early.append(curr_mat)
-                print('\t-> Early Post')
-            elif 6 <= day:
-                late.append(curr_mat)
-                print('\t-> Late Post')
-
-    avg_pre = np.mean(np.stack(pre), axis=0)
-    pre_post = pre_post[0]
-    avg_early = np.mean(np.stack(early), axis=0)
-    avg_late = np.mean(np.stack(late), axis=0)
-
-    fig, axes = plt.subplots(1, 4, sharex='all', sharey='all', figsize=(18, 8))
-    sns.heatmap(avg_pre, ax=axes[0], vmin=vmin, vmax=vmax, cbar=plot_cbar, cmap='turbo')
-    sns.heatmap(pre_post, ax=axes[1], vmin=vmin, vmax=vmax, cbar=plot_cbar, cmap='turbo')
-    sns.heatmap(avg_early, ax=axes[2], vmin=vmin, vmax=vmax, cbar=plot_cbar, cmap='turbo')
-    sns.heatmap(avg_late, ax=axes[3], vmin=vmin, vmax=vmax, cbar=True, cmap='turbo')
-
-    # Make plot pretty
-    titles = ['Prestroke', 'Pre-Post', 'Early Post', 'Late Post']
-    for ax, title in zip(axes, titles):
-        ax.set_title(title)
-    zone_borders = (hheise_behav.CorridorPattern & 'pattern="training"').rescale_borders(n_bins=80)
-    for curr_ax in axes:
-        for zone in zone_borders:
-            # curr_ax.axvspan(zone[0], zone[1], facecolor='gray', alpha=0.4)
-            curr_ax.axvline(zone[0], color='black', linestyle='--')
-            curr_ax.axvline(zone[1], color='black', linestyle='--')
-    fig.canvas.manager.set_window_title(mouse_id)
-    plt.tight_layout()
-
+    draw_single_mouse_heatmaps(mouse_dict=mouse, day_diff=DAY_DIFF, v_min=vmin, v_max=vmax, verbose=False)
 
 
 ### Calculate and plot PVC curves
@@ -274,8 +281,8 @@ for day_idx, day in enumerate(days):
     # Do not analyze session 1 day after stroke (unreliable data)
     if day + DAY_DIFF != 1 and len(next_day_idx) == 1:
         curr_curve, curr_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, day_idx],
-                                       session2=spatial_maps[2]['121_1'][0][:, next_day_idx[0]],
-                                       plot=False)
+                                         session2=spatial_maps[2]['121_1'][0][:, next_day_idx[0]],
+                                         plot=False)
         if day < 0:
             pre.append(np.array([curr_curve, curr_std]))
             print('\r -> pre')
