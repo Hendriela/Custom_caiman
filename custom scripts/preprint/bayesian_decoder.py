@@ -18,6 +18,8 @@ useful_metrics = ['accuracy', 'mae', 'mae_quad', 'sensitivity_rz', 'specificity_
 #%% Plot accuracy for all mice in prestroke
 
 mice = np.unique(hheise_grouping.BehaviorGrouping().fetch('mouse_id'))
+mice = mice[~np.isin(mice, [89, 112, 121])]
+mice = mice[~np.isin(mice, [112])]
 
 dfs = []
 for mouse in mice:
@@ -27,19 +29,32 @@ for mouse in mice:
         'surgery_date')[0].date()
 
     # Fetch model parameters for all available prestroke sessions
-    dfs.append(pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & f'mouse_id = {mouse}'
-                             & f'day <= "{surgery_day}"' & 'bayesian_id = 1').fetch('mouse_id', 'day', *useful_metrics, as_dict=True)))
+    # dfs.append(pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & f'mouse_id = {mouse}'
+    #                          & f'day <= "{surgery_day}"' & 'bayesian_id = 1').fetch('mouse_id', 'day', *useful_metrics, as_dict=True)))
+
+    dfs.append(pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession * hheise_decoder.BayesianParameter & f'mouse_id = {mouse}'
+                             & f'day <= "{surgery_day}"' & 'bayesian_id > 0' & 'bayesian_id < 10').fetch(as_dict=True)))
+
 df = pd.concat(dfs)
 
 plt.figure()
-sns.barplot(df, x='mouse_id', y='accuracy')
-sns.stripplot(df, x='mouse_id', y='accuracy', color='gray')
+sns.barplot(df[df.bayesian_id == 1], x='mouse_id', y='accuracy')
+sns.stripplot(df[df.bayesian_id == 1], x='mouse_id', y='accuracy', color='gray')
 
 
 #%% Compare differences between neuron subsets
 subsets = df.neuron_subset.unique()
 subset_comps = list(itertools.combinations(df.neuron_subset.unique(), 2))
-attr = ['accuracy', 'mae', 'mae_quad_std', 'mae_quad', 'sensitivity_rz', 'specificity_rz', 'mcc', 'abs_error']
+# attr = ['accuracy', 'mae', 'mae_quad_std', 'mae_quad', 'sensitivity_rz', 'specificity_rz', 'mcc', 'abs_error']
+attr = useful_metrics
+
+# Plot general difference in performance (export for prism)
+df.pivot(index=['mouse_id', 'day'], columns='neuron_subset', values='specificity_rz')[['stability', 'si', 'place_cells', 'firing_rate']].to_clipboard(index=False)
+
+df_filt = df[['mouse_id', 'day', 'neuron_subset', *useful_metrics]]
+df_filt = df_filt.melt(id_vars=['mouse_id', 'neuron_subset'])
+g = sns.FacetGrid(df_filt, col="variable", col_wrap=3, sharey=False)
+g.map(sns.boxplot, "neuron_subset", 'value')
 
 # Plot scatter plots
 for sub1, sub2 in subset_comps:
@@ -64,10 +79,15 @@ for sub1, sub2 in subset_comps:
 
 
 # Plot absolute values
-df_long = pd.melt(df, id_vars='neuron_subset', value_vars=[*attr], var_name='metric')
+df_abs = df.copy()
+df_abs['mae'] = -df_abs['mae']
+df_abs['mae_quad'] = -df_abs['mae_quad']
+df_long = pd.melt(df_abs, id_vars='neuron_subset', value_vars=[*useful_metrics], var_name='metric')
 df_long['value_norm'] = df_long.groupby('metric').transform(lambda x: (x - x.mean()) / x.std())
 plt.figure()
 ax = sns.boxplot(data=df_long, x='metric', y='value_norm', hue='neuron_subset', showfliers=False)
+ax.set_ylabel('Normalized absolute performance')
+ax.axhline(0, c='grey', ls='--')
 
 # Compute and plot difference
 diff_df = []
@@ -88,6 +108,30 @@ ax.axhline(0, c='grey', ls='--')
 # ax = sns.stripplot(data=diff_df, x='comp', y='diff', hue='attr', ax=ax)
 ax.set_ylabel('Performance improvement [%]')
 
+# Compute and plot difference in a matrix
+mats = {}
+for metric in useful_metrics:
+    diff_mat = pd.DataFrame(columns=subsets, index=subsets)
+    for sub1 in subsets:
+        for sub2 in subsets:
+            diff = (np.array(df[df['neuron_subset'] == sub2][metric]) - np.array(df[df['neuron_subset'] == sub1][metric])) /\
+                   np.array(df[df['neuron_subset'] == sub1][metric]) * 100
+            if metric in ['mae', 'mae_quad']:
+                diff = -diff
+            diff_mat.loc[sub2, sub1] = np.mean(diff)
+    mats[metric] = diff_mat.astype(float)
+fig, axes = plt.subplots(2, 3, sharex='all', sharey='all')
+for i, ax in enumerate(axes.flatten()):
+    if i < len(useful_metrics):
+        sns.heatmap(mats[useful_metrics[i]], vmin=-mats[useful_metrics[i]].abs().max().max(),
+                    vmax=mats[useful_metrics[i]].abs().max().max(), ax=ax, cbar=False, annot=True, cmap='vlag')
+        ax.set_title(useful_metrics[i])
+        ax.set_aspect(1)
+
+fig.delaxes(ax)
+fig.supxlabel('TO')
+fig.supylabel('FROM')
+
 #%% Test normal distribution for error metrics
 
 out = (hheise_decoder.BayesianDecoderWithinSession & 'bayesian_id =1').fetch(format='frame')
@@ -104,7 +148,7 @@ for mouse in mice:
         'surgery_date')[0].date()
 
     # Fetch model parameters for all available prestroke sessions
-    dfs.append(pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & f'mouse_id = {mouse}' & f'day <= "{surgery_day}"' & 'bayesian_id = 1').fetch(as_dict=True)))
+    dfs.append(pd.DataFrame((hheise_decoder.BayesianDecoderLastPrestroke & f'mouse_id = {mouse}' & f'day <= "{surgery_day}"' & 'bayesian_id = 1').fetch(as_dict=True)))
 df = pd.concat(dfs)
 
 # Fetch chance levels
@@ -156,14 +200,16 @@ for ax in g.axes.flatten():
     ax.text(len(chance_dif_sd)-0.5, 3, r'$3 \sigma$', verticalalignment='bottom', c='tab:red')
 
 # Average error metrics
-plt.figure()
+plt.figure(figsize=(12,6))
 ax = sns.barplot(chance_dif_sd.reset_index().melt(id_vars='mouse_id'), x='mouse_id', y='value')
 sns.stripplot(chance_dif_sd.reset_index().melt(id_vars='mouse_id'), x='mouse_id', y='value', ax=ax, c='grey', alpha=0.7)
 ax.set_ylabel(r"Mean - Chance [$\sigma$'s]")
 ax.axhline(2, c='tab:orange', ls='--')
 ax.axhline(3, c='tab:red', ls='--')
+# ax.set_ylim(0, 50)
 ax.text(len(chance_dif_sd) - 0.5, 2, r'$2 \sigma$', verticalalignment='top', c='tab:orange')
 ax.text(len(chance_dif_sd) - 0.5, 3, r'$3 \sigma$', verticalalignment='bottom', c='tab:red')
+plt.tight_layout()
 
 mean_chance_dif = chance_dif_sd.mean(axis=1)
 
@@ -332,7 +378,7 @@ merge[merge.variable == 'accuracy'].pivot(index='period', columns='mouse_id', va
 
 #%% Decoder performance over time
 
-data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & 'bayesian_id=4' & 'day < "2022-09-09"'
+data = pd.DataFrame((hheise_decoder.BayesianDecoderLastPrestroke & 'bayesian_id=1' & 'day < "2022-09-09"'
                      & 'mouse_id!=112').fetch('mouse_id', 'day', *useful_metrics, as_dict=True))
 
 new_dfs = []
@@ -368,8 +414,8 @@ for i, (mouse_id, mouse_data) in enumerate(data.groupby('mouse_id')):
         rel_day[(rel_day == 26) | (rel_day == 27) | (rel_day == 28)] = 27
 
     rel_sess = np.arange(len(rel_day)) - np.argmax(np.where(rel_day <= 0, rel_day, -np.inf))
-
-    rel_day[(-5 < rel_sess) & (rel_sess < 1)] = np.arange(-4, 1)
+    pre_mask = (-5 < rel_sess) & (rel_sess < 1).astype(int)
+    rel_day[pre_mask.astype(bool)] = np.arange(-pre_mask.sum(), 0)
 
     norm = mouse_data[useful_metrics] / mouse_data[rel_day.isin([-2, -1, 0])][useful_metrics].mean()
     norm = norm.add_suffix('_norm')
@@ -402,9 +448,15 @@ columns.apply(lambda x: f'{x[0]}_{x[1]}').to_clipboard(index=False, header=False
 avg = merge.groupby(['mouse_id', 'period'])[[*useful_metrics, *[x+'_norm' for x in useful_metrics]]].mean(numeric_only=True)
 avg = avg.join(merge[['mouse_id', 'coarse', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()
 
-avg_prism = avg.pivot(index='period', columns='mouse_id', values='accuracy_norm').loc[['pre', 'early', 'late']]
+avg_prism = avg.pivot(index='period', columns='mouse_id', values='specificity_rz').loc[['pre', 'early', 'late']]
 avg_prism.to_clipboard(header=False, index=False)
 
+
+avg = merge.groupby(['mouse_id', 'period'])[['mean', 'median']].mean(numeric_only=True)
+avg = avg.join(merge[['mouse_id', 'coarse', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()
+
+avg_prism = avg.pivot(index='period', columns='mouse_id', values='mean').loc[['pre', 'early', 'late']]
+avg_prism.to_clipboard(header=False, index=False)
 
 #%% Compare stability distribution of cells that the model used across time & mice
 
@@ -413,13 +465,13 @@ avg_prism.to_clipboard(header=False, index=False)
 #                      & 'mouse_id!=112').fetch('mouse_id', 'day', *useful_metrics, as_dict=True))
 
 # Stability
-# dist = []
-# for i, row in data.iterrows():
-#     dist.append(pd.DataFrame([dict(**row, val=(hheise_placecell.SpatialInformation.ROI & dict(row) &
-#                                                      'place_cell_id=2' & 'corridor_type=0').fetch('stability', order_by='stability desc')[:100])]))
-# dist = pd.concat(dist)
-# dist['mean'] = dist.apply(lambda x: np.mean(x['val']), axis=1)
-# dist['median'] = dist.apply(lambda x: np.median(x['val']), axis=1)
+dist = []
+for i, row in data.iterrows():
+    dist.append(pd.DataFrame([dict(**row, val=(hheise_placecell.SpatialInformation.ROI & dict(row) &
+                                                     'place_cell_id=2' & 'corridor_type=0').fetch('stability', order_by='stability desc')[:100])]))
+dist = pd.concat(dist)
+dist['mean'] = dist.apply(lambda x: np.mean(x['val']), axis=1)
+dist['median'] = dist.apply(lambda x: np.median(x['val']), axis=1)
 
 # Spatial Info
 # dist = []
@@ -469,6 +521,35 @@ g.add_legend()
 
 # Pivot for Prism
 dist[['median', *useful_metrics]].to_clipboard(index=False)
+
+
+#%% Draw dummy curve for stroke severity turning point
+from scipy.optimize import curve_fit
+
+# Define the sigmoid function
+def sigmoid(x, L, k, x0):
+    return L / (1 + np.exp(-k*(x-x0)))
+
+# Create the data
+x_data = np.linspace(-10, 10, num=22)
+y_data = 1 / (1 + np.exp(-x_data))
+y_noise = 0.1 * np.random.normal(size=x_data.size)
+y_data += y_noise
+y_data *= 0.8
+
+# Perform the regression
+p0 = [max(y_data), np.median(x_data), 1]
+popt, pcov = curve_fit(sigmoid, x_data, y_data, p0)
+
+# Plot the results
+plt.figure()
+plt.plot(np.linspace(0, 1, len(x_data)), y_data, 'o', label='mice')
+plt.plot(np.linspace(0, 1, len(x_data)), sigmoid(x_data, *popt), 'r-')
+plt.ylim(top=1)
+plt.ylabel('Behavior-Decoder correlation')
+plt.xlabel('Stroke severity (sphere count, lesion volume...)')
+plt.legend()
+plt.show()
 
 
 
