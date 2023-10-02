@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from schema import hheise_placecell, common_match, hheise_behav
+from schema import hheise_placecell, common_match, hheise_behav, hheise_pvc, hheise_grouping
 import preprint.data_cleaning as dc
 
 
@@ -337,14 +337,6 @@ avg_pre_post = pre_post[0]
 avg_early = np.mean(np.stack(early), axis=0)
 avg_late = np.mean(np.stack(late), axis=0)
 
-
-### Quantifications
-# Initial slope (minimum of 1st derivative within first quadrant)
-bin_size = 5
-slope_all = np.min((np.diff(curve_all)/bin_size)[:21])
-slope_rz = np.diff(curve_rz)/bin_size
-slope_nonrz = np.diff(curve_nonrz)/bin_size
-
 ## Plot example heatmaps of non-averaged PVC curves
 fig, ax = plt.subplots(1, 2, sharey='all', sharex='all')
 sns.heatmap(pvc_mat_upper, ax=ax[0], cbar=False)
@@ -356,37 +348,189 @@ for axis in ax:
 ax[0].set_title('Corridor not wrapping around (straight)')
 ax[1].set_title('Corridor wrapping around (circular)')
 
-# #%% Export for prism
-# np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\avg_pre.csv', avg_pre, delimiter=',', fmt='%.6f')
-# np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\pre_post.csv', pre_post, delimiter=',', fmt='%.6f')
-# np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\avg_early.csv', avg_early, delimiter=',', fmt='%.6f')
-# np.savetxt(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\figure3\PVC\avg_late.csv', avg_late, delimiter=',', fmt='%.6f')
-#
-# # PVC curves for one day per period
-# bin_size = 5
-# fig = plt.figure()
-#
-# pvc_curve_pre, pvc_curve_pre_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 1],
-#                                              session2=spatial_maps[2]['121_1'][0][:, 4],
-#                                              plot=False)
-# pvc_curve_pre_post, pvc_curve_pre_post_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 4],
-#                                                        session2=spatial_maps[2]['121_1'][0][:, 5],
-#                                                        plot=False)
-# pvc_curve_early, pvc_curve_early_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 6],
-#                                                  session2=spatial_maps[2]['121_1'][0][:, 7],
-#                                                  plot=False)
-# pvc_curve_late, pvc_curve_late_std = pvc_curve(session1=spatial_maps[2]['121_1'][0][:, 10],
-#                                                session2=spatial_maps[2]['121_1'][0][:, 11],
-#                                                plot=False)
-#
-# x_axis = np.arange(0., len(pvc_curve_pre) * bin_size, bin_size)  # bin size
-# plt.errorbar(x_axis, pvc_curve_pre, pvc_curve_pre_std, figure=fig, label='Pre')
-# plt.errorbar(x_axis, pvc_curve_pre_post, pvc_curve_pre_post_std, figure=fig, label='Pre-Post')
-# plt.errorbar(x_axis, pvc_curve_early, pvc_curve_early_std, figure=fig, label='Early')
-# plt.errorbar(x_axis, pvc_curve_late, pvc_curve_late_std, figure=fig, label='Late')
-# plt.legend()
-#
-# plt.ylim(bottom=0)
-# plt.ylabel('Mean PVC')
-# plt.xlim(left=0)
-# plt.xlabel('Offset Distances (cm)')
+#%% DataJoint
+
+metrics = ['min_slope', 'max_pvc', 'min_pvc', 'pvc_dif', 'pvc_rel_dif', 'slope_std', 'avg_prominence', 'avg_rel_prominence',
+           'avg_slope', 'q1_diff', 'q1_rel_diff', 'q1_prominence', 'q1_rel_prominence', 'q1_slope', 'q2_diff',
+           'q2_rel_diff', 'q2_prominence', 'q2_rel_prominence', 'q2_slope', 'q1_q2_diff', 'q1_q2_rel_diff',
+           'q1_q2_prom_dif', 'q1_q2_rel_prom']
+useful_metrics = ['max_pvc', 'min_pvc', 'min_slope', 'pvc_rel_dif', 'slope_std', 'q1_rel_diff', 'q1_rel_prominence',
+                  'q2_rel_diff', 'q2_rel_prominence', 'q1_q2_diff', 'q1_q2_rel_diff', 'q1_q2_prom_dif']
+data = pd.DataFrame((hheise_pvc.PvcCrossSessionEval() * hheise_pvc.PvcCrossSession & 'circular=0').fetch(as_dict=True))
+# data = pd.DataFrame((hheise_pvc.PvcPrestrokeEval * hheise_pvc.PvcPrestroke & 'circular=0').fetch(as_dict=True))
+
+coarse = (hheise_grouping.BehaviorGrouping & 'grouping_id = 0' & 'cluster = "coarse"').get_groups()
+fine = (hheise_grouping.BehaviorGrouping & 'grouping_id = 0' & 'cluster = "fine"').get_groups()
+
+data = data.merge(coarse, how='left', on='mouse_id').rename(columns={'group': 'coarse'})
+data = data.merge(fine, how='left', on='mouse_id').rename(columns={'group': 'fine'})
+
+data['day'] = pd.to_datetime(data.day)
+data['slope_std'] = data['slope'].map(lambda x: np.nanstd(x))
+data['q1_q2_diff'] = data.apply(lambda x:  (x['max_pvc'] + x['q2_diff']) - (x['max_pvc'] + x['q1_diff']), axis=1)
+data['q1_q2_rel_diff'] = data.apply(lambda x:  ((x['max_pvc'] + x['q2_diff']) - (x['max_pvc'] + x['q1_diff'])) / (x['max_pvc'] + x['q1_diff']), axis=1)
+data['q1_q2_prom_dif'] = data.apply(lambda x:  x['q2_prominence'] - x['q1_prominence'], axis=1)
+data['q1_q2_rel_prom'] = data.apply(lambda x:  (x['q2_prominence'] - x['q1_prominence']) / x['q2_prominence'], axis=1)
+
+#%% Plot example curve
+plt.figure()
+plt.plot(np.linspace(0, 400, 80)[:63],
+         data[(data.mouse_id == 121) & (data.day == "2022-08-12") & (data.locations == 'all')]['pvc_curve'].values[0][:63])
+plt.ylim(0)
+plt.xlabel('$\Delta$X [cm] (location shift)')
+plt.ylabel('PVC')
+
+# Plot example curves for separate locations
+quad_size = 64/3*5
+half_win = 5*5
+cols = ['green', 'grey']
+fig, axes = plt.subplots(2, 1, sharey='all', sharex='all')
+for i, loc in enumerate(['rz', 'non_rz']):
+    axes[i].plot(np.linspace(0, 400, 80)[:55],
+                 data[(data.mouse_id == 121) & (data.day == "2022-08-12") & (data.locations == loc)]['pvc_curve'].values[0][:55])
+    axes[i].set_ylim(0)
+    axes[i].set_ylabel('PVC')
+
+    axes[i].axvspan(0, half_win, color=cols[i], alpha=0.25)
+    axes[i].axvspan(quad_size - half_win, quad_size + half_win, color=cols[i], alpha=0.25)
+    axes[i].axvspan(quad_size*2 - half_win, quad_size*2 + half_win, color=cols[i], alpha=0.25)
+
+axes[-1].set_xlabel('$\Delta$X [cm] (location shift)')
+
+#%% Correlate metrics with each other
+corr_mat = data[metrics].corr()
+sns.heatmap(corr_mat, mask=np.triu(np.ones_like(corr_mat, dtype=bool)), annot=True, center=0,
+            xticklabels=corr_mat.columns, yticklabels=corr_mat.index, cmap='vlag')
+
+#%% Test if standard deviation of derivative (slope) is a good measure for PVC "smoothness" --> yes, kind of
+data = pd.DataFrame((hheise_pvc.PvcCrossSessionEval() * hheise_pvc.PvcCrossSession & 'circular=0').fetch('mouse_id', 'rel_day', 'pvc_curve', 'slope', as_dict=True))
+data['slope_std'] = data['slope'].map(lambda x: np.nanstd(x)*100)
+
+data_sort = data.sort_values('slope_std')
+
+
+def plot_trace(row, a):
+    a.plot(row['pvc_curve'])
+    a.set_title(f'$\sigma$ = {row["slope_std"]:.3f}  (M{row["mouse_id"]}; day {row["rel_day"]})')
+    a.spines[['right', 'top']].set_visible(False)
+
+
+fig, axes = plt.subplots(7, 2, sharey='all', sharex='all', figsize=(12, 10))
+for i in range(7):
+    plot_trace(data_sort.iloc[i], axes[i, 0])
+    plot_trace(data_sort.iloc[-(i+1)], axes[i, 1])
+
+
+#%% Compare location-specific curves
+data_melt = data[data.phase == 'pre'].melt(id_vars=['mouse_id', 'day', 'locations', 'coarse', 'fine'], value_vars=useful_metrics)
+g = sns.FacetGrid(data_melt, col='variable', col_wrap=4)
+g.map(sns.boxplot, 'locations', 'value', 'coarse')
+g.add_legend()
+
+# Prism export
+mouse_avg = data_melt.groupby(['mouse_id', 'locations', 'variable'])['value'].mean().reset_index()
+out = mouse_avg.pivot(index='variable', columns=['locations', 'mouse_id'], values='value')
+
+out = data_melt.pivot(index='variable', columns=['locations', 'day', 'mouse_id'], values='value')
+out['non_rz'].to_clipboard(header=False, index=False)
+
+#%% Metrics for groups over time
+avg = data[data.locations == 'all'].groupby(['mouse_id', 'phase'])[metrics].mean(numeric_only=True)
+avg = avg.join(data[data.locations == 'all'][['mouse_id', 'coarse', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()
+
+avg_prism = avg.pivot(index='phase', columns='mouse_id', values='avg_rel_prominence').loc[['pre', 'pre_post', 'early', 'late']]
+avg_prism.to_clipboard(header=False, index=False)
+
+# Normalize against prestroke baseline
+norm_data = []
+for mouse_id, mouse in data.groupby(['mouse_id', 'locations']):
+    mouse_norm = pd.DataFrame({metric+'_norm': mouse[metric] / mouse[mouse.phase == 'pre'][metric].mean() for metric in useful_metrics})
+    norm_data.append(mouse.join(mouse_norm))
+norm_data = pd.concat(norm_data)
+avg_norm = norm_data[norm_data.locations == 'all'].groupby(['mouse_id', 'phase']).mean(numeric_only=True)
+avg_norm = avg_norm.join(norm_data[norm_data.locations == 'all'][['mouse_id', 'coarse', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()
+
+avg_norm_prism = avg_norm.pivot(index='phase', columns='mouse_id', values='q1_q2_prom_dif_norm').loc[['pre', 'pre_post', 'early', 'late']]
+avg_norm_prism.to_clipboard(header=False, index=False)
+
+# Plot average PVC curves per period between groups
+avg_curves = data.groupby(['mouse_id', 'locations', 'phase'])['pvc_curve'].mean().reset_index()
+avg_curves = avg_curves.merge(coarse, how='left', on='mouse_id').rename(columns={'group': 'coarse'})
+avg_curves = avg_curves.merge(fine, how='left', on='mouse_id').rename(columns={'group': 'fine'})
+avg_curves['$\Delta$x'] = [np.linspace(0, 395, 80)]*len(avg_curves)
+
+avg_curves_melt = avg_curves.explode(['pvc_curve', '$\Delta$x'])
+avg_curves_melt['$\Delta$x'] = avg_curves_melt['$\Delta$x'].astype(int)
+with sns.plotting_context(context='notebook', font_scale=1.5):
+    g = sns.FacetGrid(avg_curves_melt[avg_curves_melt['$\Delta$x'] <= 250], row='locations', col='phase',
+                      # hue='coarse', hue_order=['Control', 'Stroke'], palette={'Control': 'green', 'Stroke': 'red'},
+                      hue='fine', hue_order=['Sham', 'No Deficit', 'Recovery', 'No Recovery'], palette={'Sham': 'grey', 'No Deficit': 'green', 'Recovery': 'blue', 'No Recovery': 'red'},
+                      col_order=['pre', 'pre_post', 'early', 'late'], row_order=['all', 'rz', 'non_rz'],
+                      margin_titles=True)
+    g.map(sns.lineplot, '$\Delta$x', 'pvc_curve')
+    # g.axes[-1][-1].legend()
+    g.add_legend()
+
+# Export avg curves to Prism
+data_prism = avg_curves_melt[(avg_curves_melt.locations == 'non_rz') & (avg_curves_melt.phase == 'pre') &
+                             (avg_curves_melt['$\Delta$x'] <= 250)].pivot(index='$\Delta$x', columns='mouse_id', values='pvc_curve')
+data_prism.to_clipboard(header=False, index=False)
+
+
+#%% Test if there is improvement across sessions in healthy condition --> learning effect?
+
+# add column for prestroke session num
+dfs = []
+for m_id, mouse in data.groupby('mouse_id'):
+    unique_days = np.sort(np.unique(np.concatenate([mouse['rel_day'], mouse['rel_tar_day']])))
+    rel_sessions = np.arange(-len(unique_days)+1, 1)
+    mapper = pd.DataFrame({'rel_day': unique_days, 'rel_sess': rel_sessions})
+    dfs.append(pd.merge(mouse, mapper, on='rel_day'))
+data = pd.concat(dfs, ignore_index=True)
+
+data_prism = data[data.locations == 'all'].pivot(index='rel_sess', columns='mouse_id', values='pvc_rel_dif')
+data_prism.to_clipboard(header=False, index=False)
+
+
+#%% RZ vs non-RZ locations
+avg = data.groupby(['mouse_id', 'locations', 'phase'])[metrics].mean(numeric_only=True)
+avg = avg.join(data[['mouse_id', 'coarse', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()
+
+metric = 'q1_rel_prominence'
+avg_loc_rz = avg[avg.locations == 'rz'].pivot(index='phase', columns='mouse_id', values=metric).loc[['pre', 'pre_post', 'early', 'late']]
+avg_loc_nonrz = avg[avg.locations == 'non_rz'].pivot(index='phase', columns='mouse_id', values=metric).loc[['pre', 'pre_post', 'early', 'late']]
+avg_loc_rz.join(avg_loc_nonrz, lsuffix='_rz', rsuffix='_nonrz').to_clipboard(header=False, index=False)
+
+# Metric differences (RZ - non_RZ)
+rz_diff_data = []
+for idx, df in data.groupby(['mouse_id', 'day']):
+    pks = df[['mouse_id', 'day', 'phase', 'rel_day', 'rel_tar_day', 'coarse', 'fine']].iloc[0]
+    diff = df[df.locations == 'rz'][metrics].iloc[0] - df[df.locations == 'non_rz'][metrics].iloc[0]
+    rz_diff_data.append(pd.DataFrame([dict(**pks, **diff)]))
+rz_diff_data = pd.concat(rz_diff_data, ignore_index=True)
+
+avg = rz_diff_data.groupby(['mouse_id', 'phase'])[metrics].mean(numeric_only=True)
+avg = avg.join(rz_diff_data[['mouse_id', 'coarse', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()
+avg_prism = avg.pivot(index='phase', columns='mouse_id', values='slope_std').loc[['pre', 'pre_post', 'early', 'late']]
+avg_prism.to_clipboard(header=False, index=False)
+
+
+rz_rel_diff_data = []
+for idx, df in data.groupby(['mouse_id', 'day']):
+    pks = df[['mouse_id', 'day', 'phase', 'rel_day', 'rel_tar_day', 'coarse', 'fine']].iloc[0]
+    diff = (df[df.locations == 'rz'][metrics].iloc[0] - df[df.locations == 'non_rz'][metrics].iloc[0]) / df[df.locations == 'non_rz'][metrics].iloc[0]
+    rz_rel_diff_data.append(pd.DataFrame([dict(**pks, **diff)]))
+rz_rel_diff_data = pd.concat(rz_rel_diff_data, ignore_index=True)
+
+# One-sample t-tests
+avg_ttest = avg[['mouse_id', 'phase', *metrics]].melt(id_vars=['mouse_id', 'phase'])
+big_pivot = avg_ttest.pivot(index='mouse_id', columns=['phase', 'variable'], values='value')
+big_pivot = big_pivot.reindex(columns=big_pivot.columns.reindex(['pre', 'pre_post', 'early', 'late'], level=0)[0])
+big_pivot.columns = [' '.join(col).strip() for col in big_pivot.columns.values]
+big_pivot.to_clipboard(header=True, index=False)
+
+#%%
+plt.figure()
+sns.barplot(avg, x='phase', y='min_pvc', hue='coarse', order=['pre', 'pre_post', 'early', 'late'])
+
+
