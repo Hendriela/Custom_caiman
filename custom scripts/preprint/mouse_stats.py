@@ -12,7 +12,7 @@ import itertools
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 
-from schema import hheise_behav, hheise_hist, hheise_grouping
+from schema import hheise_behav, hheise_hist, hheise_grouping, hheise_decoder, hheise_pvc
 from schema import common_mice, common_exp, common_img
 from util import helper
 
@@ -121,6 +121,62 @@ model = sm.OLS(y, X).fit()
 print(model.summary())
 
 data[['sphere_load', 'early', 'late']].to_clipboard(index=True, header=True)
+
+
+# Use performance data from first/last poststroke session, like SI performance for behavior matrix
+def get_first_last_poststroke(table, attr, restrictions=None, early_day=3, late_day=15, n_last_sessions=3):
+
+    if restrictions is None:
+        restrictions = dict(session_num=1)
+
+    data_dfs = []
+    for mouse in np.unique(hheise_grouping.BehaviorGrouping().fetch('mouse_id')):
+
+        if mouse == 121:
+            continue
+
+        surg_date = (common_mice.Surgery & 'username="hheise"' & f'mouse_id={mouse}' &
+                     'surgery_type="Microsphere injection"').fetch('surgery_date')[0].date()
+        metric = pd.DataFrame((table & f'mouse_id={mouse}' & restrictions).fetch('day', attr, as_dict=True))
+
+        if len(metric) == 0:
+            continue
+
+        metric['rel_day'] = (metric['day'] - surg_date).dt.days
+
+        metric = metric[metric['rel_day'] <= 27]
+
+        # Drop a few outlier sessions (usually last session of a mouse that should not be used)
+        if mouse == 83:
+            metric = metric.drop(metric[metric['rel_day'] == 27].index)
+        elif mouse == 69:
+            metric = metric.drop(metric[metric['rel_day'] == 23].index)
+
+        # Make sure that data is sorted chronologically for n_last_sessions to work
+        metric = metric.sort_values('rel_day')
+
+        # Early timepoint
+        early = metric[(metric['rel_day'] > 0) & (metric['rel_day'] <= early_day)][attr].mean()
+
+        # Late timepoint
+        if late_day < 0:
+            late = metric[attr].iloc[n_last_sessions:].mean()
+        elif (metric['rel_day'] >= late_day).sum() < n_last_sessions:
+            # If mouse has less than >n_last_sessions< sessions after late_day,
+            # take mean of all available sessions >= late_date
+            late = metric[metric['rel_day'] >= late_day][attr].mean()
+        else:
+            # Otherwise, compute late performance from the last "n_last_sessions" sessions
+            late = metric[attr].iloc[-n_last_sessions:].mean()
+
+        data_dfs.append(pd.DataFrame(dict(early=early, late=late), index=[mouse]))
+    return pd.concat(data_dfs)
+
+# met = get_first_last_poststroke(hheise_decoder.BayesianDecoderWithinSession, attr='mae_quad', restrictions=dict(bayesian_id=1))
+met = get_first_last_poststroke(hheise_pvc.PvcCrossSessionEval, attr='max_pvc', restrictions=dict(circular=0, locations='all'), late_day=-1, n_last_sessions=-1)
+
+met[['early', 'late']].to_clipboard(index=False, header=False)
+
 
 #%% Test distribution of pauses between lick bursts
 
