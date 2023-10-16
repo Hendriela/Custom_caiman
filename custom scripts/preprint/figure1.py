@@ -65,11 +65,22 @@ folder = r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\
 
 #%% Figure 1
 def example_fov():
-    avg = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-24"').fetch1('avg_image')
-    tif.imwrite(os.path.join(folder, '41_20200824_fov_overview.tif'), avg)
 
-    avg = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-26"').fetch1('avg_image')
-    tif.imwrite(os.path.join(folder, '41_20200824_fov_overview_damage.tif'), avg)
+    avg_pre = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-24"').fetch1('avg_image')
+    # tif.imwrite(os.path.join(folder, '41_20200824_fov_overview.tif'), avg)
+
+    avg_post = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-26"').fetch1('avg_image')
+    # tif.imwrite(os.path.join(folder, '41_20200824_fov_overview_damage.tif'), avg)
+
+    # Example FOV with spheres
+    post = cv2.imread(os.path.join(folder, 'figure2', '41_20200826_poststroke_raw.png'))
+    ind = np.where(post == 255)
+    post[ind[0], ind[1], :] = [0, 0, 255]
+    # avg_post_rgb_norm = (255 * (avg_post_rgb - np.min(avg_post_rgb)) / np.ptp(avg_post_rgb)).astype(int)        # Normalize image
+    cv2.imwrite(os.path.join(folder, 'figure2', '41_20200826_poststroke_thresh.png'), post)
+
+    cor_post = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-26"').fetch1('cor_image')
+
 
 
 def example_lick_histogram():
