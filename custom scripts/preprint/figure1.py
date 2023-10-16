@@ -21,6 +21,7 @@ import os
 from datetime import timedelta
 from scipy.ndimage import gaussian_filter1d
 import tifffile as tif
+import cv2
 import standard_pipeline.performance_check as performance
 from itertools import combinations
 import pandas as pd
@@ -183,14 +184,15 @@ def place_cell_plot():
 
     # Get place cells from Bartos criteria
     restrictions = dict(is_place_cell=1, accepted=1, corridor_type=0, place_cell_id=2)
-    pk_pc = (common_img.Segmentation.ROI * hheise_placecell.PlaceCell.ROI * hheise_placecell.SpatialInformation.ROI & restrictions &
+    pk_pc = (common_img.Segmentation.ROI * hheise_placecell.PlaceCell.ROI & restrictions &
              'snr>10' & 'r>0.9' & 'cnn>0.9').fetch('KEY')
 
     # Get spatial activity maps
-    act = (hheise_placecell.BinnedActivity.ROI() & pk_pc).fetch('bin_spikerate')
+    act = (hheise_placecell.BinnedActivity.ROI() & pk_pc).fetch('bin_activity')
     # Only keep traces from normal corridor trials
-    norm_act = np.array([curr_act[:, (hheise_behav.VRSession & cell_pk).get_normal_trials()]
-                         for curr_act, cell_pk in zip(act, pk_pc)], dtype='object')
+    norm_act_list = [curr_act[:, (hheise_behav.VRSession & cell_pk).get_normal_trials()]
+                     for curr_act, cell_pk in zip(act, pk_pc)]
+    # norm_act = np.array(norm_act_list1, dtype='object')
     fields = (hheise_placecell.SpatialInformation.ROI() & pk_pc).fetch('place_fields')
 
     # changed_trials = []
@@ -199,8 +201,9 @@ def place_cell_plot():
     #         changed_trials.append(idx)
 
     # Sort out sessions with less than 80 bins (in 170cm corridor)
-    mask = [True if x.shape[0] == 80 else False for x in norm_act]
-    act_filt = act[mask]
+    from itertools import compress
+    mask = [True if x.shape[0] == 80 else False for x in norm_act_list]
+    act_filt = list(compress(norm_act_list, mask))
     pk_filt = np.array(pk_pc)[mask]
     fields_filt = fields[mask]
 
@@ -208,14 +211,14 @@ def place_cell_plot():
 
     # Sort out artefact neurons with maximum in last bin
     last_bin = [True if np.argmax(trace) != 79 else False for trace in avg_act]
-    avg_act_filt = avg_act[last_bin]
+    avg_act_filt = list(compress(avg_act, last_bin))
     pk_filt = pk_filt[last_bin]
     fields_filt = fields_filt[last_bin]
 
     # Sort neurons by activity maximum location
     sort_key = [(i, np.argmax(trace)) for i, trace in enumerate(avg_act_filt)]
     sort_key = [y[0] for y in sorted(sort_key, key=lambda x: x[1])]
-    avg_act_filt_sort = avg_act_filt[sort_key]
+    avg_act_filt_sort = np.array(avg_act_filt)[sort_key]
 
     # # Sort neurons by first place field bin (not pretty)
     # sort_key = [(i, field[0][0]) for i, field in enumerate(fields_filt)]
@@ -227,18 +230,18 @@ def place_cell_plot():
 
     # Only keep neurons with a median FR lower than 33%, but high FR (90th percentile) higher than 80% of all neurons
     median_fr = np.median(avg_act_filt_sort, axis=1)
-    median_33 = np.percentile(median_fr, 80)
+    median_33 = np.percentile(median_fr, 33)
     high_fr = np.percentile(avg_act_filt_sort, 90, axis=1)
-    high_80 = np.percentile(high_fr, 20)
+    high_80 = np.percentile(high_fr, 80)
 
     sparse_neuron_mask = np.logical_and(median_fr < median_33, high_fr > high_80)
     print(np.sum(sparse_neuron_mask))
 
     # Plotting, formatting
     fig = plt.figure(figsize=(4.93, 7.3))
-    ax = sns.heatmap(gaussian_filter1d(avg_act_filt_sort[sparse_neuron_mask], sigma=1, axis=1), cmap='turbo',
-                     vmax=15)  # Cap colormap a bit
-    # ax = sns.heatmap(avg_act_sort_norm, cmap='jet')
+    # ax = sns.heatmap(gaussian_filter1d(avg_act_filt_sort[sparse_neuron_mask], sigma=1, axis=1), cmap='turbo',
+    #                  vmax=15)  # Cap colormap a bit
+    ax = sns.heatmap(avg_act_filt_sort[sparse_neuron_mask], cmap='turbo', vmin=-0.1, vmax=3)
 
     # Shade reward zones
     # zone_borders = (hheise_behav.CorridorPattern & 'pattern="training"').rescale_borders(n_bins=80)
@@ -249,18 +252,19 @@ def place_cell_plot():
     ax.set_yticks([])
     ax.tick_params(axis=u'both', which=u'both', length=0)
     ax.set_xticks((0.5, 78.8), (0, 4), fontsize=20, rotation=0)
-    ax.set_ylabel('Cell no.', fontsize=20, labelpad=-3)
+    ax.set_ylabel('Place cells', fontsize=20, labelpad=-3)
     ax.set_xlabel('Track position [m]', fontsize=20, labelpad=-20)
 
     cbar = ax.collections[0].colorbar
-    cbar.ax.set_yticks((0.5, 14.5), (0, 15), fontsize=20)
+    cbar.ax.set_yticks((0, 2.9), (0, 3), fontsize=20)
     cbar.ax.tick_params(axis=u'both', which=u'both', length=0)
-    cbar.ax.set_ylabel('Firing rate [Hz]', fontsize=20, labelpad=-3, rotation=270)
+    # cbar.ax.set_ylabel('Firing rate [Hz]', fontsize=20, labelpad=-3, rotation=270)
+    cbar.ax.set_ylabel(r'$\Delta$F/F', fontsize=20, labelpad=3, rotation=270)
 
     # Matrix has too many elements for Inkscape, use PNG of matrix instead of vectorized file
-    plt.savefig(os.path.join(folder, 'figure1', 'all_place_cells_bartos_8020_for_matrix.png'), transparent=True)
+    plt.savefig(os.path.join(folder, 'figure1', 'all_place_cells_bartos_dff_8020_for_matrix.png'), transparent=True)
     # Much fewer cells, this file is used to load quickly into Inkscape, delete the matrix and use the axes
-    plt.savefig(os.path.join(folder, 'figure1', 'all_place_cells_3380_for_axes.svg'), transparent=True)
+    plt.savefig(os.path.join(folder, 'figure1', 'all_place_cells_bartos_dff_3380_for_axes.svg'), transparent=True)
 
 
 def plot_example_placecell():
