@@ -12,14 +12,14 @@ import itertools
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 
-from schema import hheise_behav, hheise_hist, hheise_grouping, hheise_decoder, hheise_pvc
+from schema import hheise_behav, hheise_hist, hheise_grouping, hheise_decoder, hheise_pvc, hheise_placecell
 from schema import common_mice, common_exp, common_img
 from util import helper
 
 mouse_ids = [33, 41,    # Batch 3
              63, 69,        # Batch 5
              83, 85, 86, 89, 90, 91, 93, 95,  # Batch 7
-             108, 110, 111, 112, 113, 114, 115, 116, 122]  # Batch 8
+             108, 110, 111, 112, 113, 114, 115, 116, 121, 122]  # Batch 8
 
 # Get age of mice at first session and microsphere injection
 temp_df = []
@@ -172,11 +172,17 @@ def get_first_last_poststroke(table, attr, restrictions=None, early_day=3, late_
         data_dfs.append(pd.DataFrame(dict(early=early, late=late), index=[mouse]))
     return pd.concat(data_dfs)
 
+
 # met = get_first_last_poststroke(hheise_decoder.BayesianDecoderWithinSession, attr='mae_quad', restrictions=dict(bayesian_id=1))
-met = get_first_last_poststroke(hheise_pvc.PvcCrossSessionEval, attr='max_pvc', restrictions=dict(circular=0, locations='all'), late_day=-1, n_last_sessions=-1)
+met = get_first_last_poststroke(hheise_pvc.PvcCrossSessionEval, attr='max_pvc',
+                                restrictions=dict(circular=0, locations='all'), late_day=-1, n_last_sessions=-1)
 
 met[['early', 'late']].to_clipboard(index=False, header=False)
 
+#%% Validation experiments
+data = (hheise_behav.ValidationPerformance & f'task in {helper.in_query(["No pattern", "No tone"])}').plot_task_matrix('blr')
+
+data[['No pattern Prestroke', 'No tone Prestroke']].to_clipboard(header=False)
 
 #%% Test distribution of pauses between lick bursts
 
