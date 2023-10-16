@@ -15,7 +15,7 @@ from sklearn.decomposition import PCA
 from sklearn.linear_model import LinearRegression
 from scipy import stats as stat
 
-from schema import hheise_behav, hheise_hist
+from schema import hheise_behav, hheise_hist, hheise_grouping
 from util import helper
 
 sns.set_context('talk')
@@ -241,3 +241,49 @@ behav['si_count_mean_1'] = behav.apply(lambda x: np.mean(x['si_count']), axis=1)
 
 g = sns.lmplot(behav, x='si_binned_run', y='si_count_mean_1')
 helper.equalize_axis(g.axes[0, 0], plot_diagonal=True)
+
+
+#%% Correlate sphere count with matrix positions projected onto the identity line
+
+data = pd.DataFrame((hheise_grouping.BehaviorGrouping() & 'grouping_id=0' &
+                     'cluster = "coarse"').fetch('mouse_id', 'early', 'late', as_dict=True))
+sphere_count = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & f'mouse_id in {helper.in_query(data.mouse_id)}'
+                             & 'metric_name="spheres"').fetch('count_extrap', 'mouse_id', as_dict=True))
+sphere_count = sphere_count.rename(columns={'count_extrap': 'spheres'})
+data = pd.merge(data, sphere_count, on='mouse_id')
+
+
+def proj_to_identity(row):
+    """ https://stackoverflow.com/questions/47177493/python-point-on-a-line-closest-to-third-point """
+
+    p1 = np.array([0, 0])
+    p2 = np.array([1, 1])
+
+    dx, dy = p2[0]-p1[0], p2[1]-p1[1]
+    det = dx*dx + dy*dy
+    a = (dy*(row['late']-p1[1])+dx*(row['early']-p1[0]))/det
+
+    return p1[0] + a * dx
+
+
+data['identity'] = data.apply(proj_to_identity, axis=1)
+
+sphere_identity = np.corrcoef(data['identity'], data['spheres'])[0, 1]
+
+# Fetch total (extrapolated) sphere counts and add to DataFrame
+
+
+# Display stats of PCA in textbox
+plt.figure(layout='constrained')
+ax = sns.scatterplot(data=data, x='early', y='late', hue='spheres', palette='flare', hue_norm=LogNorm(), s=100,
+                     legend=True)
+ax.axvline(0.75, linestyle='--', color='grey')
+ax.axhline(0.75, linestyle='--', color='grey')
+lower = np.min([ax.get_ylim()[0], ax.get_xlim()[0]])
+upper = np.max([ax.get_ylim()[1], ax.get_xlim()[1]])
+ax.set_xlim((lower, upper))
+ax.set_ylim((lower, upper))
+ax.axline((upper, upper), slope=1, c='grey', ls=':')
+
+ax.text(0.95, 0.05, r'$r$' + f' = {sphere_identity:.2f}', transform=ax.transAxes, fontsize=14, verticalalignment='bottom',
+        horizontalalignment='right', fontfamily='monospace')
