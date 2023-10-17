@@ -205,3 +205,120 @@ plt.legend()
 plt.xlabel('Length of Consecutive 0s/1s')
 plt.ylabel('Frequency')
 plt.title('Distribution of Lick length (1s) and breaks between Licks (0s)')
+
+#%% Basic stats (PC ratio, median firing rate) over time
+
+dfs = []
+for mouse in mouse_ids:
+
+    # Get day of surgery
+    surgery_day = (common_mice.Surgery() & 'surgery_type="Microsphere injection"' & f'mouse_id={mouse}').fetch(
+        'surgery_date')[0].date()
+
+    pks = (hheise_placecell.PlaceCell & 'username="hheise"' & f'mouse_id={mouse}' & 'place_cell_id=2' & 'corridor_type=0').fetch('KEY')
+
+    # Get PC ratio (Bartos and SI)
+    pc_ratio_bartos = (hheise_placecell.PlaceCell & pks & 'corridor_type=0').fetch('place_cell_ratio')
+    pc_ratio_si = (hheise_placecell.SpatialInformation & pks).fetch('place_cell_ratio')
+
+    sess_dfs = []
+    for pk in pks:
+        # Get average within-session stability, for all cells and Bartos place cells
+        pc_pks = (hheise_placecell.PlaceCell.ROI & pk & 'is_place_cell=1' & 'corridor_type=0').fetch('KEY')
+        pc_stab = np.tanh(np.nanmean((hheise_placecell.SpatialInformation.ROI & pc_pks).fetch('stability')))   # Revert Fisher z-transform with np.tanh
+        all_stab = np.tanh(np.nanmean((hheise_placecell.SpatialInformation.ROI & pk).fetch('stability')))
+
+        # Get average SI content, for all cells and Bartos place cells
+        pc_si = np.nanmean((hheise_placecell.SpatialInformation.ROI & pc_pks).fetch('si'))   # Revert Fisher z-transform with np.tanh
+        all_si = np.nanmean((hheise_placecell.SpatialInformation.ROI & pk).fetch('si'))
+
+        # Get average firing rate, for all cells and Bartos place cells
+        pc_fr = np.nanmean((common_img.ActivityStatistics.ROI * common_img.Segmentation.ROI & pc_pks & 'decon_id=1' & 'accepted=1').fetch('rate_spikes'))
+        spikerates = (common_img.ActivityStatistics.ROI * common_img.Segmentation.ROI & pk & 'decon_id=1' & 'accepted=1').fetch('rate_spikes')
+        all_fr = np.nanmean(spikerates)
+
+        # Get PC ratios
+        pc_ratio_bartos = (hheise_placecell.PlaceCell & pk & 'corridor_type=0').fetch1('place_cell_ratio')
+        pc_ratio_si = (hheise_placecell.SpatialInformation & pk & 'corridor_type=0').fetch1('place_cell_ratio')
+
+        # Check if place cell ratio is correct
+        if np.float16(len(pc_pks) / len(spikerates)) != np.float16(pc_ratio_bartos):
+            print(f'Session {pk} mismatch:\n\tPC ratio on record: {pc_ratio_bartos:.6f} --- Place Cells found: {len(pc_pks)}/{len(spikerates)} ({len(pc_pks) / len(spikerates):.6f})')
+
+        sess_dfs.append(pd.DataFrame([dict(**pk, pc_stab=pc_stab, all_stab=all_stab, pc_fr=pc_fr, all_fr=all_fr,
+                                           pc_si=pc_si, all_si=all_si,
+                                           pc_ratio_bartos=pc_ratio_bartos, pc_ratio_si=pc_ratio_si)]))
+    df = pd.concat(sess_dfs)
+    # df['pc_ratio_bartos'] = pc_ratio_bartos
+    # df['pc_ratio_si'] = pc_ratio_si
+
+    # Transform dates into days before surgery
+    rel_days = np.array([(pk['day'] - surgery_day).days for pk in pks])
+
+    if 3 not in rel_days:
+        rel_days[(rel_days == 2) | (rel_days == 4)] = 3
+    rel_days[(rel_days == 5) | (rel_days == 6) | (rel_days == 7)] = 6
+    rel_days[(rel_days == 8) | (rel_days == 9) | (rel_days == 10)] = 9
+    rel_days[(rel_days == 11) | (rel_days == 12) | (rel_days == 13)] = 12
+    rel_days[(rel_days == 14) | (rel_days == 15) | (rel_days == 16)] = 15
+    rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
+    rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
+    rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
+    if 28 not in rel_days:
+        rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
+
+    rel_sess = np.arange(len(rel_days)) - np.argmax(np.where(rel_days <= 0, rel_days, -np.inf))
+
+    rel_days[(-5 < rel_sess) & (rel_sess < 1)] = np.arange(-4, 1)
+
+    df['rel_day'] = rel_days
+
+    dfs.append(df)
+
+df = pd.concat(dfs, ignore_index=True)
+
+df = df[df['rel_day'] >= -4]
+df = df[df['rel_day'] != 1]
+df = df[df['rel_day'] <= 27]
+df['period'] = np.nan
+df.loc[df['rel_day'] <= 0, 'period'] = 'pre'
+df.loc[(df['rel_day'] > 0) & (df['rel_day'] <= 7), 'period'] = 'early'
+df.loc[df['rel_day'] > 7, 'period'] = 'late'
+
+# single days
+df_filt = df[df['rel_day'] != 4]
+df_filt = df_filt[df_filt['rel_day'] != 2]
+df_filt.pivot(index='rel_day', columns='mouse_id', values='all_si').to_clipboard(index=False, header=False)
+
+df_pivot.to_pickle('.\\20230726\\absolute_bin_licks.pickle')
+
+
+
+### Dummy SI values
+from scipy.ndimage import gaussian_filter1d
+
+def compute_si(act_map):
+
+    occupancy = np.ones((1, 80))    # Uniform occupancy
+    p_occ = np.sum(occupancy, axis=0) / np.sum(occupancy)  # Occupancy probability per bin p(i)
+    p_occ = p_occ[None, :]
+    # act_bin = np.nanmean(gaussian_filter1d(act_map, 1, axis=1), axis=2)  # Activity rate per bin lambda(i) (first smoothed
+    act_bin = np.mean(act_map, axis=2)  # Activity rate per bin lambda(i) (first smoothed)
+    act_rel = act_bin.T / np.sum(p_occ * act_bin, axis=1)  # Normalized activity rate lambda(i) by lambda-bar
+    # skaggs = np.sum(p_occ * act_bin * np.log2(act_rel.T), axis=1)  # Skaggs computes total mutual info
+    return np.sum(p_occ * act_rel.T * np.log2(act_rel.T), axis=1)  # Shuman scales SI by activity level to make SI value more comparable between cells
+
+
+act_map_spike = np.ones((1, 80, 1)) * 0.0001
+act_map_spike[:, 0, :] = 1
+act_map_uniform = np.ones((1, 80, 1)) * 0.3
+
+print(compute_si(act_map_spike))
+print(compute_si(act_map_uniform))
+
+test = []
+for i in range(1, 10000):
+    act_map_spike = np.ones((1, 80, 1))
+    act_map_spike[:, 0, :] = 1 * i
+    test.append(compute_si(act_map_spike))
+plt.plot(test)
