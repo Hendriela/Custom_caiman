@@ -8,6 +8,8 @@ Created on 22/08/2023 14:08
 import os
 import numpy as np
 import pandas as pd
+
+from schema import hheise_grouping
 from preprint import data_cleaning as dc
 from preprint import placecell_heatmap_transition_functions as func
 
@@ -20,8 +22,8 @@ def classify_stability(is_pc_list, spatial_map_list, for_prism=True, ignore_lost
     for i, mouse in enumerate(mice):
         rel_dates = np.array(is_pc_list[i][mouse][1])
         mask_pre = rel_dates <= 0
-        mask_early = (0 < rel_dates) & (rel_dates <= 6)
-        mask_late = rel_dates > 6
+        mask_early = (0 < rel_dates) & (rel_dates <= 7)
+        mask_late = rel_dates > 7
 
         classes_pre, stability_thresh = func.quantify_stability_split(is_pc_arr=is_pc_list[i][mouse][0][:, mask_pre],
                                                                       spat_dff_arr=spatial_map_list[i][mouse][0][:, mask_pre],
@@ -61,22 +63,26 @@ def classify_stability(is_pc_list, spatial_map_list, for_prism=True, ignore_lost
         return class_df
 
 
-def stability_sankey(df):
+def stability_sankey(df: pd.DataFrame, grouping_id: int = 3,
+                     directory: str = r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\sankey_plot'):
+    """
+    Export a "stability_classes" Dataframe for Plotly`s Sankey diagram.
 
-    sham = ['91_1', '115_1', ' 122_1']  # no deficit, and < 50 spheres
-    no_deficit = ['83_1', '95_1', '112_1', '114_1', '116_1']  # no deficit, but > 50 spheres
-    late_deficit = ['111_1', '93_1', '108_1']  # Debatable, might be merged with sham
-    recovery = ['33_1', '85_1', '86_1', '90_1', '113_1']
-    no_recovery = ['41_1', '63_1', '69_1', '89_1', '110_1']
-    no_recovery_with121 = ['41_1', '63_1', '69_1', '89_1', '110_1', '121_1']
+    Args:
+        df: Stability_classes Dataframe, output from classify_stability().
+        grouping_id: Parameter ID of the mouse behavioral grouping to be used.
+        directory: Directoy where to save the CSV files for the Sankey plot.
+    """
 
-    control = ['83_1', '91_1', '93_1', '95_1', '108_1', '111_1', '114_1', '115_1', '122_1', '116_1']
-    stroke = ['33_1', '41_1', '63_1', '69_1', '85_1', '86_1', '89_1', '90_1', '110_1', '113_1']
-    stroke_with121 = ['33_1', '41_1', '69_1', '85_1', '86_1', '90_1', '121_1']
+    # Load behavioral grouping from Datajoint
+    coarse = (hheise_grouping.BehaviorGrouping & f'grouping_id={grouping_id}' & 'cluster="coarse"').get_groups(as_frame=False)
+    fine = (hheise_grouping.BehaviorGrouping & f'grouping_id={grouping_id}' & 'cluster="fine"').get_groups(as_frame=False)
 
-    groups = {'sham': sham, 'no_deficit': no_deficit, 'late_deficit': late_deficit, 'recovery': recovery,
-              'no_recovery': no_recovery, 'no_recovery_with121': no_recovery_with121, 'control': control,
-              'stroke': stroke, 'stroke_with121': stroke_with121}
+    # Combine dicts, adapt names to file system and remove 121
+    groups = {'control': coarse['Control'], 'stroke_with121': coarse['Stroke'],
+              'stroke': [x for x in coarse['Stroke'] if x != 121],
+              'sham': fine['Sham'], 'no_deficit': fine['No Deficit'], 'recovery': fine['Recovery'],
+              'no_recovery_with121': fine['No Recovery'], 'no_recovery': [x for x in fine['No Recovery'] if x != 121]}
 
     # Export classes for Plotly Sankey Diagram
     matrices = []
@@ -97,7 +103,23 @@ def stability_sankey(df):
         avg_trans[k + '_early'] = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(v)]['pre_early'])), axis=0)
         avg_trans[k + '_late'] = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(v)]['early_late'])), axis=0)
 
-    def unravel_matrix(mat_early: np.ndarray, mat_late: np.ndarray):
+    def unravel_matrix(mat_early: np.ndarray, mat_late: np.ndarray) -> np.ndarray:
+        """
+        Unravel transition matrix into the shape that Plotlys Sankey Plots understand:
+        A 2D matrix with three rows: First row are the source classes, second row are the target classes,
+        third row are the values (how many units go from source to target).
+        Classes are split between cell classes and phase.
+        Prestroke: ["lost", "non-coding", "unstable", "stable"] -> [0, 1, 2, 3]
+        Early Poststroke: ["lost", "non-coding", "unstable", "stable"] -> [4, 5, 6, 7]
+        Late Poststroke: ["lost", "non-coding", "unstable", "stable"] -> [8, 9, 10, 11]
+
+        Args:
+            mat_early: Transition matrix for pre->early transition. Rows are source classes, columns are target classes.
+            mat_late: Transition matrix for early->late transition. Rows are source classes, columns are target classes.
+
+        Returns:
+            2D array with shape (3, n_classes*(n_classes*(n_phases-1))) containing data for Sankey plot.
+        """
         source_early = [it for sl in [[i] * 4 for i in range(4)] for it in sl]  # "From" class
         target_early = [4, 5, 6, 7] * 4  # "To" classes (shifted by 4)
         source_late = np.array(source_early) + 4
@@ -111,9 +133,9 @@ def stability_sankey(df):
         return out
 
     for k in groups.keys():
-        np.savetxt(os.path.join(
-            r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\pc_heatmaps\sankey_plot',
-            f'{k}.csv'), unravel_matrix(avg_trans[k + '_early'], avg_trans[k + '_late']), fmt="%d", delimiter=',')
+        sankey_matrix = unravel_matrix(avg_trans[k + '_early'], avg_trans[k + '_late'])
+        sankey_matrix = np.round(sankey_matrix)
+        np.savetxt(os.path.join(directory, f'{k}.csv'), sankey_matrix, fmt="%d", delimiter=',')
 
 
 spatial_maps = dc.load_data('spat_dff_maps')
@@ -122,4 +144,4 @@ is_pc = dc.load_data('is_pc')
 stability_classes = classify_stability(is_pc_list=is_pc, spatial_map_list=spatial_maps, for_prism=False, ignore_lost=True)
 stability_classes.to_clipboard(index=False)
 
-stability_sankey(stability_classes)
+stability_sankey(stability_classes, directory=r'E:\user_backup\wahl_folder_backup\Papers\preprint\pc_heatmaps\sankey_plot')
