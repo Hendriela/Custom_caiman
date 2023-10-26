@@ -373,3 +373,29 @@ save_dict(decon, 'neural_data\\decon')
 save_dict(coords, 'neural_data\\cell_coords')
 save_dict(pf_com, 'neural_data\\pf_com')
 save_dict(pf_sd, 'neural_data\\pf_sd')
+
+
+# Stability classes
+from preprint import stable_unstable_classification as suc
+from preprint import data_cleaning as dc
+
+spatial_maps = dc.load_data('spat_dff_maps')
+is_pc_old = dc.load_data('is_pc')
+
+stability_classes = suc.classify_stability(is_pc_list=is_pc_old, spatial_map_list=spatial_maps, for_prism=False,
+                                           ignore_lost=True)
+
+stability_classes_neurons = {}
+for mouse_str, mouse_data in stability_classes.groupby('mouse_id'):
+    mouse_df = {}
+    for col in is_pc[int(mouse_str.split("_")[0])].columns:
+        if col <= 0:
+            mouse_df[col] = mouse_data[mouse_data.period == 'pre']['classes'].iloc[0]
+        elif col > 7:
+            mouse_df[col] = mouse_data[mouse_data.period == 'late']['classes'].iloc[0]
+        else:
+            mouse_df[col] = mouse_data[mouse_data.period == 'early']['classes'].iloc[0]
+    stability_classes_neurons[int(mouse_str.split("_")[0])] = pd.DataFrame(mouse_df)
+save_dict(stability_classes_neurons, 'neural_data\\stability_classes')
+
+
