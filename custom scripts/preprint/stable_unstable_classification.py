@@ -138,10 +138,11 @@ def stability_sankey(df: pd.DataFrame, grouping_id: int = 3,
         np.savetxt(os.path.join(directory, f'{k}.csv'), sankey_matrix, fmt="%d", delimiter=',')
 
 
-spatial_maps = dc.load_data('spat_dff_maps')
-is_pc = dc.load_data('is_pc')
+if __name__ == '__main__':
+    spatial_maps = dc.load_data('spat_dff_maps')
+    is_pc = dc.load_data('is_pc')
 
-stability_classes = classify_stability(is_pc_list=is_pc, spatial_map_list=spatial_maps, for_prism=False, ignore_lost=True)
-stability_classes.to_clipboard(index=False)
+    stability_classes = classify_stability(is_pc_list=is_pc, spatial_map_list=spatial_maps, for_prism=False, ignore_lost=True)
+    stability_classes.to_clipboard(index=False)
 
-stability_sankey(stability_classes, directory=r'E:\user_backup\wahl_folder_backup\Papers\preprint\pc_heatmaps\sankey_plot')
+    stability_sankey(stability_classes, directory=r'E:\user_backup\wahl_folder_backup\Papers\preprint\pc_heatmaps\sankey_plot')
