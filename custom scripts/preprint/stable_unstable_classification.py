@@ -8,6 +8,9 @@ Created on 22/08/2023 14:08
 import os
 import numpy as np
 import pandas as pd
+from typing import Optional
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from schema import hheise_grouping
 from preprint import data_cleaning as dc
@@ -63,8 +66,8 @@ def classify_stability(is_pc_list, spatial_map_list, for_prism=True, ignore_lost
         return class_df
 
 
-def stability_sankey(df: pd.DataFrame, grouping_id: int = 3,
-                     directory: str = r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\sankey_plot'):
+def stability_sankey(df: pd.DataFrame, grouping_id: int = 3, return_avg=False,
+                     directory: Optional[str] = r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\sankey_plot'):
     """
     Export a "stability_classes" Dataframe for Plotly`s Sankey diagram.
 
@@ -100,8 +103,9 @@ def stability_sankey(df: pd.DataFrame, grouping_id: int = 3,
     # Make average transition matrices
     avg_trans = {}
     for k, v in groups.items():
-        avg_trans[k + '_early'] = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(v)]['pre_early'])), axis=0)
-        avg_trans[k + '_late'] = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(v)]['early_late'])), axis=0)
+        v_1 = [f"{x}_1" for x in v]
+        avg_trans[k + '_early'] = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(v_1)]['pre_early'])), axis=0)
+        avg_trans[k + '_late'] = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(v_1)]['early_late'])), axis=0)
 
     def unravel_matrix(mat_early: np.ndarray, mat_late: np.ndarray) -> np.ndarray:
         """
@@ -132,10 +136,123 @@ def stability_sankey(df: pd.DataFrame, grouping_id: int = 3,
         out = np.array([[*source_early, *source_late], [*target_early, *target_late], [*early_flat, *late_flat]])
         return out
 
-    for k in groups.keys():
-        sankey_matrix = unravel_matrix(avg_trans[k + '_early'], avg_trans[k + '_late'])
-        sankey_matrix = np.round(sankey_matrix)
-        np.savetxt(os.path.join(directory, f'{k}.csv'), sankey_matrix, fmt="%d", delimiter=',')
+    if directory is not None:
+        for k in groups.keys():
+            sankey_matrix = unravel_matrix(avg_trans[k + '_early'], avg_trans[k + '_late'])
+            sankey_matrix = np.round(sankey_matrix)
+            np.savetxt(os.path.join(directory, f'{k}.csv'), sankey_matrix, fmt="%d", delimiter=',')
+    else:
+        if return_avg:
+            return avg_trans
+        else:
+            return matrices
+
+
+def plot_transition_matrix(matrix_list, titles, normalize: True):
+
+    fig, ax = plt.subplots(2, len(titles), layout='constrained', figsize=(10+(5*(len(titles)-2)), 10))
+    for i, mat in enumerate(matrix_list):
+
+        if normalize:
+            # Normalize matrices row-wise
+            mat_early = mat[0] / np.sum(mat[0], axis=1)[..., np.newaxis] * 100
+            mat_late = mat[1] / np.sum(mat[1], axis=1)[..., np.newaxis] * 100
+        else:
+            mat_early = mat[0]
+            mat_late = mat[1]
+
+        sns.heatmap(mat_early, ax=ax[0, i], square=True, annot=True, cbar=False, fmt='.3g', vmin=0, vmax=100)
+        sns.heatmap(mat_late, ax=ax[1, i], square=True, annot=True, cbar=False, fmt='.3g', vmin=0, vmax=100)
+        ax[0, i].set_title(titles[i])
+    ax[0, 0].set_xlabel('To Cell Class Early')
+    ax[0, 0].set_ylabel('From Cell Class Pre')
+    ax[1, 0].set_xlabel('To Cell Class Late')
+    ax[1, 0].set_ylabel('From Cell Class Early')
+
+
+def transition_matrix_for_prism(matrix_df: pd.DataFrame, pre_early=True, include_lost=False, norm='rows'):
+
+    # Forward (row-normalization)
+    dicts = []
+    for _, row in matrix_df.iterrows():
+        if include_lost:
+            if pre_early:
+                if norm in ['rows', 'forward']:
+                    mat = row['pre_early'] / np.sum(row['pre_early'], axis=1)[..., np.newaxis] * 100
+                elif norm in ['cols', 'backward']:
+                    mat = row['pre_early'] / np.sum(row['pre_early'], axis=0) * 100
+                elif norm in ['all']:
+                    mat = row['pre_early'] / np.sum(row['pre_early']) * 100
+                else:
+                    raise NotImplementedError
+
+            else:
+                if norm in ['rows', 'forward']:
+                    mat = row['early_late'] / np.sum(row['early_late'], axis=1)[..., np.newaxis] * 100
+                elif norm in ['cols', 'backward']:
+                    mat = row['early_late'] / np.sum(row['early_late'], axis=0) * 100
+                elif norm in ['all']:
+                    mat = row['early_late'] / np.sum(row['early_late']) * 100
+                else:
+                    raise NotImplementedError
+
+            ### Include "lost"
+            dicts.append(dict(trans='non-coding > non-coding', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[1, 1]))
+            dicts.append(dict(trans='non-coding > unstable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[1, 2]))
+            dicts.append(dict(trans='non-coding > stable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[1, 3]))
+            dicts.append(dict(trans='unstable > non-coding', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[2, 1]))
+            dicts.append(dict(trans='unstable > unstable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[2, 2]))
+            dicts.append(dict(trans='unstable > stable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[2, 3]))
+            dicts.append(dict(trans='stable > non-coding', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[3, 1]))
+            dicts.append(dict(trans='stable > unstable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[3, 2]))
+            dicts.append(dict(trans='stable > stable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[3, 3]))
+
+        else:
+            if pre_early:
+                if norm in ['rows', 'forward']:
+                    mat = row['pre_early'][1:, 1:] / np.sum(row['pre_early'][1:, 1:], axis=1)[..., np.newaxis] * 100
+                elif norm in ['cols', 'backward']:
+                    mat = row['pre_early'][1:, 1:] / np.sum(row['pre_early'][1:, 1:], axis=0) * 100
+                elif norm in ['all']:
+                    mat = row['pre_early'][1:, 1:] / np.sum(row['pre_early'][1:, 1:]) * 100
+                else:
+                    raise NotImplementedError
+            else:
+                if norm in ['rows', 'forward']:
+                    mat = row['early_late'][1:, 1:] / np.sum(row['early_late'][1:, 1:], axis=1)[..., np.newaxis] * 100
+                elif norm in ['cols', 'backward']:
+                    mat = row['early_late'][1:, 1:] / np.sum(row['early_late'][1:, 1:], axis=0) * 100
+                elif norm in ['all']:
+                    mat = row['early_late'][1:, 1:] / np.sum(row['early_late'][1:, 1:]) * 100
+                else:
+                    raise NotImplementedError
+
+            ### Exclude "lost"
+            dicts.append(dict(trans='non-coding > non-coding', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[0, 0]))
+            dicts.append(dict(trans='non-coding > unstable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[0, 1]))
+            dicts.append(dict(trans='non-coding > stable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[0, 2]))
+            dicts.append(dict(trans='unstable > non-coding', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[1, 0]))
+            dicts.append(dict(trans='unstable > unstable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[1, 1]))
+            dicts.append(dict(trans='unstable > stable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[1, 2]))
+            dicts.append(dict(trans='stable > non-coding', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[2, 0]))
+            dicts.append(dict(trans='stable > unstable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[2, 1]))
+            dicts.append(dict(trans='stable > stable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[2, 2]))
+
+    df = pd.DataFrame(dicts).pivot(index='trans', columns='mouse_id', values='perc')
+    if norm in ['rows', 'forward']:
+        df = df.reindex(['non-coding > non-coding', 'non-coding > unstable', 'non-coding > stable', 'unstable > non-coding',
+                         'unstable > unstable', 'unstable > stable', 'stable > non-coding', 'stable > unstable', 'stable > stable'])
+    elif norm in ['cols', 'backward']:
+        df = df.reindex(['non-coding > non-coding', 'unstable > non-coding', 'stable > non-coding',
+                         'non-coding > unstable', 'unstable > unstable', 'stable > unstable',
+                         'non-coding > stable', 'unstable > stable', 'stable > stable'])
+    elif norm in ['all']:
+        df = df.reindex(['non-coding > non-coding', 'non-coding > unstable', 'non-coding > stable', 'unstable > non-coding',
+                         'unstable > unstable', 'unstable > stable', 'stable > non-coding', 'stable > unstable', 'stable > stable'])
+    # df = df.fillna(0)
+
+    return df
+
 
 
 if __name__ == '__main__':
@@ -146,3 +263,19 @@ if __name__ == '__main__':
     stability_classes.to_clipboard(index=False)
 
     stability_sankey(stability_classes, directory=r'E:\user_backup\wahl_folder_backup\Papers\preprint\pc_heatmaps\sankey_plot')
+
+    # Quantify transitions
+    trans_matrices = stability_sankey(df=stability_classes, directory=None)
+
+    # Plot transition matrices
+    plot_transition_matrix(matrix_list=[[trans_matrices['sham_early'], trans_matrices['sham_late']],
+                                        [trans_matrices['no_deficit_early'], trans_matrices['no_deficit_late']],
+                                        [trans_matrices['recovery_early'], trans_matrices['recovery_late']],
+                                        [trans_matrices['no_recovery_early'], trans_matrices['no_recovery_late']]],
+                           titles=['Sham', 'No Deficit', 'Recovery', 'No Recovery'], normalize=True)
+    plot_transition_matrix(matrix_list=[[trans_matrices['control_early'], trans_matrices['control_late']],
+                                        [trans_matrices['stroke_early'], trans_matrices['stroke_late']]],
+                           titles=['No Deficit', 'Stroke'], normalize=False)
+
+    # Export transition matrix for prism
+    transition_matrix_for_prism(trans_matrices, pre_early=False, include_lost=False, norm='all').to_clipboard(header=False, index=False)
