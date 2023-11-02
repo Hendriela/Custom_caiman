@@ -160,7 +160,7 @@ def spatial_map_correlations_single_cells(spatial_maps=list, align_days=False, s
     return avg_df_clean, avg_df_dif
 
 
-def correlate_stability(df, plot=False):
+def correlate_stability(df, plot=False, figname=None):
 
     df = df.reset_index()
     df['mouse_id'] = df.apply(lambda x: int(x['mouse_id'].split('_')[0]), axis=1)
@@ -176,7 +176,7 @@ def correlate_stability(df, plot=False):
             corr = stats.pearsonr(x, y)                 # Compute correlation
             slope, intercept = np.polyfit(x, y, 1)      # Linear regression
 
-            results.append(pd.DataFrame([dict(mouse_id=mouse_id, phase_pair=phase_pair,
+            results.append(pd.DataFrame([dict(mouse_id=mouse_id, phase_pair=f"{phase_pair[0]} - {phase_pair[1]}",
                                               r=corr.statistic, p=corr.pvalue, slope=slope)]))
 
             if plot:
@@ -193,18 +193,22 @@ def correlate_stability(df, plot=False):
         for row_idx, row in enumerate(g.row_names):
             for col_idx, col in enumerate(g.col_names):
                 curr_ax = g.axes[row_idx, col_idx]
-                curr_pair = (col.split('-')[0].strip(), col.split('-')[1].strip())
 
-                curr_results = results[(results.mouse_id == row) & (results.phase_pair == curr_pair)].iloc[0].to_dict()
+                curr_results = results[(results.mouse_id == row) & (results.phase_pair == col)].iloc[0].to_dict()
 
-                curr_ax.text(0.05, 0.05, f'r={curr_results["r"]:.3f}\n'
+                curr_ax.text(0.05, 0.99, f'r={curr_results["r"]:.3f}\n'
                                          f'p={curr_results["p"]:.3f}\n'
                                          f'slope={curr_results["slope"]:.3f}', transform=curr_ax.transAxes,
-                             verticalalignment='top', horizontalalignment='left')
+                             verticalalignment='top', horizontalalignment='left', fontsize=12)
 
-        plt.savefig(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\single_cell_corr\corr_test.png')
+                curr_ax.axvline(0, linestyle='--', c='grey', alpha=0.5)
+                curr_ax.axhline(0, linestyle='--', c='grey', alpha=0.5)
 
-    return
+        if figname is not None:
+            plt.savefig(os.path.join(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\single_cell_corr',
+                                     figname))
+
+    return results
 
 
 
@@ -214,4 +218,6 @@ spat_maps = dc.load_data('spat_dff_maps')
 df_clean, df_dif = spatial_map_correlations_single_cells(spatial_maps=spat_maps, align_days=False)
 df_clean, df_dif = spatial_map_correlations_single_cells(spatial_maps=spat_maps, align_days=True)
 
-correlate_correlations(df=df_clean)
+result = correlate_stability(df=df_clean, plot=True, figname="cross_session_correlation_pair.png")
+
+result.pivot(index='phase_pair', columns='mouse_id', values='slope').loc[['pre - early_post', 'pre - late_post', 'early_post - late_post']].to_clipboard()
