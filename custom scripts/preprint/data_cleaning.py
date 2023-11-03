@@ -236,7 +236,7 @@ def load_data(data_type,
             fname = 'match_matrices.pkl'
         case data_type if data_type in ['is_pc', 'is_place_cell']:
             fname = 'is_pc.pkl'
-        case data_type if data_type in ['pfs', 'place_fields', 'place_field_idx']:
+        case data_type if data_type in ['pfs', 'place_fields', 'place_field_idx', 'pf_idx']:
             fname = 'pf_idx.pkl'
 
     with open(os.path.join(folder, fname), 'rb') as file:
