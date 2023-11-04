@@ -53,15 +53,17 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
         pf_data = pf_data.loc[:, pf_data.columns != 1]
         pc_data = pc_data.loc[:, pc_data.columns != 1]
 
-        pc_trans = {'pre': np.zeros((3, 3)), 'early': np.zeros((3, 3)), 'late': np.zeros((3, 3))}
-        stable_pc_trans = {'pre': np.zeros((4, 4)), 'early': np.zeros((4, 4)), 'late': np.zeros((4, 4))}
-
         if shuffle is not None:
             iterations = shuffle
         else:
             iterations = 1
 
+        pc_trans = {'pre': np.zeros((iterations, 3, 3)), 'early': np.zeros((iterations, 3, 3)), 'late': np.zeros((iterations, 3, 3))}
+        stable_pc_trans = {'pre': np.zeros((iterations, 4, 4)), 'early': np.zeros((iterations, 4, 4)), 'late': np.zeros((iterations, 4, 4))}
+
         for i in range(iterations):
+
+            rng = np.random.default_rng()   # Initialize the random generator
 
             # Loop through days and get place cell transitions between sessions that are 3 days apart
             for day_idx, day in enumerate(rel_days):
@@ -80,13 +82,15 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
 
                     if shuffle is not None:
 
-                        mat_true = func.transition_matrix(mask1=day1_pc, mask2=day2_pc, num_classes=3, percent=False)
+                        # mat_true = func.transition_matrix(mask1=day1_pc, mask2=day2_pc, num_classes=3, percent=False)
+                        # mat_shuff = []
+                        # for i in range(shuffle):
+                        #     day2_pc_shuff = np.random.default_rng().permutation(day2_pc)
+                        #     mat_shuff.append(func.transition_matrix(mask1=day1_pc, mask2=day2_pc_shuff, num_classes=3, percent=False))
+                        # mat = np.stack(mat_shuff)
 
-                        mat_shuff = []
-                        for i in range(shuffle):
-                            day2_pc_shuff = np.random.default_rng().permutation(day2_pc)
-                            mat_shuff.append(func.transition_matrix(mask1=day1_pc, mask2=day2_pc_shuff, num_classes=3, percent=False))
-                        mat = np.stack(mat_shuff)
+                        mat = func.transition_matrix(mask1=day1_pc, mask2=rng.permutation(day2_pc),
+                                                     num_classes=3, percent=False)
 
                         # mat_shuff_mean = np.mean(mat_shuff, axis=0)
                         #
@@ -106,11 +110,11 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
                         mat = func.transition_matrix(mask1=day1_pc, mask2=day2_pc, num_classes=3, percent=False)
 
                     if rel_days[next_day_idx] <= 0:
-                        pc_trans['pre'] = pc_trans['pre'] + mat
+                        pc_trans['pre'][i] = pc_trans['pre'][i] + mat
                     elif rel_days[next_day_idx] <= 7:
-                        pc_trans['early'] = pc_trans['early'] + mat
+                        pc_trans['early'][i] = pc_trans['early'][i] + mat
                     else:
-                        pc_trans['late'] = pc_trans['late'] + mat
+                        pc_trans['late'][i] = pc_trans['late'][i] + mat
 
                     # Split PC-PC into stable (pf_idx overlap) and unstable PC transitions
                     pc_pc_idx = (day1_pc + day2_pc) == 4
@@ -140,9 +144,9 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
                     else:
                         stable_pc_trans['late'] = stable_pc_trans['late'] + mat
 
-            pc_transitions.append(pd.DataFrame([dict(mouse_id=int(mouse_id.split('_')[0]),
-                                                     pc_pre=pc_trans['pre'], pc_early=pc_trans['early'], pc_late=pc_trans['late'],
-                                                     stab_pc_pre=stable_pc_trans['pre'], stab_pc_early=stable_pc_trans['early'], stab_pc_late=stable_pc_trans['late'])]))
+        pc_transitions.append(pd.DataFrame([dict(mouse_id=int(mouse_id.split('_')[0]),
+                                                 pc_pre=pc_trans['pre'].squeeze(), pc_early=pc_trans['early'].squeeze(), pc_late=pc_trans['late'].squeeze(),
+                                                 stab_pc_pre=stable_pc_trans['pre'].squeeze(), stab_pc_early=stable_pc_trans['early'].squeeze(), stab_pc_late=stable_pc_trans['late'].squeeze())]))
 
     return pd.concat(pc_transitions, ignore_index=True)
 
@@ -254,6 +258,9 @@ def transition_matrix_to_prism(matrix_df: pd.DataFrame, phase, include_lost=Fals
 pf_idx = dc.load_data('pf_idx')
 is_pc = dc.load_data('is_pc')
 
+# pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
 pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
+pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=20)
+
 transition_matrix_to_prism(matrix_df=pc_transition, phase='late', include_lost=False, with_stable=False,
                            norm='backward').to_clipboard(index=True, header=False)
