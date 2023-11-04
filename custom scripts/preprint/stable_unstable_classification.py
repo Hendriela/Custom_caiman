@@ -67,7 +67,7 @@ def classify_stability(is_pc_list, spatial_map_list, for_prism=True, ignore_lost
         return class_df
 
 
-def stability_sankey(df: pd.DataFrame, grouping_id: int = 3, return_avg=False,
+def stability_sankey(df: pd.DataFrame, grouping_id: int = 4, return_avg=False,
                      directory: Optional[str] = r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\sankey_plot'):
     """
     Export a "stability_classes" Dataframe for Plotly`s Sankey diagram.
@@ -97,8 +97,10 @@ def stability_sankey(df: pd.DataFrame, grouping_id: int = 3, return_avg=False,
 
         pre_early_trans = func.transition_matrix(mask_pre, mask_early, percent=False)
         early_late_trans = func.transition_matrix(mask_early, mask_late, percent=False)
+        pre_late_trans = func.transition_matrix(mask_pre, mask_late, percent=False)
 
-        matrices.append(pd.DataFrame([dict(mouse_id=mouse, pre_early=pre_early_trans, early_late=early_late_trans)]))
+        matrices.append(pd.DataFrame([dict(mouse_id=mouse, pre_early=pre_early_trans, pre_late=pre_late_trans,
+                                           early_late=early_late_trans)]))
     matrices = pd.concat(matrices, ignore_index=True)
 
     # Make average transition matrices
@@ -107,6 +109,7 @@ def stability_sankey(df: pd.DataFrame, grouping_id: int = 3, return_avg=False,
         v_1 = [f"{x}_1" for x in v]
         avg_trans[k + '_early'] = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(v_1)]['pre_early'])), axis=0)
         avg_trans[k + '_late'] = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(v_1)]['early_late'])), axis=0)
+        avg_trans[k + '_pre_late'] = np.mean(np.array(list(matrices[matrices['mouse_id'].isin(v_1)]['pre_late'])), axis=0)
 
     def unravel_matrix(mat_early: np.ndarray, mat_late: np.ndarray) -> np.ndarray:
         """
@@ -171,31 +174,20 @@ def plot_transition_matrix(matrix_list, titles, normalize: True):
     ax[1, 0].set_ylabel('From Cell Class Early')
 
 
-def transition_matrix_for_prism(matrix_df: pd.DataFrame, pre_early=True, include_lost=False, norm='rows'):
+def transition_matrix_for_prism(matrix_df: pd.DataFrame, phase, include_lost=False, norm='rows'):
 
     # Forward (row-normalization)
     dicts = []
     for _, row in matrix_df.iterrows():
         if include_lost:
-            if pre_early:
-                if norm in ['rows', 'forward']:
-                    mat = row['pre_early'] / np.sum(row['pre_early'], axis=1)[..., np.newaxis] * 100
-                elif norm in ['cols', 'backward']:
-                    mat = row['pre_early'] / np.sum(row['pre_early'], axis=0) * 100
-                elif norm in ['all']:
-                    mat = row['pre_early'] / np.sum(row['pre_early']) * 100
-                else:
-                    raise NotImplementedError
-
+            if norm in ['rows', 'forward']:
+                mat = row[phase] / np.sum(row[phase], axis=1)[..., np.newaxis] * 100
+            elif norm in ['cols', 'backward']:
+                mat = row[phase] / np.sum(row[phase], axis=0) * 100
+            elif norm in ['all']:
+                mat = row[phase] / np.sum(row[phase]) * 100
             else:
-                if norm in ['rows', 'forward']:
-                    mat = row['early_late'] / np.sum(row['early_late'], axis=1)[..., np.newaxis] * 100
-                elif norm in ['cols', 'backward']:
-                    mat = row['early_late'] / np.sum(row['early_late'], axis=0) * 100
-                elif norm in ['all']:
-                    mat = row['early_late'] / np.sum(row['early_late']) * 100
-                else:
-                    raise NotImplementedError
+                raise NotImplementedError
 
             ### Include "lost"
             dicts.append(dict(trans='non-coding > non-coding', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[1, 1]))
@@ -209,24 +201,14 @@ def transition_matrix_for_prism(matrix_df: pd.DataFrame, pre_early=True, include
             dicts.append(dict(trans='stable > stable', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[3, 3]))
 
         else:
-            if pre_early:
-                if norm in ['rows', 'forward']:
-                    mat = row['pre_early'][1:, 1:] / np.sum(row['pre_early'][1:, 1:], axis=1)[..., np.newaxis] * 100
-                elif norm in ['cols', 'backward']:
-                    mat = row['pre_early'][1:, 1:] / np.sum(row['pre_early'][1:, 1:], axis=0) * 100
-                elif norm in ['all']:
-                    mat = row['pre_early'][1:, 1:] / np.sum(row['pre_early'][1:, 1:]) * 100
-                else:
-                    raise NotImplementedError
+            if norm in ['rows', 'forward']:
+                mat = row[phase][1:, 1:] / np.sum(row[phase][1:, 1:], axis=1)[..., np.newaxis] * 100
+            elif norm in ['cols', 'backward']:
+                mat = row[phase][1:, 1:] / np.sum(row[phase][1:, 1:], axis=0) * 100
+            elif norm in ['all']:
+                mat = row[phase][1:, 1:] / np.sum(row[phase][1:, 1:]) * 100
             else:
-                if norm in ['rows', 'forward']:
-                    mat = row['early_late'][1:, 1:] / np.sum(row['early_late'][1:, 1:], axis=1)[..., np.newaxis] * 100
-                elif norm in ['cols', 'backward']:
-                    mat = row['early_late'][1:, 1:] / np.sum(row['early_late'][1:, 1:], axis=0) * 100
-                elif norm in ['all']:
-                    mat = row['early_late'][1:, 1:] / np.sum(row['early_late'][1:, 1:]) * 100
-                else:
-                    raise NotImplementedError
+                raise NotImplementedError
 
             ### Exclude "lost"
             dicts.append(dict(trans='non-coding > non-coding', mouse_id=int(row['mouse_id'].split('_')[0]), perc=mat[0, 0]))
@@ -517,7 +499,9 @@ if __name__ == '__main__':
                            titles=['No Deficit', 'Stroke'], normalize=False)
 
     # Export transition matrix for prism
-    transition_matrix_for_prism(trans_matrices, pre_early=False, include_lost=False, norm='all').to_clipboard(header=False, index=False)
+    transition_matrix_for_prism(trans_matrices, phase='pre_early', include_lost=False, norm='backward').to_clipboard(header=False, index=False)
+    transition_matrix_for_prism(trans_matrices, phase='early_late', include_lost=False, norm='backward').to_clipboard(header=False, index=False)
+    transition_matrix_for_prism(trans_matrices, phase='pre_late', include_lost=False, norm='forward').to_clipboard(header=False, index=True)
 
     # Plot matched cells across days, split into groups
     match_matrix = dc.load_data('match_matrix')
