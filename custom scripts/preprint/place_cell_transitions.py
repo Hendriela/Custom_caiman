@@ -138,11 +138,11 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
 
                     mat = func.transition_matrix(mask1=day1_pc, mask2=day2_pc, num_classes=4, percent=False)
                     if rel_days[next_day_idx] <= 0:
-                        stable_pc_trans['pre'] = stable_pc_trans['pre'] + mat
+                        stable_pc_trans['pre'][i] = stable_pc_trans['pre'][i] + mat
                     elif rel_days[next_day_idx] <= 7:
-                        stable_pc_trans['early'] = stable_pc_trans['early'] + mat
+                        stable_pc_trans['early'][i] = stable_pc_trans['early'][i] + mat
                     else:
-                        stable_pc_trans['late'] = stable_pc_trans['late'] + mat
+                        stable_pc_trans['late'][i] = stable_pc_trans['late'][i] + mat
 
         pc_transitions.append(pd.DataFrame([dict(mouse_id=int(mouse_id.split('_')[0]),
                                                  pc_pre=pc_trans['pre'].squeeze(), pc_early=pc_trans['early'].squeeze(), pc_late=pc_trans['late'].squeeze(),
@@ -260,7 +260,7 @@ is_pc = dc.load_data('is_pc')
 
 # pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
 pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
-pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=20)
+pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=500)
 
 transition_matrix_to_prism(matrix_df=pc_transition, phase='late', include_lost=False, with_stable=False,
                            norm='backward').to_clipboard(index=True, header=False)
