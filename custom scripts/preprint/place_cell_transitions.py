@@ -17,7 +17,7 @@ from preprint import data_cleaning as dc
 from preprint import placecell_heatmap_transition_functions as func
 
 
-def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff=3, shuffle=None):
+def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff=3, shuffle=None, avg_mat=False):
 
     pc_transitions = []
 
@@ -145,6 +145,10 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
                         stable_pc_trans['early'][i] = stable_pc_trans['early'][i] + mat
                     else:
                         stable_pc_trans['late'][i] = stable_pc_trans['late'][i] + mat
+
+        if avg_mat:
+            pc_trans = {k: np.nanmean(v, axis=0) for k, v in pc_trans.items()}
+            stable_pc_trans = {k: np.nanmean(v, axis=0) for k, v in stable_pc_trans.items()}
 
         pc_transitions.append(pd.DataFrame([dict(mouse_id=int(mouse_id.split('_')[0]),
                                                  pc_pre=pc_trans['pre'].squeeze(), pc_early=pc_trans['early'].squeeze(), pc_late=pc_trans['late'].squeeze(),
@@ -373,10 +377,8 @@ is_pc = dc.load_data('is_pc')
 
 # pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
 pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
-pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=500)
+pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=500, avg_mat=True)
 
-# Take mouse-phase wise average of shuffled transition matrices
-[{}]
 
 transition_matrix_to_prism(matrix_df=pc_transition, phase='late', include_lost=False, with_stable=False,
                            norm='backward').to_clipboard(index=True, header=False)
