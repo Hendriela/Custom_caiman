@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy import stats
+import os
 
 from preprint import data_cleaning as dc
 from preprint import placecell_heatmap_transition_functions as func
@@ -254,6 +256,117 @@ def transition_matrix_to_prism(matrix_df: pd.DataFrame, phase, include_lost=Fals
     return df
 
 
+def plot_shuffled_data(true_df, rng_df, stable=False, norm=None, include_lost=False, statistic='percentile',
+                       directory=None):
+
+    if stable:
+        prefix = 'stab_pc_'
+    else:
+        prefix = 'pc_'
+
+    for (idx_true, row_true), (idx_rng, row_rng) in zip(true_df.iterrows(), rng_df.iterrows()):
+
+        # Prepare data
+        if include_lost:
+            true_mat = [row_true[f'{prefix}pre'], row_true[f'{prefix}early'], row_true[f'{prefix}late']]
+            rng_mat = [row_rng[f'{prefix}pre'], row_rng[f'{prefix}early'], row_rng[f'{prefix}late']]
+            x = ['lost > lost', 'lost> non-coding', 'lost > place_cell',
+                 'non-coding > lost', 'non-coding > non-coding', 'non-coding > place_cell',
+                 'place_cell > lost', 'place_cell > non-coding', 'place_cell > place_cell']
+        else:
+            true_mat = [row_true[f'{prefix}pre'][1:, 1:], row_true[f'{prefix}early'][1:, 1:], row_true[f'{prefix}late'][1:, 1:]]
+            rng_mat = [row_rng[f'{prefix}pre'][:, 1:, 1:], row_rng[f'{prefix}early'][:, 1:, 1:], row_rng[f'{prefix}late'][:, 1:, 1:]]
+            x = ['non-coding > non-coding', 'non-coding > place_cell',
+                 'place_cell > non-coding', 'place_cell > place_cell']
+
+        # Normalize data
+        if norm in ['rows', 'row', 'forward']:
+            true = [((mat / np.nansum(mat, axis=1)[..., np.newaxis]) * 100).flatten() for mat in true_mat]
+            rng = [((mat / np.nansum(mat, axis=2)[..., np.newaxis]) * 100).flatten() for mat in rng_mat]
+        elif norm in ['cols', 'col', 'backward']:
+            true = [((mat / np.nansum(mat, axis=0)) * 100).flatten() for mat in true_mat]
+            rng = [((mat / np.nansum(mat, axis=1)[:, np.newaxis, :]) * 100).flatten() for mat in rng_mat]
+        elif norm in ['all']:
+            true = [((mat / np.nansum(mat)) * 100).flatten() for mat in true_mat]
+            rng = [((mat / np.nansum(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]) * 100).flatten() for mat in rng_mat]
+        else:
+            true = [mat.flatten() for mat in true_mat]
+            rng = [mat.flatten() for mat in rng_mat]
+
+        # Create plot (one per mouse)
+        df_true = pd.DataFrame(data=true, index=['pre', 'early', 'late'], columns=x)
+        df_rng = pd.DataFrame(data={x[i]: np.hstack([lys[i::4] for lys in rng]) for i in range(len(x))},
+                              index=[*['pre']*len(rng_mat[0]), *['early']*len(rng_mat[0]), *['late']*len(rng_mat[0])])
+        df_rng.index.name = 'phase'
+        df_rng = df_rng.reset_index()
+        df_rng_melt = df_rng.melt(id_vars='phase', value_name='cell_count', var_name='transition')
+        if norm is not None:
+            df_rng_melt.dropna(inplace=True)
+            df_rng_melt.replace(np.inf, 100, inplace=True)
+            df_rng_melt.replace(-np.inf, 0, inplace=True)
+
+        # Compute one-sample t-test between true and rng distributions for each transition
+        df_p = df_true.copy()
+        df_p[:] = np.nan
+        for phase_id, phase in df_rng.groupby('phase'):
+            for transition in phase.columns:
+                if transition != 'phase':
+
+                    y_true = df_true.loc[phase_id, transition]
+                    y_rng = phase.loc[:, transition]
+
+                    # Using scipy.stats (seems to greatly overestimate significance)
+                    res = stats.ttest_1samp(a=y_rng, popmean=y_true)
+
+                    # Get percentile of true value within shuffled distribution
+                    perc = np.sum(y_true >= y_rng) / len(y_rng)
+
+                    # ChatGPT suggestion, does not really work: Manually comparing against percentiles
+                    # Determine the critical values for your chosen significance level (e.g., 0.05)
+                    differences = np.abs(y_true - y_rng)
+                    alpha = 0.05
+                    critical_value_lower = np.percentile(differences, 100 * alpha / 2)
+                    critical_value_upper = np.percentile(differences, 100 * (1 - alpha / 2))
+
+                    # Count how many differences fall below the lower critical value and above the upper critical value
+                    num_below = np.sum(differences < critical_value_lower)
+                    num_above = np.sum(differences > critical_value_upper)
+
+                    # Calculate the two-tailed p-value
+                    p_value = (num_below + num_above) / len(differences)
+
+                    if statistic == 'ttest':
+                        df_p.at[phase_id, transition] = perc
+                    elif statistic == 'chatgpt':
+                        df_p.at[phase_id, transition] = p_value
+                    elif statistic == 'percentile':
+                        df_p.at[phase_id, transition] = perc
+                    else:
+                        raise ValueError(f'Statistic value "{statistic}" not understood.')
+
+        g = sns.FacetGrid(df_rng_melt, row='phase', col='transition', margin_titles=True, sharey='col', sharex='row',
+                          height=3, aspect=2)
+        # g.map(sns.violinplot, 'transition', 'cell_count', inner='stick', cut=0)
+        g.map_dataframe(sns.stripplot, y="cell_count")
+
+        # g.set_xlabels([])
+        # Add true data, p-value and x-label to each facet
+        for (row_val, col_val), ax in g.axes_dict.items():
+            if row_val == 'late':
+                ax.set_xlabel(col_val)
+            else:
+                ax.set_xlabel("")
+            ax.axhline(df_true.loc[row_val, col_val], color='red', linestyle='--')
+            ax.text(0.05, 0.05, f'p={df_p.loc[row_val, col_val]:.3f}', transform=ax.transAxes)
+
+        g.fig.subplots_adjust(top=0.92)  # adjust the Figure to make space for title
+        g.fig.suptitle(f'M{row_true.mouse_id}')
+
+        if directory is not None:
+            plt.savefig(os.path.join(directory, f"place_cell_transitions_chance_levels_M{row_true.mouse_id}.png"))
+            plt.close()
+
+
 #%% Function calls
 pf_idx = dc.load_data('pf_idx')
 is_pc = dc.load_data('is_pc')
@@ -262,5 +375,10 @@ is_pc = dc.load_data('is_pc')
 pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
 pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=500)
 
+# Take mouse-phase wise average of shuffled transition matrices
+[{}]
+
 transition_matrix_to_prism(matrix_df=pc_transition, phase='late', include_lost=False, with_stable=False,
                            norm='backward').to_clipboard(index=True, header=False)
+
+plot_shuffled_data(true_df=pc_transition, rng_df=pc_transition_rng, directory=r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\place_cell_transitions')
