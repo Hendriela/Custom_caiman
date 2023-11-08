@@ -8,7 +8,7 @@ Created on 22/08/2023 14:08
 import os
 import numpy as np
 import pandas as pd
-from typing import Optional, Iterable, List, Tuple
+from typing import Optional, Iterable, List, Tuple, Union
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import ndimage
@@ -67,15 +67,18 @@ def classify_stability(is_pc_list, spatial_map_list, for_prism=True, ignore_lost
         return class_df
 
 
-def stability_sankey(df: pd.DataFrame, grouping_id: int = 4, return_avg=False,
+def stability_sankey(df: pd.DataFrame, shuffle: Union[bool, int] = False, return_shuffle_avg=False, grouping_id: int = 4, return_group_avg=False,
                      directory: Optional[str] = r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\sankey_plot'):
     """
     Export a "stability_classes" Dataframe for Plotly`s Sankey diagram.
 
     Args:
-        df: Stability_classes Dataframe, output from classify_stability().
-        grouping_id: Parameter ID of the mouse behavioral grouping to be used.
-        directory: Directoy where to save the CSV files for the Sankey plot.
+        df:                 Stability_classes Dataframe, output from classify_stability().
+        shuffle:            Whether to shuffle the cell identities to create shuffled chance level data.
+        return_shuffle_avg: Whether to average matrices across shuffles before returning.
+        grouping_id:        Parameter ID of the mouse behavioral grouping to be used.
+        return_group_avg:   If True, matrices of single mice are averaged across groups from grouping_id.
+        directory:          Directory where to save the CSV files for the Sankey plot. If None, dataframe is returned and not saved to file.
     """
 
     # Load behavioral grouping from Datajoint
@@ -88,19 +91,44 @@ def stability_sankey(df: pd.DataFrame, grouping_id: int = 4, return_avg=False,
               'sham': fine['Sham'], 'no_deficit': fine['No Deficit'], 'recovery': fine['Recovery'],
               'no_recovery_with121': fine['No Recovery'], 'no_recovery': [x for x in fine['No Recovery'] if x != 121]}
 
-    # Export classes for Plotly Sankey Diagram
+    # Transform cell identity arrays into transition matrices
+    if (shuffle is not None) and shuffle:
+        iterations = shuffle
+    else:
+        iterations = 1
+
     matrices = []
     for i, mouse in enumerate(df.mouse_id.unique()):
+
+        pre_early = np.zeros((iterations, 4, 4))
+        pre_late = np.zeros((iterations, 4, 4))
+        early_late = np.zeros((iterations, 4, 4))
+
         mask_pre = df[(df['mouse_id'] == mouse) & (df['period'] == 'pre')]['classes'].iloc[0]
         mask_early = df[(df['mouse_id'] == mouse) & (df['period'] == 'early')]['classes'].iloc[0]
         mask_late = df[(df['mouse_id'] == mouse) & (df['period'] == 'late')]['classes'].iloc[0]
 
-        pre_early_trans = func.transition_matrix(mask_pre, mask_early, percent=False)
-        early_late_trans = func.transition_matrix(mask_early, mask_late, percent=False)
-        pre_late_trans = func.transition_matrix(mask_pre, mask_late, percent=False)
+        for it in range(iterations):
 
-        matrices.append(pd.DataFrame([dict(mouse_id=mouse, pre_early=pre_early_trans, pre_late=pre_late_trans,
-                                           early_late=early_late_trans)]))
+            # Shuffle identity masks once per iteration
+            if (shuffle is not None) and shuffle:
+                rng = np.random.default_rng()
+                mask_early = rng.permutation(mask_early)
+                mask_late = rng.permutation(mask_late)
+
+            pre_early[it] = func.transition_matrix(mask_pre, mask_early, percent=False)
+            early_late[it] = func.transition_matrix(mask_early, mask_late, percent=False)
+            pre_late[it] = func.transition_matrix(mask_pre, mask_late, percent=False)
+
+        # Average matrices across shuffles
+        if iterations > 1 and return_shuffle_avg:
+            pre_early = np.mean(pre_early, axis=0)
+            early_late = np.mean(early_late, axis=0)
+            pre_late = np.mean(pre_late, axis=0)
+
+        matrices.append(pd.DataFrame([dict(mouse_id=mouse, pre_early=pre_early.squeeze(), pre_late=pre_late.squeeze(),
+                                           early_late=early_late.squeeze())]))
+
     matrices = pd.concat(matrices, ignore_index=True)
 
     # Make average transition matrices
@@ -142,11 +170,12 @@ def stability_sankey(df: pd.DataFrame, grouping_id: int = 4, return_avg=False,
 
     if directory is not None:
         for k in groups.keys():
+            # Export classes for Plotly Sankey Diagram
             sankey_matrix = unravel_matrix(avg_trans[k + '_early'], avg_trans[k + '_late'])
             sankey_matrix = np.round(sankey_matrix)
             np.savetxt(os.path.join(directory, f'{k}.csv'), sankey_matrix, fmt="%d", delimiter=',')
     else:
-        if return_avg:
+        if return_group_avg:
             return avg_trans
         else:
             return matrices
@@ -475,7 +504,7 @@ def plot_matched_cells_across_sessions_correlation_split(traces: list, is_pc_lis
 
     return fig
 
-
+#%%
 if __name__ == '__main__':
     spatial_maps = dc.load_data('spat_dff_maps')
     is_pc = dc.load_data('is_pc')
@@ -487,6 +516,7 @@ if __name__ == '__main__':
 
     # Quantify transitions
     trans_matrices = stability_sankey(df=stability_classes, directory=None)
+    trans_matrices_rng = stability_sankey(df=stability_classes, directory=None, shuffle=500, return_shuffle_avg=True)
 
     # Plot transition matrices
     plot_transition_matrix(matrix_list=[[trans_matrices['sham_early'], trans_matrices['sham_late']],
@@ -501,7 +531,7 @@ if __name__ == '__main__':
     # Export transition matrix for prism
     transition_matrix_for_prism(trans_matrices, phase='pre_early', include_lost=False, norm='backward').to_clipboard(header=False, index=False)
     transition_matrix_for_prism(trans_matrices, phase='early_late', include_lost=False, norm='backward').to_clipboard(header=False, index=False)
-    transition_matrix_for_prism(trans_matrices, phase='pre_late', include_lost=False, norm='forward').to_clipboard(header=False, index=True)
+    transition_matrix_for_prism(trans_matrices_rng, phase='pre_early', include_lost=False, norm='forward').to_clipboard(header=False, index=True)
 
     # Plot matched cells across days, split into groups
     match_matrix = dc.load_data('match_matrix')

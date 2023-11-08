@@ -380,7 +380,7 @@ pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
 pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=500, avg_mat=True)
 
 
-transition_matrix_to_prism(matrix_df=pc_transition, phase='late', include_lost=False, with_stable=False,
-                           norm='backward').to_clipboard(index=True, header=False)
+transition_matrix_to_prism(matrix_df=pc_transition_rng, phase='late', include_lost=False, with_stable=False,
+                           norm='forward').to_clipboard(index=True, header=False)
 
 plot_shuffled_data(true_df=pc_transition, rng_df=pc_transition_rng, directory=r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\place_cell_transitions')
