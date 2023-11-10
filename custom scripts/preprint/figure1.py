@@ -16,7 +16,7 @@ matplotlib.rcParams['font.sans-serif'] = "Arial"  # Use same font as Prism
 from matplotlib import pyplot as plt
 
 plt.rcParams['svg.fonttype'] = 'none'
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Iterable
 import os
 from datetime import timedelta
 from scipy.ndimage import gaussian_filter1d
@@ -28,8 +28,11 @@ import pandas as pd
 import seaborn as sns
 from scipy import stats
 import numpy as np
+import pickle
+from scipy import ndimage
 
-from schema import hheise_behav, common_mice, hheise_placecell, common_img, common_match, hheise_hist
+
+from schema import hheise_behav, common_mice, hheise_placecell, common_img, common_match, hheise_hist, hheise_grouping
 from util import helper
 from preprint import data_cleaning as dc
 
@@ -269,6 +272,8 @@ def place_cell_plot():
 
 def plot_example_placecell():
 
+    """
+    Code to plot trials of a single session of a single example neuron. Not included in paper at the moment.
     ##########################
     ### Chosen place cell: ###
     ##########################
@@ -373,6 +378,86 @@ def plot_example_placecell():
     ax[0].set_xticks((0, 900), (0, int(900 / 30)), fontsize=20, rotation=0)
     ax2.vlines(800, ymin=1, ymax=2, label='1 dFF')
     plt.savefig(os.path.join(folder, 'figure1', 'example_placecell_M69_20220228_370_raw_dff_lines.svg'), transparent=True)
+
+    """
+
+    ########################
+    # Heatmaps across sessions
+    ########################
+
+    # Load exported, cleaned data for Filippo
+    with open(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data\spatial_activity_maps_dff.pkl', 'rb') as file:
+        spat_act = pickle.load(file)
+    with open(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data\is_pc.pkl', 'rb') as file:
+        is_pc = pickle.load(file)
+    with open(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data\pf_com.pkl', 'rb') as file:
+        pf_com = pickle.load(file)
+
+    # Merge dataframes for easier processing
+    merge = []
+    for key, df in pf_com.items():
+        new_df = df.copy()
+        new_df['mouse_id'] = key
+        merge.append(new_df)
+    merge_df = pd.concat(merge)
+
+    mouse_ids = merge_df.pop('mouse_id').to_numpy()
+    numeric_columns = merge_df.columns
+    merge_df = merge_df.reindex(sorted(merge_df.columns), axis=1).reset_index()
+    merge_df['mouse_id'] = mouse_ids
+
+    # Define a function to replace empty lists or lists with more than 1 PF with NaN
+    def replace_empty_list_with_nan(x):
+        if isinstance(x, list) and len(x) != 1:
+            return np.nan
+        return x
+
+    # Apply the function to the entire DataFrame
+    merge_df = merge_df.applymap(replace_empty_list_with_nan)
+
+    # Remove cells that are never a PC
+    merge_df = merge_df.dropna(axis=0, how='all', subset=numeric_columns)
+
+    # Go through each neuron, find subsequent days where the cell is a PC with one PF, and compute distances between PFs
+    stable_pc_df = []
+    for row_idx, row in merge_df.iterrows():
+        local_ind = row.pop('index')
+        mouse_id = row.pop('mouse_id')
+        row_filt = row.dropna()
+        if len(row_filt) > 1:
+            pairs = list(combinations(row_filt.index, 2))
+            for idx1, idx2 in pairs:
+                stable_pc_df.append(pd.DataFrame([dict(mouse_id=mouse_id, local_idx=local_ind, day1=idx1, day2=idx2,
+                                                       dist=np.abs(row_filt[idx1][0] - row_filt[idx2][0]))]))
+    stable_pc_df = pd.concat(stable_pc_df, ignore_index=True)
+
+    # Sort place cells based on distance
+    stable_pc_sort = stable_pc_df.sort_values('dist')
+
+    # Plot selected cell pairs
+    def plot_cell_pairs(spatial_activity, pc_row):
+
+        day1 = spatial_activity[pc_row.mouse_id].loc[pc_row.local_idx, pc_row.day1]
+        day2 = spatial_activity[pc_row.mouse_id].loc[pc_row.local_idx, pc_row.day2]
+
+        fig, ax = plt.subplots(nrows=2, ncols=1, sharex='all', sharey='all', layout='constrained')
+        ax[0].plot(day1)
+        ax[1].plot(day2)
+
+        return day1, day2
+
+    d1, d2 = plot_cell_pairs(spatial_activity=spat_act, pc_row=stable_pc_sort.loc[589])
+    pd.Series(d2).to_clipboard(index=False, header=False)
+
+    """
+    Good indices:
+    stable:
+    2827, 1081
+    remapping:
+    1511, 170, 589
+    """
+
+
 
 
 def plot_performance_neural_correlations():
@@ -512,4 +597,258 @@ def plot_performance_neural_correlations():
                 index=False,
                 columns=['mouse_id', 'performance', 'pc_si', 'mean_stab'])
 
+
+def plot_matched_cells_across_sessions_correlation_split(plot_sessions: List[int], groups: Tuple[str, str], compute_new: bool=False,
+                                                         traces: Optional[list]=None, is_pc_list: Optional[list]=None,
+                                                         match_matrices: Optional[list]=None, sort_session: int = 0,
+                                                         quantiles: Tuple[float, float] = (0.25, 0.75),
+                                                         rel_noncoding_size: int = 2, cross_validation: bool=False,
+                                                         normalize: Optional[str] = None, titles: Optional[Iterable] = None,
+                                                         smooth: Optional[int] = None, cmap='turbo') -> plt.Figure:
+    """
+    Plot traces of matched neurons across sessions. Neurons are sorted by location of max activity in a given session.
+
+    Args:
+        plot_sessions: List of days after injection (rel_days) to plot
+        groups: List with 2 elements, names of behavioral groups to plot in the upper and lower row
+        compute_new: Bool flag whether data should be computed new or loaded from file.
+        traces: Traces to plot, loaded from data cleaner pickle.
+        is_pc_list: Which cells are place cells, loaded from data cleaner pickle.
+        match_matrices: Matched Index Dataframe, loaded from data cleaner pickle.
+        sort_session: Day after injection where sorting should take place.
+        quantiles: Tuple of 2 values giving lower and upper quantile of correlation for stable/unstable split
+        rel_noncoding_size: Number of noncoding cells to plot, relative to number of place cells plotted
+        cross_validation:
+        normalize: What kind of activity normalization should be performed. Either None, 'neuron', or 'neuron_session'.
+        titles: List of titles for each subplot/session.
+        smooth: Bool Flag whether the activity should be smoothed, and with which sigma.
+        cmap: Color map used to plot the traces.
+
+    Returns:
+        Matplotlib figure
+    """
+
+    # Build arrays
+    sort_session_idx = np.where(np.array(plot_sessions) == sort_session)[0][0]
+
+    if compute_new:
+        dfs = []
+        for mouse_dict, is_pc_dict, match_dict in zip(traces, is_pc_list, match_matrices):
+
+            # Extract data from dicts, align session days
+            mouse_id = list(mouse_dict.keys())[0]
+            if mouse_id == '121_1':
+                continue
+            rel_days = np.array(mouse_dict[mouse_id][1])
+            trace = mouse_dict[mouse_id][0]
+            is_pc_m = is_pc_dict[mouse_id][0]
+
+            if 3 not in rel_days:
+                rel_days[(rel_days == 2) | (rel_days == 4)] = 3
+            rel_days[(rel_days == 5) | (rel_days == 6) | (rel_days == 7)] = 6
+            rel_days[(rel_days == 8) | (rel_days == 9) | (rel_days == 10)] = 9
+            rel_days[(rel_days == 11) | (rel_days == 12) | (rel_days == 13)] = 12
+            rel_days[(rel_days == 14) | (rel_days == 15) | (rel_days == 16)] = 15
+            rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
+            rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
+            rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
+            if 28 not in rel_days:
+                rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
+
+            rel_sess = np.arange(len(rel_days)) - np.argmax(np.where(rel_days <= 0, rel_days, -np.inf))
+            rel_days[(np.min(rel_sess) <= rel_sess) & (rel_sess < 1)] = np.arange(np.min(rel_sess), 1)
+            first_post_idx = np.where(np.array(plot_sessions) > 0)[0][0]
+
+            # Make mask to only use cells that appear in all sessions to be plotted
+            trace_plot = trace[:, np.isin(rel_days, plot_sessions)]
+            is_pc_plot = is_pc_m[:, np.isin(rel_days, plot_sessions)]
+            cell_mask = np.sum(np.isnan(trace_plot[:, :, 0]), axis=1) == 0
+            trace_plot = trace_plot[cell_mask]
+            is_pc_plot = is_pc_plot[cell_mask]
+            sort_sess_mask_idx = match_dict[mouse_id].iloc[cell_mask, np.isin(rel_days, plot_sessions)].iloc[:, sort_session_idx]
+
+            if trace_plot.shape[1] != len(plot_sessions):
+                continue
+
+            # Fetch spatial activity maps from odd and even trials of sorting session separately
+            sort_sess_key = common_match.MatchedIndex().string2key(sort_sess_mask_idx.name)
+
+            restriction = [dict(mouse_id=int(mouse_id.split("_")[0]), **sort_sess_key, mask_id=i, place_cell_id=2) for i in sort_sess_mask_idx]
+            db_mask_id, spat_sorting = (hheise_placecell.BinnedActivity.ROI & restriction).fetch('mask_id', 'bin_activity')
+
+            # Create a mapping from values to their indices in the unsorted array
+            value_to_index = {value: index for index, value in enumerate(sort_sess_mask_idx)}
+
+            # Use the mapping to find indices in the unsorted array for elements in the sorted array
+            indices_in_unsorted_array = np.array([value_to_index[value] for value in db_mask_id])
+
+            # Use the index mapping to reorder spat_sorting to match the order in trace_plot
+            spat_sorting_sorted = np.stack(spat_sorting[indices_in_unsorted_array])
+
+            # Compute spatial activity map from odd and even trials
+            spat_sorting_even = np.mean(spat_sorting_sorted[:, :, ::2], axis=2)
+            spat_sorting_odd = np.mean(spat_sorting_sorted[:, :, 1::2], axis=2)
+
+            # Substitute the full spatial map in the sorting session with only odd trial for cross-validation
+            # trace_plot[:, sort_session_idx, :] = spat_sorting_odd
+
+            # For each neuron, correlate all session pairs
+            for neur_idx, cell in enumerate(trace_plot):
+                if smooth is not None:
+                    cor_mat = np.corrcoef(ndimage.gaussian_filter1d(cell, sigma=smooth, axis=1))
+                else:
+                    cor_mat = np.corrcoef(cell)
+                cor_mat[np.triu_indices(cor_mat.shape[0], 0)] = np.nan
+                dfs.append(pd.DataFrame([dict(mouse_id=int(mouse_id.split("_")[0]), session_str=sort_sess_mask_idx.name,
+                                              mask_id=int(sort_sess_mask_idx.iloc[neur_idx]),
+                                              is_pc=int(is_pc_plot[neur_idx, sort_session_idx]),
+                                              pre_cor=np.tanh(np.nanmean(np.arctanh(cor_mat[:first_post_idx]))),
+                                              post_cor=np.tanh(np.nanmean(np.arctanh(cor_mat[first_post_idx:]))),
+                                              all_cor=np.tanh(np.nanmean(np.arctanh(cor_mat))), traces=cell,
+                                              spat_sorting_even=spat_sorting_even[neur_idx],
+                                              spat_sorting_odd=spat_sorting_odd[neur_idx])]))
+        df = pd.concat(dfs, ignore_index=True)
+
+        df.to_pickle(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\example_plot_data_smooth.pickle')
+
+    elif smooth is not None:
+        df = pd.read_pickle(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\example_plot_data_smooth.pickle')
+    elif cross_validation:
+        df = pd.read_pickle(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\example_plot_data_crossval.pickle')
+    else:
+        df = pd.read_pickle(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\example_plot_data.pickle')
+
+    # Enter groups
+    coarse = (hheise_grouping.BehaviorGrouping & 'grouping_id = 4' & 'cluster = "coarse"').get_groups()
+    fine = (hheise_grouping.BehaviorGrouping & 'grouping_id = 4' & 'cluster = "fine"').get_groups()
+    df = df.merge(coarse, how='left', on='mouse_id').rename(columns={'group': 'coarse'})
+    df = df.merge(fine, how='left', on='mouse_id').rename(columns={'group': 'fine'})
+
+    zones = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(80)
+
+    # Create plot
+    fig, ax = plt.subplots(nrows=len(groups), ncols=len(plot_sessions), sharex='all', sharey='row', figsize=(20, 13),
+                           layout='constrained')
+
+    # For each group, sort and split cells, and plot traces
+    for j, group in enumerate(groups):
+        if group in coarse.group.values:
+            df_filt = df[df.coarse == group]
+        elif group in fine.group.values:
+            df_filt = df[df.fine == group]
+        else:
+            raise IndexError(f'Group {group} not found.')
+
+        # if cross_validation:
+        #     all_traces = list(df_filt.loc[:, "traces"].copy())
+        #     all_even = list(df_filt.loc[:, "spat_sorting_even"].copy())
+        #     all_new_traces = []
+        #     for all_trace, all_eve in zip(all_traces, all_even):
+        #         all_trace = all_trace.copy()
+        #         all_trace[sort_session_idx] = all_eve
+        #         all_new_traces.append(all_trace)
+        #     df_filt['traces'] = all_new_traces
+
+        # Get 25th and 75th quantile of place cell correlation
+        lower_quant = np.quantile(df_filt[df_filt.is_pc == 1]['all_cor'], quantiles[0])
+        upper_quant = np.quantile(df_filt[df_filt.is_pc == 1]['all_cor'], quantiles[1])
+
+        stable_df = df_filt[(df_filt.is_pc == 1) & (df_filt.all_cor > upper_quant)]
+        unstable_df = df_filt[(df_filt.is_pc == 1) & (df_filt.all_cor < lower_quant)]
+
+        # Randomly select subset of noncoding cells
+        idx = np.random.choice(np.arange((df_filt.is_pc == 0).sum()), len(stable_df['traces'])*2*rel_noncoding_size, replace=False)
+        noncoding_traces = np.stack(df_filt[(df_filt.is_pc == 0)]['traces'].values)[idx]
+
+        # Sort traces based on sort_session
+        def sort_traces(key_trace, sort_trace):
+            sort_key = [(i, np.argmax(trace)) for i, trace in enumerate(key_trace)]
+            sort_key = [y[0] for y in sorted(sort_key, key=lambda x: x[1])]
+            return sort_trace[sort_key]
+
+        # Sort via cross-validation
+        if cross_validation:
+            stable_traces_sort = sort_traces(np.stack(stable_df['spat_sorting_even'].values),
+                                             np.stack(stable_df['traces'].values))
+            unstable_traces_sort = sort_traces(np.stack(unstable_df['spat_sorting_even'].values),
+                                               np.stack(unstable_df['traces'].values))
+            noncoding_traces_sort = sort_traces(np.stack(df_filt[(df_filt.is_pc == 0)]['spat_sorting_even'].values)[idx],
+                                                noncoding_traces)
+        else:
+            # Sort without cross-validation
+            stable_traces_sort = sort_traces(np.stack(stable_df['traces'].values)[:, sort_session_idx],
+                                             np.stack(stable_df['traces'].values))
+            unstable_traces_sort = sort_traces(np.stack(unstable_df['traces'].values)[:, sort_session_idx],
+                                               np.stack(unstable_df['traces'].values))
+            noncoding_traces_sort = sort_traces(np.stack(df_filt[(df_filt.is_pc == 0)]['traces'].values)[idx][:, sort_session_idx],
+                                                noncoding_traces)
+
+        # Combine arrays with an empty row
+        data_arrays = [stable_traces_sort, unstable_traces_sort, noncoding_traces_sort]
+        empty_row = np.zeros((1, *data_arrays[0].shape[1:])) * np.nan
+        stacked_data = [np.vstack([x, empty_row]) for x in data_arrays[:-1]]
+        stacked_data.append(data_arrays[-1])
+        stacked_data = np.vstack(stacked_data)
+
+        # Normalize whole plot
+        if normalize == 'all':
+            vmin = np.nanmin(stacked_data)
+            vmax = np.nanmax(stacked_data)
+
+        # Normalize activity neuron-wise for each session separately
+        elif normalize == 'neuron':
+            traces_norm = []
+            for i in range(stacked_data.shape[1]):
+                neur_sess_max = np.nanmax(stacked_data[:, i, :], axis=1)
+                neur_sess_min = np.nanmin(stacked_data[:, i, :], axis=1)
+                traces_norm.append((stacked_data[:, i, :] - neur_sess_min[:, None]) /
+                                   (neur_sess_max[:, None] - neur_sess_min[:, None]))
+            stacked_data = np.stack(traces_norm, axis=1)
+            vmin = 0
+            vmax = 1
+
+        # Normalize activity neuron-wise across sessions
+        elif normalize == 'neuron_session':
+            sess_squeeze = np.reshape(stacked_data, (stacked_data.shape[0], stacked_data.shape[1] * stacked_data.shape[2]))
+            neur_max = np.nanmax(sess_squeeze, axis=1)
+            neur_min = np.nanmin(sess_squeeze, axis=1)
+            stacked_data = (stacked_data - neur_min[:, None, None]) / (neur_max[:, None, None] - neur_min[:, None, None])
+            vmin = 0
+            vmax = 1
+
+        else:
+            vmin = None
+            vmax = None
+
+        # Plot traces for each day as heatmaps
+        for i in range(stacked_data.shape[1]):
+
+            # sns.heatmap(stacked_data[:, i], ax=ax[j, i], cbar=False, cmap='turbo')
+            sns.heatmap(ndimage.gaussian_filter1d(stacked_data[:, i], axis=1, sigma=1), ax=ax[j, i], cbar=False,
+                        vmin=vmin, vmax=vmax, cmap=cmap)
+
+            for z in zones:
+                ax[j, i].axvline(z[0], linestyle='--', c='green')
+                ax[j, i].axvline(z[1], linestyle='--', c='green')
+
+            if i != 0:
+                ax[j, i].set_yticks([])
+            else:
+                ax[j, i].set_ylabel(group, fontsize=15, labelpad=-3)
+
+            ax[j, i].set_xticks([])
+            if j == len(groups) - 1:
+                ax[j, i].set_xlabel('Track position [m]', fontsize=15)
+                # ax.set_title(f'{traces_sort.shape[1]-idx}d prestroke')
+
+            if (j == 0) and (titles is not None):
+                ax[j, i].set_title(titles[i])
+
+    return fig
+
+
+# Plot matched cells across days, split into groups
+plot_matched_cells_across_sessions_correlation_split(plot_sessions=[-2, -1, 0, 3, 6, 12, 15], groups=("Stroke", "Control"),
+                                                     normalize=None, titles=[-2, -1, 0, 3, 6, 12, 15])
+plt.savefig(os.path.join(folder, 'figure1\\stable_unstable_crosssession_smooth_nocrossval.svg'))
 
