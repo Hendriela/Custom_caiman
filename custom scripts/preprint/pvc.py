@@ -269,12 +269,13 @@ def figure_plots(matrices, vmin=0, vmax=1, cmap='turbo', draw_zone_borders=True,
     for row, (mouse_id, mouse_mats) in enumerate(matrices.items()):
         for col, (phase, mat) in enumerate(mouse_mats.items()):
 
-            # Plot PVC matrix
-            plt.figure(layout='constrained', figsize=(12, 12), dpi=300)
-            ax = sns.heatmap(mat, vmin=vmin, vmax=vmax, square=True, cbar=False, cmap=cmap)
-            ax.set(xticks=[], yticks=[])
-
             if directory is not None:
+
+                # Plot PVC matrix
+                plt.figure(layout='constrained', figsize=(12, 12), dpi=300)
+                ax = sns.heatmap(mat, vmin=vmin, vmax=vmax, square=True, cbar=False, cmap=cmap)
+                ax.set(xticks=[], yticks=[])
+
                 plt.savefig(os.path.join(directory, f"{mouse_id}_{phase}.png"))
 
                 if draw_zone_borders:
@@ -339,7 +340,7 @@ nodef_mouse = 114
 rec_mouse = 90
 norec_mouse = 41
 
-matrices = {91: draw_single_mouse_heatmaps(spatial_maps[9], v_min=vmin, v_max=vmax, verbose=False,
+plot_matrices = {91: draw_single_mouse_heatmaps(spatial_maps[9], v_min=vmin, v_max=vmax, verbose=False,
                                            plot_last_cbar=False, only_return_matrix=True),
             114: draw_single_mouse_heatmaps(spatial_maps[16], v_min=vmin, v_max=vmax, verbose=False,
                                            plot_last_cbar=False, only_return_matrix=True),
@@ -348,7 +349,12 @@ matrices = {91: draw_single_mouse_heatmaps(spatial_maps[9], v_min=vmin, v_max=vm
             41: draw_single_mouse_heatmaps(spatial_maps[1], v_min=vmin, v_max=vmax, verbose=False,
                                            plot_last_cbar=False, only_return_matrix=True)
             }
-curves = figure_plots(matrices, directory=r"W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\PVC\avg_matrices\figure3")
+curves = figure_plots(plot_matrices, directory=r"W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\PVC\avg_matrices\figure3")
+
+all_matrices = {int(list(dic.keys())[0].split('_')[0]): draw_single_mouse_heatmaps(dic, only_return_matrix=True) for dic in spatial_maps}
+curves = figure_plots(all_matrices)
+
+curves[curves.phase == 'late'].pivot(index='pos', columns='mouse_id', values='pvc').to_clipboard(index=False, header=False)
 
 #%% Calculate and plot PVC curves
 
