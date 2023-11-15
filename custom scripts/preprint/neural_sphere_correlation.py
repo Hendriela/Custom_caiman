@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from scipy import stats
 
 from util import helper
-from schema import hheise_placecell, hheise_hist, hheise_pvc, hheise_decoder, common_mice
+from schema import hheise_placecell, hheise_behav, hheise_hist, hheise_pvc, hheise_decoder, common_mice
 
 mice = [33, 41,  # Batch 3
         63, 69,  # Batch 5
@@ -23,7 +23,7 @@ exercise = [83, 85, 89, 90, 91] # Mice that received physical exercise training
 single_days = [-4, -3, -2, -1, 0, 3, 6, 9, 12, 15, 18]  # days after 18 have few mice with many
 
 
-def merge_dfs(df, sphere_df, inj_df):
+def merge_dfs(df, sphere_df, inj_df, vr_df=None):
 
     df_merge = pd.merge(df, sphere_df, on='mouse_id')
     df_merge = pd.merge(df_merge, inj_df, on='mouse_id')
@@ -63,13 +63,21 @@ def merge_dfs(df, sphere_df, inj_df):
             return 'late'
     df_merge['phase'] = df_merge.apply(get_phase, axis=1)
 
+    if vr_df is not None:
+        df_merge = pd.merge(df_merge, vr_df, on=['mouse_id', 'day'])
+
     return df_merge
 
 
-def correlate_metric(df, metric_name, time_name='rel_day_align', plotting=False, ax=None, exclude_mice=None):
+def correlate_metric(df, y_metric, x_metric='spheres', time_name='rel_day_align', plotting=False, ax=None,
+                     exclude_mice=None, include_mice=None, neg_corr=False):
 
-    if exclude_mice is not None:
+    if exclude_mice is not None and include_mice is not None:
+        raise ValueError('Exclude_mice and include_mice cannot be defined simultaneously.')
+    elif exclude_mice is not None:
         df_filt = df[~df.mouse_id.isin(exclude_mice)]
+    elif include_mice is not None:
+        df_filt = df[df.mouse_id.isin(include_mice)]
     else:
         df_filt = df
 
@@ -82,19 +90,24 @@ def correlate_metric(df, metric_name, time_name='rel_day_align', plotting=False,
         # if day_df.mouse_id.nunique() == n_mice:
 
             if time_name == 'phase':    # To compare phases, average phase metrics mouse-wise
-                y = day_df.groupby('mouse_id')[metric_name].agg('mean')
-                x = day_df.groupby('mouse_id')['spheres'].agg('mean')
+                y = day_df.groupby('mouse_id')[y_metric].agg('mean')
+                x = day_df.groupby('mouse_id')[x_metric].agg('mean')
             else:
-                y = day_df[metric_name]
-                x = day_df.spheres
+                y = day_df[y_metric]
+                x = day_df[x_metric]
 
-            if metric_name in ['mae_quad', 'mae']:      # Invert metrics that are worse if large
+            if y_metric in ['mae_quad', 'mae']:      # Invert metrics that are worse if large
                 y = -y
 
             result = stats.pearsonr(x, y)
-            corr.append(pd.DataFrame([dict(day=day, corr=result.statistic, corr_p=result.pvalue, metric=metric_name)]))
+
+            corr.append(pd.DataFrame([dict(day=day, corr=result.statistic, corr_p=result.pvalue, y_metric=y_metric,
+                                           x_metric=x_metric)]))
 
     corr = pd.concat(corr, ignore_index=True)
+
+    if neg_corr:
+        corr['corr'] = -corr['corr']
 
     if plotting:
         if ax is None:
@@ -104,34 +117,63 @@ def correlate_metric(df, metric_name, time_name='rel_day_align', plotting=False,
     return corr
 
 
-#%% Load sphere data
-spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="spheres"'& f'mouse_id in {helper.in_query(mice)}').proj(spheres='count_extrap').fetch('mouse_id', 'spheres', as_dict=True))
-injection = pd.DataFrame((common_mice.Surgery & 'username="hheise"' & f'mouse_id in {helper.in_query(mice)}' & 'surgery_type="Microsphere injection"').fetch('mouse_id', 'surgery_date',as_dict=True))
+#%% Load basic data
+spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="spheres"' &
+                        f'mouse_id in {helper.in_query(mice)}').proj(spheres='count_extrap').fetch('mouse_id', 'spheres', as_dict=True))
+injection = pd.DataFrame((common_mice.Surgery & 'username="hheise"' & f'mouse_id in {helper.in_query(mice)}' &
+                          'surgery_type="Microsphere injection"').fetch('mouse_id', 'surgery_date',as_dict=True))
 injection.surgery_date = injection.surgery_date.dt.date
+vr_performance = pd.DataFrame((hheise_behav.VRPerformance & f'mouse_id in {helper.in_query(mice)}' &
+                               'perf_param_id=0').fetch('mouse_id', 'day', 'si_binned_run', as_dict=True))
 
 #%% Decoder
 metrics = ['accuracy', 'mae_quad', 'sensitivity_rz']
 decoder = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession() &
                         'bayesian_id=1').fetch('mouse_id', 'day', *metrics, as_dict=True))
-decoder = merge_dfs(df=decoder, sphere_df=spheres, inj_df=injection)
+decoder = merge_dfs(df=decoder, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
 # Plot scatter plots
 g = sns.FacetGrid(decoder[decoder.rel_day_align.isin(single_days)], col='rel_day_align', col_wrap=4)
 g.map_dataframe(sns.scatterplot, x='spheres', y='accuracy').set(xscale='log')
 
 ### DAY-WISE ###
-decoder_corr = pd.concat([correlate_metric(decoder, met) for met in metrics], ignore_index=True)
+decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met) for met in metrics], ignore_index=True)
 decoder_corr.pivot(index='day', columns='metric', values='corr_p').to_clipboard()
 
 # Exclude exercise mice
 decoder_corr_ex = pd.concat([correlate_metric(decoder, met, exclude_mice=exercise) for met in metrics], ignore_index=True)
 decoder_corr_ex.pivot(index='day', columns='metric', values='corr_p').to_clipboard(index=False, header=False)
 
-### PHASE-WISE ###
+### CORRELATE AGAINST BEHAVIOR ###
+decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met, x_metric='si_binned_run', neg_corr=True) for met in metrics], ignore_index=True)
+decoder_corr.pivot(index='day', columns='y_metric', values='corr').to_clipboard()
+
+
+### Average metric within each phase (not too useful) ###
 decoder_corr = pd.concat([correlate_metric(decoder, met, time_name='phase') for met in metrics], ignore_index=True)
-decoder_corr.pivot(index='day', columns='metric', values='corr_p').loc[['pre', 'early', 'late']].to_clipboard()
+decoder_corr.pivot(index='day', columns='y_metric', values='corr').to_clipboard()
 
 # Exclude exercise mice
 decoder_corr_ex = pd.concat([correlate_metric(decoder, met, time_name='phase', exclude_mice=exercise) for met in metrics], ignore_index=True)
 decoder_corr_ex.pivot(index='day', columns='metric', values='corr_p').to_clipboard(index=False, header=False)
 
+
+#%% VR Performance
+
+performance = merge_dfs(df=vr_performance, sphere_df=spheres, inj_df=injection)
+
+g = sns.FacetGrid(performance[performance.rel_day_align.isin(single_days)], col='rel_day_align', col_wrap=4)
+g.map_dataframe(sns.scatterplot, x='spheres', y='si_binned_run').set(xscale='log')
+
+performance_corr = correlate_metric(performance, 'si_binned_run')
+performance_corr.pivot(index='day', columns='metric', values='corr').to_clipboard()
+
+#%% PVC
+metrics = ['max_pvc', 'min_slope', 'pvc_rel_dif']
+pvc = pd.DataFrame((hheise_pvc.PvcCrossSessionEval() * hheise_pvc.PvcCrossSession & 'locations="all"' &
+                    'circular=0').fetch('mouse_id', 'phase', 'day', 'max_pvc', 'min_slope', 'pvc_rel_dif', as_dict=True))
+pvc.rename(columns={'phase': 'phase_orig'}, inplace=True)
+pvc = merge_dfs(df=pvc, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
+
+pvc_corr = pd.concat([correlate_metric(pvc, met, time_name='phase_orig') for met in metrics], ignore_index=True)
+pvc_corr.pivot(index='day', columns='y_metric', values='corr_p').loc[['pre', 'pre_post', 'early', 'late']].to_clipboard()
