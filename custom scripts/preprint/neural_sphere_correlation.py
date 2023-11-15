@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from scipy import stats
 
 from util import helper
-from schema import hheise_placecell, hheise_behav, hheise_hist, hheise_pvc, hheise_decoder, common_mice
+from schema import hheise_placecell, hheise_behav, hheise_hist, hheise_pvc, hheise_decoder, common_mice, common_img
 
 mice = [33, 41,  # Batch 3
         63, 69,  # Batch 5
@@ -166,7 +166,7 @@ g = sns.FacetGrid(performance[performance.rel_day_align.isin(single_days)], col=
 g.map_dataframe(sns.scatterplot, x='spheres', y='si_binned_run').set(xscale='log')
 
 performance_corr = correlate_metric(performance, 'si_binned_run')
-performance_corr.pivot(index='day', columns='metric', values='corr').to_clipboard()
+performance_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard()
 
 #%% PVC
 metrics = ['max_pvc', 'min_slope', 'pvc_rel_dif']
@@ -177,3 +177,29 @@ pvc = merge_dfs(df=pvc, sphere_df=spheres, inj_df=injection, vr_df=vr_performanc
 
 pvc_corr = pd.concat([correlate_metric(pvc, met, time_name='phase_orig') for met in metrics], ignore_index=True)
 pvc_corr.pivot(index='day', columns='y_metric', values='corr_p').loc[['pre', 'pre_post', 'early', 'late']].to_clipboard()
+
+#%% Place cell ratio
+pcr = pd.DataFrame((hheise_placecell.PlaceCell() & 'corridor_type=0' &
+                    'place_cell_id=2').fetch('mouse_id', 'day', 'place_cell_ratio', as_dict=True))
+pcr = merge_dfs(df=pcr, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
+
+pcr_corr = correlate_metric(pcr, y_metric='place_cell_ratio')
+pcr_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard()
+
+#%% Within-session stability
+stab = pd.DataFrame((hheise_placecell.SpatialInformation.ROI() & 'corridor_type=0' &
+                    'place_cell_id=2').fetch('mouse_id', 'day', 'stability', as_dict=True))
+stab = stab.groupby(['mouse_id', 'day']).agg('mean').reset_index()
+stab = merge_dfs(df=stab, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
+
+stab_corr = correlate_metric(stab, y_metric='stability')
+stab_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False, header=True)
+
+#%% Firing rate stability
+fr = pd.DataFrame((common_img.ActivityStatistics.ROI * common_img.Segmentation.ROI &
+                   'accepted=1').fetch('mouse_id', 'day', 'rate_spikes', as_dict=True))
+fr = fr.groupby(['mouse_id', 'day']).agg('mean').reset_index()
+fr = merge_dfs(df=fr, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
+
+fr_corr = correlate_metric(fr, y_metric='rate_spikes')
+fr_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False, header=True)
