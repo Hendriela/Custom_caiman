@@ -104,7 +104,7 @@ def correlate_metric(df, y_metric, x_metric='spheres', time_name='rel_day_align'
 
             # Transform confidence interval to standard deviation following https://handbook-5-1.cochrane.org/chapter_7/7_7_3_2_obtaining_standard_deviations_from_standard_errors_and.htm
             # Get accurate t-value from scipy distribution (necessary for small samples with n < 60)
-            sd = np.sqrt(len(x)) * (ci.high - ci.low) / stats.t.ppf(1-ci_level, len(x)-1)
+            sd = np.sqrt(len(x)) * np.abs((ci.high - ci.low)) / stats.t.ppf(1-ci_level, len(x)-1)
 
             corr.append(pd.DataFrame([dict(day=day, corr=result.statistic, corr_p=result.pvalue, y_metric=y_metric,
                                            ci_low=ci.low, ci_high=ci.high, sd=sd, x_metric=x_metric)]))
