@@ -106,7 +106,7 @@ def correlate_metric(df, y_metric, x_metric='spheres', time_name='rel_day_align'
             # Get accurate t-value from scipy distribution (necessary for small samples with n < 60).
             # Might be misleading, since confidence interval was computed on Fisher-z-transformed values and thus are
             # not symmetric around the correlation coefficient.
-            sd = np.sqrt(len(x)) * np.abs((ci.high - ci.low)) / stats.t.ppf(1-ci_level, len(x)-1)
+            sd = np.sqrt(len(x)) * np.abs((ci.high - ci.low)) / (2*(stats.t.ppf(1-(1-ci_level)/2, len(x)-1)))
 
             corr.append(pd.DataFrame([dict(day=day, corr=result.statistic, corr_p=result.pvalue, y_metric=y_metric,
                                            ci_low=ci.low, ci_high=ci.high, sd=sd, x_metric=x_metric)]))
@@ -183,7 +183,7 @@ g.map_dataframe(sns.scatterplot, x='spheres', y='accuracy').set(xscale='log')
 
 ### DAY-WISE ###
 decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met) for met in metrics], ignore_index=True)
-decoder_corr.pivot(index='day', columns='metric', values='corr_p').to_clipboard()
+decoder_corr[decoder_corr.y_metric == 'mae_quad'].pivot(index='day', columns='y_metric', values='corr_p').to_clipboard()
 
 ### CORRELATE AGAINST BEHAVIOR ###
 decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met, x_metric='si_binned_run', neg_corr=True) for met in metrics], ignore_index=True)
