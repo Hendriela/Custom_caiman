@@ -117,6 +117,44 @@ def correlate_metric(df, y_metric, x_metric='spheres', time_name='rel_day_align'
     return corr
 
 
+def iterative_exclusion(df: pd.DataFrame, y_metric, n_exclude, x_metric='spheres', time_name='rel_day_align', n_shuffle=None):
+
+    mice_sorted = df[['mouse_id', 'spheres']].drop_duplicates().sort_values('spheres', ascending=False)
+
+    true_df = []
+    rng_df = []
+
+    for n_ex in range(1, n_exclude+1):
+
+        # Perform correlation with the n_ex most sphere-loaded mice removed
+        corr_real = correlate_metric(df=df, y_metric=y_metric, x_metric=x_metric, time_name=time_name,
+                                     exclude_mice=mice_sorted[:n_ex]['mouse_id'].to_numpy())
+        corr_real['mice_excluded'] = [mice_sorted[:n_ex]['mouse_id'].to_numpy()] * len(corr_real)
+        corr_real['sphere_limit'] = mice_sorted.iloc[n_ex-1]['spheres']
+        corr_real['n_excluded'] = n_ex
+        true_df.append(corr_real)
+
+        # Control population with n_ex random mice removed
+        if n_shuffle is None:
+            n_shuffle = len(mice_sorted)
+        for i in range(n_shuffle):
+            ex_mice = np.random.choice(mice_sorted['mouse_id'], n_ex, replace=False)
+            corr_shuff = correlate_metric(df=df, y_metric=y_metric, x_metric=x_metric, time_name=time_name,
+                                          exclude_mice=ex_mice)
+            corr_shuff['mice_excluded'] = [ex_mice] * len(corr_real)
+            corr_shuff['n_excluded'] = n_ex
+            corr_shuff['n_shuffle'] = i
+            rng_df.append(corr_shuff)
+
+    true_df = pd.concat(true_df, ignore_index=True)
+    rng_df = pd.concat(rng_df, ignore_index=True)
+
+    true_df['label'] = true_df.apply(lambda x: f"{int(x['sphere_limit'])} ({x['n_excluded']})", axis=1)
+    rng_df['label'] = true_df.apply(lambda x: f"{int(x['sphere_limit'])} ({x['n_excluded']})", axis=1)
+
+    return true_df, rng_df
+
+
 #%% Load basic data
 spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="spheres"' &
                         f'mouse_id in {helper.in_query(mice)}').proj(spheres='count_extrap').fetch('mouse_id', 'spheres', as_dict=True))
@@ -140,14 +178,38 @@ g.map_dataframe(sns.scatterplot, x='spheres', y='accuracy').set(xscale='log')
 decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met) for met in metrics], ignore_index=True)
 decoder_corr.pivot(index='day', columns='metric', values='corr_p').to_clipboard()
 
-# Exclude exercise mice
-decoder_corr_ex = pd.concat([correlate_metric(decoder, met, exclude_mice=exercise) for met in metrics], ignore_index=True)
-decoder_corr_ex.pivot(index='day', columns='metric', values='corr_p').to_clipboard(index=False, header=False)
-
 ### CORRELATE AGAINST BEHAVIOR ###
 decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met, x_metric='si_binned_run', neg_corr=True) for met in metrics], ignore_index=True)
 decoder_corr.pivot(index='day', columns='y_metric', values='corr').to_clipboard()
 
+# Exclude high-sphere-load mice
+corr_true, corr_shuff = iterative_exclusion(df=decoder, n_exclude=10, y_metric='mae_quad', x_metric='spheres', n_shuffle=10)
+
+corr_true.pivot(index='day', columns='sphere_limit', values='corr').to_clipboard()
+
+fig, ax = plt.subplots(2, 2, layout='constrained', figsize=(18, 10), sharex='all', sharey='row')
+sns.lineplot(corr_true, x='day', y='corr', hue='label', ax=ax[0, 0], palette='magma')
+sns.lineplot(corr_true, x='day', y='corr_p', hue='label', ax=ax[1, 0], palette='magma')
+sns.lineplot(corr_shuff, x='day', y='corr', hue='label', ax=ax[0, 1], palette='magma')
+sns.lineplot(corr_shuff, x='day', y='corr_p', hue='label', ax=ax[1, 1], palette='magma')
+ax[1, 0].set(yscale='log')
+ax[1, 0].axhline(0.05, linestyle=':', color='black')
+ax[1, 0].axvline(0.5, linestyle='--', color='red')
+ax[1, 1].set(yscale='log')
+ax[1, 1].axhline(0.05, linestyle=':', color='black')
+ax[1, 1].axvline(0.5, linestyle='--', color='red')
+
+ax[0, 0].axvline(0.5, linestyle='--', color='red')
+ax[0, 0].axhline(0, linestyle=':', color='black')
+ax[0, 1].axvline(0.5, linestyle='--', color='red')
+ax[0, 1].axhline(0, linestyle=':', color='black')
+
+
+
+
+# Exclude exercise mice
+decoder_corr_ex = pd.concat([correlate_metric(decoder, met, exclude_mice=exercise) for met in metrics], ignore_index=True)
+decoder_corr_ex.pivot(index='day', columns='metric', values='corr_p').to_clipboard(index=False, header=False)
 
 ### Average metric within each phase (not too useful) ###
 decoder_corr = pd.concat([correlate_metric(decoder, met, time_name='phase') for met in metrics], ignore_index=True)
