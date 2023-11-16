@@ -150,6 +150,7 @@ def iterative_exclusion(df: pd.DataFrame, y_metric, n_exclude, x_metric='spheres
                                           exclude_mice=ex_mice)
             corr_shuff['mice_excluded'] = [ex_mice] * len(corr_real)
             corr_shuff['n_excluded'] = n_ex
+            corr_shuff['sphere_limit'] = mice_sorted.iloc[n_ex - 1]['spheres']
             corr_shuff['n_shuffle'] = i
             rng_df.append(corr_shuff)
 
@@ -157,7 +158,7 @@ def iterative_exclusion(df: pd.DataFrame, y_metric, n_exclude, x_metric='spheres
     rng_df = pd.concat(rng_df, ignore_index=True)
 
     true_df['label'] = true_df.apply(lambda x: f"{int(x['sphere_limit'])} ({x['n_excluded']})", axis=1)
-    rng_df['label'] = true_df.apply(lambda x: f"{int(x['sphere_limit'])} ({x['n_excluded']})", axis=1)
+    rng_df['label'] = rng_df.apply(lambda x: f"{int(x['sphere_limit'])} ({x['n_excluded']})", axis=1)
 
     return true_df, rng_df
 
@@ -183,7 +184,7 @@ g.map_dataframe(sns.scatterplot, x='spheres', y='accuracy').set(xscale='log')
 
 ### DAY-WISE ###
 decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met) for met in metrics], ignore_index=True)
-decoder_corr[decoder_corr.y_metric == 'mae_quad'].pivot(index='day', columns='y_metric', values='corr_p').to_clipboard()
+decoder_corr[decoder_corr.y_metric == 'mae_quad'].pivot(index='day', columns='y_metric', values='ci_high').to_clipboard(index=False, header=False)
 
 ### CORRELATE AGAINST BEHAVIOR ###
 decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met, x_metric='si_binned_run', neg_corr=True) for met in metrics], ignore_index=True)
@@ -217,6 +218,7 @@ ax[0, 1].axhline(0, linestyle=':', color='black')
 # Exclude exercise mice
 decoder_corr_ex = pd.concat([correlate_metric(decoder, met, exclude_mice=exercise) for met in metrics], ignore_index=True)
 decoder_corr_ex.pivot(index='day', columns='metric', values='corr_p').to_clipboard(index=False, header=False)
+decoder_corr_ex[decoder_corr_ex.y_metric == 'mae_quad'].pivot(index='day', columns='y_metric', values='ci_low').to_clipboard(index=False, header=False)
 
 ### Average metric within each phase (not too useful) ###
 decoder_corr = pd.concat([correlate_metric(decoder, met, time_name='phase') for met in metrics], ignore_index=True)
@@ -235,7 +237,10 @@ g = sns.FacetGrid(performance[performance.rel_day_align.isin(single_days)], col=
 g.map_dataframe(sns.scatterplot, x='spheres', y='si_binned_run').set(xscale='log')
 
 performance_corr = correlate_metric(performance, 'si_binned_run')
-performance_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard()
+performance_corr.pivot(index='day', columns='y_metric', values='ci_high').to_clipboard(index=False, header=False)
+
+performance_corr_ex = correlate_metric(performance, 'si_binned_run', exclude_mice=exercise)
+performance_corr_ex.pivot(index='day', columns='y_metric', values='corr').to_clipboard(index=False, header=False)
 
 #%% PVC
 metrics = ['max_pvc', 'min_slope', 'pvc_rel_dif']
