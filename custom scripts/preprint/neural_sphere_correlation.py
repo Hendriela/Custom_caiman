@@ -70,7 +70,7 @@ def merge_dfs(df, sphere_df, inj_df, vr_df=None):
 
 
 def correlate_metric(df, y_metric, x_metric='spheres', time_name='rel_day_align', plotting=False, ax=None,
-                     exclude_mice=None, include_mice=None, neg_corr=False):
+                     exclude_mice=None, include_mice=None, neg_corr=False, ci_level=0.95):
 
     if exclude_mice is not None and include_mice is not None:
         raise ValueError('Exclude_mice and include_mice cannot be defined simultaneously.')
@@ -100,9 +100,14 @@ def correlate_metric(df, y_metric, x_metric='spheres', time_name='rel_day_align'
                 y = -y
 
             result = stats.pearsonr(x, y)
+            ci = result.confidence_interval(ci_level)
+
+            # Transform confidence interval to standard deviation following https://handbook-5-1.cochrane.org/chapter_7/7_7_3_2_obtaining_standard_deviations_from_standard_errors_and.htm
+            # Get accurate t-value from scipy distribution (necessary for small samples with n < 60)
+            sd = np.sqrt(len(x)) * (ci.high - ci.low) / stats.t.ppf(1-ci_level, len(x)-1)
 
             corr.append(pd.DataFrame([dict(day=day, corr=result.statistic, corr_p=result.pvalue, y_metric=y_metric,
-                                           x_metric=x_metric)]))
+                                           ci_low=ci.low, ci_high=ci.high, sd=sd, x_metric=x_metric)]))
 
     corr = pd.concat(corr, ignore_index=True)
 
