@@ -131,7 +131,7 @@ def iterative_exclusion(df: pd.DataFrame, y_metric, n_exclude, x_metric='spheres
     true_df = []
     rng_df = []
 
-    for n_ex in range(1, n_exclude+1):
+    for n_ex in range(0, n_exclude+1):
 
         # Perform correlation with the n_ex most sphere-loaded mice removed
         corr_real = correlate_metric(df=df, y_metric=y_metric, x_metric=x_metric, time_name=time_name,
@@ -163,6 +163,81 @@ def iterative_exclusion(df: pd.DataFrame, y_metric, n_exclude, x_metric='spheres
     return true_df, rng_df
 
 
+def plot_simple_exclusion(df_true, df_shuff):
+
+    fig, ax = plt.subplots(2, 2, layout='constrained', figsize=(18, 10), sharex='all', sharey='row')
+    sns.lineplot(df_true, x='day', y='corr', hue='label', ax=ax[0, 0], palette='magma')
+    sns.lineplot(df_true, x='day', y='corr_p', hue='label', ax=ax[1, 0], palette='magma')
+    sns.lineplot(df_shuff, x='day', y='corr', hue='label', ax=ax[0, 1], palette='magma')
+    sns.lineplot(df_shuff, x='day', y='corr_p', hue='label', ax=ax[1, 1], palette='magma')
+    ax[1, 0].set(yscale='log')
+    ax[1, 0].axhline(0.05, linestyle=':', color='black')
+    ax[1, 0].axvline(0.5, linestyle='--', color='red')
+    ax[1, 1].set(yscale='log')
+    ax[1, 1].axhline(0.05, linestyle=':', color='black')
+    ax[1, 1].axvline(0.5, linestyle='--', color='red')
+
+    ax[0, 0].axvline(0.5, linestyle='--', color='red')
+    ax[0, 0].axhline(0, linestyle=':', color='black')
+    ax[0, 1].axvline(0.5, linestyle='--', color='red')
+    ax[0, 1].axhline(0, linestyle=':', color='black')
+
+def plot_exclusion_ci(df_true, df_shuff):
+
+    n_splits = df_true.label.nunique()
+
+    if df_true.y_metric.nunique() > 1:
+        raise IndexError('Call function only for a single metric.')
+
+    colors = sns.color_palette('magma', n_splits)
+    fig, ax = plt.subplots(nrows=n_splits, ncols=1, sharex='all', sharey='all', figsize=(10, 12),  layout='constrained')
+
+    for i, ((ex_true, split_df_true), (ex_rng, split_df_rng)) in enumerate(zip(df_true.groupby('n_excluded'), df_shuff.groupby('n_excluded'))):
+
+        # Plot original trace with confidence intervals
+        low = np.abs(split_df_true['corr'] - split_df_true['ci_low'])
+        high = np.abs(split_df_true['corr'] - split_df_true['ci_high'])
+        ax[i].errorbar(x=split_df_true['day'], y=split_df_true['corr'], yerr=np.stack((low, high)), color=colors[i],
+                       capsize=4)
+
+        # Plot average of all shuffled traces with average confidence intervals
+        means = split_df_rng.groupby('day').agg({'corr': 'mean', 'ci_low': 'mean', 'ci_high': 'mean'}).reset_index()
+        low = np.abs(means['corr'] - means['ci_low'])
+        high = np.abs(means['corr'] - means['ci_high'])
+        ax[i].errorbar(x=means['day'], y=means['corr'], yerr=np.stack((low, high)), color=colors[i],
+                       capsize=4, linestyle='--')
+
+        # Test whether CIs of true and shuffled data overlap
+        diff_top = means['ci_high'].to_numpy() < split_df_true['ci_low'].to_numpy()
+        diff_bot = means['ci_low'].to_numpy() > split_df_true['ci_high'].to_numpy()
+        diff = diff_top | diff_bot
+
+        # Paint background around points that are different
+        x_span = means['day'].loc[diff]
+        for x in x_span.items():
+            # Borders are half-way until the previous/next datapoint
+            if x[0] == 0:
+                x0 = x
+            else:
+                x0 = np.mean([means.day.iloc[x[0]-1], x[1]])
+            if x[0] == len(means)-1:
+                x1 = x
+            else:
+                x1 = np.mean([means.day.iloc[x[0]+1], x[1]])
+            ax[i].axvspan(xmin=x0, xmax=x1, color='red', alpha=0.5)
+
+        # Formatting
+        ax[i].axhline(0, linestyle=':', color='grey')
+        ax[i].axvline(0.5, linestyle=':', color='red')
+        ax[i].spines[['right', 'top']].set_visible(False)
+        ax[i].set_title(f'Sphere limit: {split_df_true["sphere_limit"].iloc[0]:.0f} '
+                        f'({split_df_true["n_excluded"].iloc[0]} excluded)')
+        ax[i].set_ylabel('Pearson`s r')
+    ax[-1].set_xlabel('Days after microsphere injection')
+
+
+
+
 #%% Load basic data
 spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="spheres"' &
                         f'mouse_id in {helper.in_query(mice)}').proj(spheres='count_extrap').fetch('mouse_id', 'spheres', as_dict=True))
@@ -192,25 +267,9 @@ decoder_corr.pivot(index='day', columns='y_metric', values='corr').to_clipboard(
 
 # Exclude high-sphere-load mice
 corr_true, corr_shuff = iterative_exclusion(df=decoder, n_exclude=10, y_metric='mae_quad', x_metric='spheres', n_shuffle=10)
-
 corr_true.pivot(index='day', columns='sphere_limit', values='corr').to_clipboard()
 
-fig, ax = plt.subplots(2, 2, layout='constrained', figsize=(18, 10), sharex='all', sharey='row')
-sns.lineplot(corr_true, x='day', y='corr', hue='label', ax=ax[0, 0], palette='magma')
-sns.lineplot(corr_true, x='day', y='corr_p', hue='label', ax=ax[1, 0], palette='magma')
-sns.lineplot(corr_shuff, x='day', y='corr', hue='label', ax=ax[0, 1], palette='magma')
-sns.lineplot(corr_shuff, x='day', y='corr_p', hue='label', ax=ax[1, 1], palette='magma')
-ax[1, 0].set(yscale='log')
-ax[1, 0].axhline(0.05, linestyle=':', color='black')
-ax[1, 0].axvline(0.5, linestyle='--', color='red')
-ax[1, 1].set(yscale='log')
-ax[1, 1].axhline(0.05, linestyle=':', color='black')
-ax[1, 1].axvline(0.5, linestyle='--', color='red')
-
-ax[0, 0].axvline(0.5, linestyle='--', color='red')
-ax[0, 0].axhline(0, linestyle=':', color='black')
-ax[0, 1].axvline(0.5, linestyle='--', color='red')
-ax[0, 1].axhline(0, linestyle=':', color='black')
+plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuff)
 
 
 
