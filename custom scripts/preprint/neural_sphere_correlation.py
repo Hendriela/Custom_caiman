@@ -137,7 +137,10 @@ def iterative_exclusion(df: pd.DataFrame, y_metric, n_exclude, x_metric='spheres
         corr_real = correlate_metric(df=df, y_metric=y_metric, x_metric=x_metric, time_name=time_name,
                                      exclude_mice=mice_sorted[:n_ex]['mouse_id'].to_numpy())
         corr_real['mice_excluded'] = [mice_sorted[:n_ex]['mouse_id'].to_numpy()] * len(corr_real)
-        corr_real['sphere_limit'] = mice_sorted.iloc[n_ex-1]['spheres']
+        if n_ex == 0:
+            corr_real['sphere_limit'] = 0
+        else:
+            corr_real['sphere_limit'] = mice_sorted.iloc[n_ex - 1]['spheres']
         corr_real['n_excluded'] = n_ex
         true_df.append(corr_real)
 
@@ -150,7 +153,10 @@ def iterative_exclusion(df: pd.DataFrame, y_metric, n_exclude, x_metric='spheres
                                           exclude_mice=ex_mice)
             corr_shuff['mice_excluded'] = [ex_mice] * len(corr_real)
             corr_shuff['n_excluded'] = n_ex
-            corr_shuff['sphere_limit'] = mice_sorted.iloc[n_ex - 1]['spheres']
+            if n_ex == 0:
+                corr_shuff['sphere_limit'] = 0
+            else:
+                corr_shuff['sphere_limit'] = mice_sorted.iloc[n_ex - 1]['spheres']
             corr_shuff['n_shuffle'] = i
             rng_df.append(corr_shuff)
 
@@ -166,8 +172,8 @@ def iterative_exclusion(df: pd.DataFrame, y_metric, n_exclude, x_metric='spheres
 def plot_simple_exclusion(df_true, df_shuff):
 
     fig, ax = plt.subplots(2, 2, layout='constrained', figsize=(18, 10), sharex='all', sharey='row')
-    sns.lineplot(df_true, x='day', y='corr', hue='label', ax=ax[0, 0], palette='magma')
-    sns.lineplot(df_true, x='day', y='corr_p', hue='label', ax=ax[1, 0], palette='magma')
+    sns.lineplot(df_true, x='day', y='corr', hue='label', ax=ax[0, 0], palette='magma', marker="o")
+    sns.lineplot(df_true, x='day', y='corr_p', hue='label', ax=ax[1, 0], palette='magma', marker="o")
     sns.lineplot(df_shuff, x='day', y='corr', hue='label', ax=ax[0, 1], palette='magma')
     sns.lineplot(df_shuff, x='day', y='corr_p', hue='label', ax=ax[1, 1], palette='magma')
     ax[1, 0].set(yscale='log')
@@ -217,11 +223,11 @@ def plot_exclusion_ci(df_true, df_shuff):
         for x in x_span.items():
             # Borders are half-way until the previous/next datapoint
             if x[0] == 0:
-                x0 = x
+                x0 = x[1]
             else:
                 x0 = np.mean([means.day.iloc[x[0]-1], x[1]])
             if x[0] == len(means)-1:
-                x1 = x
+                x1 = x[1]
             else:
                 x1 = np.mean([means.day.iloc[x[0]+1], x[1]])
             ax[i].axvspan(xmin=x0, xmax=x1, color='red', alpha=0.5)
@@ -266,11 +272,11 @@ decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met, x_metric='s
 decoder_corr.pivot(index='day', columns='y_metric', values='corr').to_clipboard()
 
 # Exclude high-sphere-load mice
-corr_true, corr_shuff = iterative_exclusion(df=decoder, n_exclude=10, y_metric='mae_quad', x_metric='spheres', n_shuffle=10)
+corr_true, corr_shuffle = iterative_exclusion(df=decoder, n_exclude=10, y_metric='mae_quad', x_metric='spheres', n_shuffle=10)
 corr_true.pivot(index='day', columns='sphere_limit', values='corr').to_clipboard()
 
-plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuff)
-
+plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuffle)
+plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
 
 
 
@@ -301,6 +307,13 @@ performance_corr.pivot(index='day', columns='y_metric', values='ci_high').to_cli
 performance_corr_ex = correlate_metric(performance, 'si_binned_run', exclude_mice=exercise)
 performance_corr_ex.pivot(index='day', columns='y_metric', values='corr').to_clipboard(index=False, header=False)
 
+corr_true, corr_shuffle = iterative_exclusion(df=performance, n_exclude=10, y_metric='si_binned_run', x_metric='spheres', n_shuffle=10)
+corr_true.pivot(index='day', columns='sphere_limit', values='corr').to_clipboard()
+
+plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuffle)
+plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
+
+
 #%% PVC
 metrics = ['max_pvc', 'min_slope', 'pvc_rel_dif']
 pvc = pd.DataFrame((hheise_pvc.PvcCrossSessionEval() * hheise_pvc.PvcCrossSession & 'locations="all"' &
@@ -319,6 +332,10 @@ pcr = merge_dfs(df=pcr, sphere_df=spheres, inj_df=injection, vr_df=vr_performanc
 pcr_corr = correlate_metric(pcr, y_metric='place_cell_ratio')
 pcr_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard()
 
+corr_true, corr_shuffle = iterative_exclusion(df=pcr, n_exclude=10, y_metric='place_cell_ratio', x_metric='spheres', n_shuffle=10)
+plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuffle)
+plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
+
 #%% Within-session stability
 stab = pd.DataFrame((hheise_placecell.SpatialInformation.ROI() & 'corridor_type=0' &
                     'place_cell_id=2').fetch('mouse_id', 'day', 'stability', as_dict=True))
@@ -328,6 +345,10 @@ stab = merge_dfs(df=stab, sphere_df=spheres, inj_df=injection, vr_df=vr_performa
 stab_corr = correlate_metric(stab, y_metric='stability')
 stab_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False, header=True)
 
+corr_true, corr_shuffle = iterative_exclusion(df=stab, n_exclude=10, y_metric='stability', x_metric='spheres', n_shuffle=10)
+plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuffle)
+plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
+
 #%% Firing rate stability
 fr = pd.DataFrame((common_img.ActivityStatistics.ROI * common_img.Segmentation.ROI &
                    'accepted=1').fetch('mouse_id', 'day', 'rate_spikes', as_dict=True))
@@ -336,3 +357,7 @@ fr = merge_dfs(df=fr, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
 fr_corr = correlate_metric(fr, y_metric='rate_spikes')
 fr_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False, header=True)
+
+corr_true, corr_shuffle = iterative_exclusion(df=fr, n_exclude=10, y_metric='rate_spikes', x_metric='spheres', n_shuffle=10)
+plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuffle)
+plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
