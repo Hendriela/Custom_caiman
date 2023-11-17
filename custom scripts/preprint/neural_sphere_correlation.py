@@ -76,8 +76,10 @@ def correlate_metric(df, y_metric, x_metric='spheres', time_name='rel_day_align'
         raise ValueError('Exclude_mice and include_mice cannot be defined simultaneously.')
     elif exclude_mice is not None:
         df_filt = df[~df.mouse_id.isin(exclude_mice)]
+        print(df_filt.mouse_id.nunique(), 'mice used')
     elif include_mice is not None:
         df_filt = df[df.mouse_id.isin(include_mice)]
+        print(df_filt.mouse_id.nunique(), 'mice used')
     else:
         df_filt = df
 
@@ -242,8 +244,6 @@ def plot_exclusion_ci(df_true, df_shuff):
     ax[-1].set_xlabel('Days after microsphere injection')
 
 
-
-
 #%% Load basic data
 spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="spheres"' &
                         f'mouse_id in {helper.in_query(mice)}').proj(spheres='count_extrap').fetch('mouse_id', 'spheres', as_dict=True))
@@ -260,16 +260,18 @@ decoder = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession() &
 decoder = merge_dfs(df=decoder, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
 # Plot scatter plots
-g = sns.FacetGrid(decoder[decoder.rel_day_align.isin(single_days)], col='rel_day_align', col_wrap=4)
-g.map_dataframe(sns.scatterplot, x='spheres', y='accuracy').set(xscale='log')
+data = decoder[decoder.rel_day_align.isin(single_days)]
+data = data[~data.mouse_id.isin(exercise)]
+g = sns.FacetGrid(data, col='rel_day_align', col_wrap=4)
+g.map_dataframe(sns.scatterplot, x='spheres', y='mae_quad').set(xscale='log')
 
 ### DAY-WISE ###
 decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met) for met in metrics], ignore_index=True)
 decoder_corr[decoder_corr.y_metric == 'mae_quad'].pivot(index='day', columns='y_metric', values='ci_high').to_clipboard(index=False, header=False)
 
 ### CORRELATE AGAINST BEHAVIOR ###
-decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met, x_metric='si_binned_run', neg_corr=True) for met in metrics], ignore_index=True)
-decoder_corr.pivot(index='day', columns='y_metric', values='corr').to_clipboard()
+decoder_corr = pd.concat([correlate_metric(df=decoder, y_metric=met, x_metric='si_binned_run', neg_corr=False) for met in metrics], ignore_index=True)
+decoder_corr[decoder_corr.y_metric == 'mae_quad'].pivot(index='day', columns='y_metric', values='corr').to_clipboard(index=False)
 
 # Exclude high-sphere-load mice
 corr_true, corr_shuffle = iterative_exclusion(df=decoder, n_exclude=10, y_metric='mae_quad', x_metric='spheres', n_shuffle=10)
@@ -282,8 +284,8 @@ plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
 
 # Exclude exercise mice
 decoder_corr_ex = pd.concat([correlate_metric(decoder, met, exclude_mice=exercise) for met in metrics], ignore_index=True)
-decoder_corr_ex.pivot(index='day', columns='metric', values='corr_p').to_clipboard(index=False, header=False)
-decoder_corr_ex[decoder_corr_ex.y_metric == 'mae_quad'].pivot(index='day', columns='y_metric', values='ci_low').to_clipboard(index=False, header=False)
+decoder_corr_ex[decoder_corr_ex.y_metric == 'mae_quad'].pivot(index='day', columns='y_metric', values='corr').to_clipboard()
+decoder_corr_ex[decoder_corr_ex.y_metric == 'mae_quad'].pivot(index='day', columns='y_metric', values='corr').to_clipboard(index=False, header=False)
 
 ### Average metric within each phase (not too useful) ###
 decoder_corr = pd.concat([correlate_metric(decoder, met, time_name='phase') for met in metrics], ignore_index=True)
@@ -332,6 +334,9 @@ pcr = merge_dfs(df=pcr, sphere_df=spheres, inj_df=injection, vr_df=vr_performanc
 pcr_corr = correlate_metric(pcr, y_metric='place_cell_ratio')
 pcr_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard()
 
+pcr_corr = correlate_metric(pcr, y_metric='place_cell_ratio', x_metric='si_binned_run', neg_corr=True)
+pcr_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False)
+
 corr_true, corr_shuffle = iterative_exclusion(df=pcr, n_exclude=10, y_metric='place_cell_ratio', x_metric='spheres', n_shuffle=10)
 plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuffle)
 plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
@@ -345,9 +350,19 @@ stab = merge_dfs(df=stab, sphere_df=spheres, inj_df=injection, vr_df=vr_performa
 stab_corr = correlate_metric(stab, y_metric='stability')
 stab_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False, header=True)
 
+stab_corr = correlate_metric(stab, y_metric='stability', x_metric='si_binned_run', neg_corr=True)
+stab_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False, header=True)
+
+
 corr_true, corr_shuffle = iterative_exclusion(df=stab, n_exclude=10, y_metric='stability', x_metric='spheres', n_shuffle=10)
 plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuffle)
 plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
+
+
+g = sns.FacetGrid(stab[stab.rel_day_align.isin(single_days)], col='rel_day_align', col_wrap=4)
+g.map_dataframe(sns.scatterplot, x='spheres', y='stability').set(xscale='log')
+g = sns.FacetGrid(stab[stab.rel_day_align.isin(single_days)], col='rel_day_align', col_wrap=4)
+g.map_dataframe(sns.scatterplot, x='si_binned_run', y='stability')
 
 #%% Firing rate stability
 fr = pd.DataFrame((common_img.ActivityStatistics.ROI * common_img.Segmentation.ROI &
@@ -356,8 +371,17 @@ fr = fr.groupby(['mouse_id', 'day']).agg('mean').reset_index()
 fr = merge_dfs(df=fr, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
 fr_corr = correlate_metric(fr, y_metric='rate_spikes')
+fr_corr.pivot(index='day', columns='y_metric', values='corr').to_clipboard(index=False, header=True)
+
+fr_corr = correlate_metric(fr, y_metric='rate_spikes', x_metric='si_binned_run', neg_corr=True)
 fr_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False, header=True)
 
 corr_true, corr_shuffle = iterative_exclusion(df=fr, n_exclude=10, y_metric='rate_spikes', x_metric='spheres', n_shuffle=10)
 plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuffle)
 plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
+
+
+g = sns.FacetGrid(fr[fr.rel_day_align.isin(single_days)], col='rel_day_align', col_wrap=4)
+g.map_dataframe(sns.scatterplot, x='spheres', y='rate_spikes').set(xscale='log')
+g = sns.FacetGrid(fr[fr.rel_day_align.isin(single_days)], col='rel_day_align', col_wrap=4)
+g.map_dataframe(sns.scatterplot, x='si_binned_run', y='rate_spikes')
