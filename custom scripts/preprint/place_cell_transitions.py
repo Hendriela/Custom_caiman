@@ -377,7 +377,7 @@ is_pc = dc.load_data('is_pc')
 
 # pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
 pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
-pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=500, avg_mat=True)
+pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=50, avg_mat=True)
 
 
 transition_matrix_to_prism(matrix_df=pc_transition_rng, phase='late', include_lost=False, with_stable=False,

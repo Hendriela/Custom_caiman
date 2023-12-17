@@ -279,7 +279,7 @@ if __name__ == '__main__':
 
     # Quantify transitions
     trans_matrices = stability_sankey(df=stability_classes, directory=None)
-    trans_matrices_rng = stability_sankey(df=stability_classes, directory=None, shuffle=500, return_shuffle_avg=True)
+    trans_matrices_rng = stability_sankey(df=stability_classes, directory=None, shuffle=50, return_shuffle_avg=True)
 
     # Plot transition matrices
     plot_transition_matrix(matrix_list=[[trans_matrices['sham_early'], trans_matrices['sham_late']],
@@ -295,3 +295,32 @@ if __name__ == '__main__':
     transition_matrix_for_prism(trans_matrices, phase='pre_early', include_lost=False, norm='backward').to_clipboard(header=False, index=False)
     transition_matrix_for_prism(trans_matrices, phase='early_late', include_lost=False, norm='backward').to_clipboard(header=False, index=False)
     transition_matrix_for_prism(trans_matrices_rng, phase='pre_early', include_lost=False, norm='forward').to_clipboard(header=False, index=True)
+
+
+
+import pickle
+import numpy as np
+import os
+import pandas as pd
+
+dff_path = r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data\dff.pkl'
+with open(dff_path, 'rb') as file:
+    dff = pickle.load(file)
+
+pc_division_path = r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data\stability_classes.pkl'
+with open(pc_division_path, 'rb') as file:
+    pc_classes = pickle.load(file)
+
+def check_traces_pc(sample_mouse, sample_day):
+
+    nz = np.nonzero(pc_classes[sample_mouse][sample_day].values)
+
+    print(f"number of cells that are not category 0: {len(nz[0])}")
+
+    print(f"number of calcium traces recorded on that day: {len(dff[sample_mouse][sample_day].dropna())}")
+
+sample_mouse = 33
+
+sample_day = 1
+
+check_traces_pc(sample_mouse, sample_day)

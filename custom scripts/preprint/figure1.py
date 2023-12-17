@@ -86,6 +86,25 @@ def example_fov():
     cor_post = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-26"').fetch1('cor_image')
 
 
+def example_tracked_cells():
+
+    date1, img1 = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-18"').fetch1('day', 'avg_image')
+    date2, img2 = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-30"').fetch1('day', 'avg_image')
+    date3, img3 = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-09-11"').fetch1('day', 'avg_image')
+
+    # Coordinates of same landmark in three images (x, y)
+    point1 = (348, 367)
+    point2 = (351, 353)
+    point3 = (356, 362)
+
+    # Image borders around the given coordinates (left, right, top, bottom)
+    borders = (75, 25, 15, 85)
+
+    cut1 = img1[point1[0] - borders[0]: point1[0] + borders[1], point1[1] - borders[2]: point1[1] + borders[3]]
+
+    plt.imshow(cut1, cmap='Greys_r')
+
+
 
 def example_lick_histogram():
     ### Example lick histogram
