@@ -11,6 +11,7 @@ import os
 import pickle
 import seaborn as sns
 import matplotlib.pyplot as plt
+from datetime import datetime
 
 import common_hist
 from schema import common_mice, common_img, common_match, hheise_behav, hheise_hist, hheise_placecell
@@ -351,7 +352,7 @@ queries = (
 )
 
 match_matrices = [query.construct_matrix() for query in queries]
-is_pc = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='is_place_cell')
+is_pc = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='is_place_cell', relative_dates=False)
 pfs = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='place_field_idx')
 spatial_maps = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='bin_spikerate')
 spat_dff_maps = common_match.MatchedIndex().load_matched_data(match_queries=queries, data_type='bin_activity')
@@ -363,6 +364,10 @@ pf_sd = common_match.MatchedIndex().load_matched_data(match_queries=queries, dat
 
 decon = {k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray else x) for k, v in decon.items()}
 dff = {k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray else x) for k, v in dff.items()}
+
+# Save session strings for analysed sessions for each mouse
+session_strings = pd.DataFrame({m: {'session': list(v[1])} for m, v in is_pc.items()}).T.explode('session').reset_index(names='mouse_id')
+session_strings.to_csv(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data\session_strings.csv')
 
 save_dict(is_pc, 'neural_data\\is_pc')
 save_dict(pfs, 'neural_data\\place_field_idx')
@@ -397,5 +402,178 @@ for mouse_str, mouse_data in stability_classes.groupby('mouse_id'):
             mouse_df[col] = mouse_data[mouse_data.period == 'early']['classes'].iloc[0]
     stability_classes_neurons[int(mouse_str.split("_")[0])] = pd.DataFrame(mouse_df)
 save_dict(stability_classes_neurons, 'neural_data\\stability_classes')
+
+
+
+#%% UNMATCHED DATA
+
+def array_to_series(arr: np.ndarray, name):
+    series = pd.Series(dtype='object', name=name)
+    for i in range(len(arr)):
+        if np.all(np.isnan(arr[i])):
+            series.at[i] = np.nan
+        else:
+            series.at[i] = arr[i]
+    return series
+
+session_strings = pd.read_csv(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data\session_strings.csv', index_col=0)
+dff_normal = {}
+dff_running = {}
+decon_normal = {}
+decon_running = {}
+is_pc = {}
+cell_coords = {}
+
+for mouse in mice:
+    print(mouse)
+    microsphere_date = (common_mice.Surgery() & f'surgery_type="Microsphere injection"' &
+                        f'mouse_id={mouse}').fetch1('surgery_date').date()
+
+    restrictions = [{'mouse_id': mouse, **common_match.MatchedIndex().string2key(title=sess_str)}
+                    for sess_str in session_strings[session_strings.mouse_id == mouse]['session']]
+
+    sessions_dff_normal = []
+    sessions_dff_run = []
+    sessions_decon_normal = []
+    sessions_decon_run = []
+    sessions_pc = []
+    sessions_com = []
+    for sess_key in restrictions:
+
+        # raw_dff, mask_ids = (common_img.Segmentation & sess_key).get_traces('dff', include_id=True)
+        # raw_decon = (common_img.Segmentation & sess_key).get_traces('decon', decon_id=1)
+        #
+        rel_day = (datetime.strptime(sess_key['day'], '%Y-%m-%d').date() - microsphere_date).days
+        #
+        # # Only include normal trials
+        # trial_mask = (hheise_placecell.PCAnalysis & sess_key & 'place_cell_id=2').fetch1('trial_mask')
+        # norm_trials = (hheise_behav.VRSession & sess_key).get_normal_trials()
+        # norm_trial_mask = np.isin(trial_mask, norm_trials)
+        # dff_norm = raw_dff[:, norm_trial_mask]
+        # decon_norm = raw_decon[:, norm_trial_mask]
+        #
+        # # Only include running frames
+        # running_mask, aligned_frames = (hheise_placecell.Synchronization.VRTrial & sess_key & 'place_cell_id=2' &
+        #                                 f'trial_id in {helper.in_query(norm_trials)}').fetch('running_mask', 'aligned_frames')
+        # running_mask = np.concatenate(running_mask)
+        # dff_run = dff_norm[:, running_mask]
+        # decon_run = decon_norm[:, running_mask]
+
+        # # Get place cell identity
+        # pc_masks = (hheise_placecell.PlaceCell.ROI & sess_key & 'place_cell_id=2' & 'is_place_cell=1'
+        #             & 'corridor_type=0').fetch('mask_id')
+        # is_pc_mask = np.zeros(len(mask_ids), dtype=int)
+        # is_pc_mask[np.isin(mask_ids, pc_masks)] = 1
+
+        coms = (common_img.Segmentation.ROI & sess_key & 'accepted=1').fetch('com')
+
+        # sessions_dff_normal.append(array_to_series(dff_norm, name=rel_day))
+        # sessions_dff_run.append(array_to_series(dff_run, name=rel_day))
+        # sessions_decon_normal.append(array_to_series(decon_norm, name=rel_day))
+        # sessions_decon_run.append(array_to_series(decon_run, name=rel_day))
+        # sessions_pc.append(pd.Series(is_pc_mask, name=rel_day))
+        sessions_com.append(pd.Series(coms, name=rel_day))
+
+    dff_normal[mouse] = pd.DataFrame(sessions_dff_normal).T
+    dff_running[mouse] = pd.DataFrame(sessions_dff_run).T
+    decon_normal[mouse] = pd.DataFrame(sessions_decon_normal).T
+    decon_running[mouse] = pd.DataFrame(sessions_decon_run).T
+    is_pc[mouse] = pd.DataFrame(sessions_pc).T
+    cell_coords[mouse] = pd.DataFrame(sessions_com).T
+
+os.chdir(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data')
+save_dict(dff_normal, 'dff_all_cells')
+save_dict(dff_running, 'dff_only_running')
+save_dict(decon_normal, 'decon_all_cells')
+save_dict(decon_running, 'decon_only_running')
+save_dict(is_pc, 'is_pc_all_cells')
+save_dict(cell_coords, 'cell_coords_all_cells')
+
+folder = r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data'
+for filename in ['dff_all_cells_normal', 'dff_all_cells_only_running', 'decon_all_cells_normal', 'decon_all_cells_only_running']:
+
+    with open(os.path.join(folder, f'{filename}.pkl'), 'rb') as file:
+        old_data = pickle.load(file)
+
+    os.chdir(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data')
+    save_dict({k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray else x) for k, v in old_data.items()},
+              f'{filename}')
+
+
+# Filter existing data of matched cells for normal trials and running frames
+with open(os.path.join(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data', 'dff.pkl'), 'rb') as file:
+    old_dff = pickle.load(file)
+with open(os.path.join(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data', 'decon.pkl'), 'rb') as file:
+    old_decon = pickle.load(file)
+
+dff_normal = {}
+dff_running = {}
+decon_normal = {}
+decon_running = {}
+for mouse in old_dff.keys():
+    print(mouse)
+    restrictions = [{'mouse_id': mouse, **common_match.MatchedIndex().string2key(title=sess_str)}
+                    for sess_str in session_strings[session_strings.mouse_id == mouse]['session']]
+
+    sessions_dff_normal = []
+    sessions_dff_run = []
+    sessions_decon_normal = []
+    sessions_decon_run = []
+    for col_idx, sess_key in enumerate(restrictions):
+
+        rel_day = old_dff[mouse].columns[col_idx]
+
+        curr_dff = old_dff[mouse].iloc[:, col_idx].copy()
+        curr_decon = old_dff[mouse].iloc[:, col_idx].copy()
+        nan_mask = curr_dff.isna()
+        n_frames = len(curr_dff[~nan_mask].iloc[0])
+        curr_dff.loc[nan_mask] = curr_dff.loc[nan_mask].apply(lambda x: np.ones(n_frames)*np.nan)
+        curr_decon.loc[nan_mask] = curr_decon.loc[nan_mask].apply(lambda x: np.ones(n_frames)*np.nan)
+
+        raw_dff = np.stack(curr_dff)
+        raw_decon = np.stack(curr_decon)
+
+        # Only include normal trials
+        trial_mask = (hheise_placecell.PCAnalysis & sess_key & 'place_cell_id=2').fetch1('trial_mask')
+        norm_trials = (hheise_behav.VRSession & sess_key).get_normal_trials()
+        norm_trial_mask = np.isin(trial_mask, norm_trials)
+
+        try:
+            dff_norm = raw_dff[:, norm_trial_mask]
+            decon_norm = raw_decon[:, norm_trial_mask]
+        except IndexError:
+            print(f'\tIndexError when masking normal trials at {sess_key}.\n\t\tUsing indices instead.')
+            norm_trial_idx = np.where(norm_trial_mask)[0]
+            dff_norm = raw_dff[:, norm_trial_idx]
+            decon_norm = raw_decon[:, norm_trial_idx]
+
+
+        # Only include running frames
+        running_mask, aligned_frames = (hheise_placecell.Synchronization.VRTrial & sess_key & 'place_cell_id=2' &
+                                        f'trial_id in {helper.in_query(norm_trials)}').fetch('running_mask', 'aligned_frames')
+        running_mask = np.concatenate(running_mask)
+        dff_run = dff_norm[:, running_mask]
+        decon_run = decon_norm[:, running_mask]
+
+        sessions_dff_normal.append(array_to_series(dff_norm, name=rel_day))
+        sessions_dff_run.append(array_to_series(dff_run, name=rel_day))
+        sessions_decon_normal.append(array_to_series(decon_norm, name=rel_day))
+        sessions_decon_run.append(array_to_series(decon_run, name=rel_day))
+
+    dff_normal[mouse] = pd.DataFrame(sessions_dff_normal).T
+    dff_running[mouse] = pd.DataFrame(sessions_dff_run).T
+    decon_normal[mouse] = pd.DataFrame(sessions_decon_normal).T
+    decon_running[mouse] = pd.DataFrame(sessions_decon_run).T
+
+# Transform array to float16 before saving to save disk space
+os.chdir(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data')
+save_dict({k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray else x) for k, v in dff_normal.items()},
+          'dff_tracked_normal')
+save_dict({k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray else x) for k, v in dff_running.items()},
+          'dff_tracked_only_running')
+save_dict({k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray else x) for k, v in decon_normal.items()},
+          'decon_tracked_normal')
+save_dict({k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray else x) for k, v in decon_running.items()},
+          'decon_tracked_only_running')
 
 
