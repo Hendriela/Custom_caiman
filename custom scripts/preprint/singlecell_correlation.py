@@ -10,9 +10,14 @@ import matplotlib
 from matplotlib import pyplot as plt
 import os
 import pandas as pd
+import seaborn as sns
 import numpy as np
+from scipy import stats
+from sklearn import linear_model
+
 from schema import hheise_placecell, common_match
 from preprint import data_cleaning as dc
+from util import helper
 
 matplotlib.rcParams['font.sans-serif'] = "Arial"  # Use same font as Prism
 plt.rcParams['svg.fonttype'] = 'none'
@@ -25,7 +30,7 @@ mouse_ids = [33, 41,  # Batch 3
 folder = r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint'
 
 
-def spatial_map_correlations_single_cells(spatial_maps=list):
+def spatial_map_correlations_single_cells(spatial_maps=list, is_pcs=list, align_days=False, save_files=False, min_pc_frac=None):
     """
     Correlate spatial maps across sessions of multiple numpy arrays. This function does not require the matching
     and merging of arrays and is more flexible with variable acquisition days.
@@ -42,14 +47,33 @@ def spatial_map_correlations_single_cells(spatial_maps=list):
     df_list = []
     for animal in spatial_maps:
         for net_id, data in animal.items():
-            days = np.array(data[1])
-            arr = data[0]
+            rel_days = np.array(data[1])
+
+            if align_days:
+                if 3 not in rel_days:
+                    rel_days[(rel_days == 2) | (rel_days == 4)] = 3
+                rel_days[(rel_days == 5) | (rel_days == 6) | (rel_days == 7)] = 6
+                rel_days[(rel_days == 8) | (rel_days == 9) | (rel_days == 10)] = 9
+                rel_days[(rel_days == 11) | (rel_days == 12) | (rel_days == 13)] = 12
+                rel_days[(rel_days == 14) | (rel_days == 15) | (rel_days == 16)] = 15
+                rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
+                rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
+                rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
+                if 28 not in rel_days:
+                    rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
+                rel_sess = np.arange(len(rel_days)) - np.argmax(np.where(rel_days <= 0, rel_days, -np.inf))
+                rel_days[(-5 < rel_sess) & (rel_sess < 1)] = np.arange(-np.sum((-5 < rel_sess) & (rel_sess < 1))+1, 1)
+
+            # Do not analyse day 1
+            day1_mask = rel_days != 1
+            rel_days = rel_days[day1_mask]
+            arr = data[0][:, day1_mask]
 
             curr_df = pd.DataFrame({'net_id': [net_id]*len(arr)})
 
             # Loop through days and compute correlation between sessions that are 3 days apart
-            for day_idx, day in enumerate(days):
-                next_day_idx = np.where(days == day+DAY_DIFF)[0]
+            for day_idx, day in enumerate(rel_days):
+                next_day_idx = np.where(rel_days == day+DAY_DIFF)[0]
 
                 # If a session 3 days later exists, compute the correlation of all cells between these sessions
                 # Do not analyze session 1 day after stroke (unreliable data)
@@ -57,7 +81,7 @@ def spatial_map_correlations_single_cells(spatial_maps=list):
                     curr_corr = [np.corrcoef(arr[cell_id, day_idx], arr[cell_id, next_day_idx[0]])[0, 1]
                                  for cell_id in range(len(arr))]
 
-                    curr_df[days[next_day_idx[0]]] = curr_corr
+                    curr_df[rel_days[next_day_idx[0]]] = curr_corr
             df_list.append(curr_df)
 
     final_df = pd.concat(df_list, ignore_index=True)
@@ -91,7 +115,47 @@ def spatial_map_correlations_single_cells(spatial_maps=list):
 
     # Construct DataFrame
     avg_df = pd.DataFrame({'pre': pre_avg, 'pre_post': pre_post_avg, 'early_post': early_post_avg,
-                           'late_post': late_post_avg, 'all_post': all_post_avg})
+                           'late_post': late_post_avg, 'all_post': all_post_avg, 'mouse_id': final_df['net_id']})
+
+
+    # Discard place cells/non-coding cells
+    if min_pc_frac is not None:
+        new_df = []
+        for mouse in is_pcs:
+
+            mouse_id = list(mouse.keys())[0]
+            pc_data = mouse[mouse_id][0]
+            rel_days = np.array(mouse[mouse_id][1])
+
+            day1_mask = rel_days != 1
+            rel_days = rel_days[day1_mask]
+            pc_data = pc_data[:, day1_mask]
+
+            last_pre = np.where(rel_days < 0, rel_days, -np.inf).argmax()
+            first_post = np.where(rel_days > 0, rel_days, np.inf).argmin()
+
+            pc_frac_pre = np.nansum(pc_data[:, rel_days <= 0], axis=1)/np.sum(~np.isnan(pc_data[:, rel_days <= 0]), axis=1) >= min_pc_frac
+            pc_frac_pre_post = np.nansum(pc_data[:, [last_pre, first_post]], axis=1)/np.sum(~np.isnan(pc_data[:, [last_pre, first_post]]), axis=1) >= min_pc_frac
+            pc_frac_early = np.nansum(pc_data[:, (rel_days > 0) & (rel_days <= 7)], axis=1)/np.sum(~np.isnan(pc_data[:, (rel_days > 0) & (rel_days <= 7)]), axis=1) >= min_pc_frac
+            pc_frac_late = np.nansum(pc_data[:, rel_days > 7], axis=1)/np.sum(~np.isnan(pc_data[:, rel_days > 7]), axis=1) >= min_pc_frac
+            pc_frac_all = np.nansum(pc_data[:, rel_days > 0], axis=1)/np.sum(~np.isnan(pc_data[:, rel_days > 0]), axis=1) >= min_pc_frac
+
+            curr_pre = avg_df.loc[(avg_df.mouse_id == mouse_id)]['pre'].to_numpy()
+            curr_pre[~pc_frac_pre] = np.nan
+            curr_pre_post = avg_df.loc[(avg_df.mouse_id == mouse_id)]['pre_post'].to_numpy()
+            curr_pre_post[~pc_frac_pre_post] = np.nan
+            curr_early_post = avg_df.loc[(avg_df.mouse_id == mouse_id)]['early_post'].to_numpy()
+            curr_early_post[~pc_frac_early] = np.nan
+            curr_late_post = avg_df.loc[(avg_df.mouse_id == mouse_id)]['late_post'].to_numpy()
+            curr_late_post[~pc_frac_late] = np.nan
+            curr_all_post = avg_df.loc[(avg_df.mouse_id == mouse_id)]['all_post'].to_numpy()
+            curr_all_post[~pc_frac_all] = np.nan
+
+            new_df.append(pd.DataFrame(dict(pre=curr_pre, pre_post=curr_pre_post, early_post=curr_early_post,
+                                            late_post=curr_late_post, all_post=curr_all_post, mouse_id=mouse_id)))
+        avg_df = pd.concat(new_df)
+
+    avg_df = avg_df.set_index('mouse_id')
 
     avg_df_rel = avg_df.div(avg_df['pre'], axis=0)
     avg_df_dif = avg_df.sub(avg_df['pre'], axis=0)
@@ -101,102 +165,112 @@ def spatial_map_correlations_single_cells(spatial_maps=list):
     # avg_df_clean.to_csv(os.path.join(folder, r'single_cell_corr_sham.csv'))
 
     # Sort cells by pre-stroke correlation
-    avg_df_clean_sort = avg_df_clean.sort_values(by='pre', ascending=False)
+    # avg_df_clean_sort = avg_df_clean.sort_values(by='pre', ascending=False)
     # avg_df_clean_sort.to_csv(os.path.join(folder, r'single_cell_corr_sorted_allstroke.csv'))
     #
     # avg_df_dif.to_csv(os.path.join(folder, r'single_cell_corr_dif_allstroke.csv'))
 
-    # Reshape DataFrame for Prism
-    avg_df_dif['mouse_id'] = final_df['net_id']
-
-    avg_dif_merge = None
-    for mouse_id in avg_df_dif['mouse_id'].unique():
-        curr_df = avg_df_dif[avg_df_dif.mouse_id == mouse_id][['pre_post', 'early_post', 'late_post', 'all_post']]
-        curr_df = curr_df.rename(columns={'pre_post': f'pre_post_{mouse_id.split("_")[0]}',
-                                          'early_post': f'early_post_{mouse_id.split("_")[0]}',
-                                          'late_post': f'late_post_{mouse_id.split("_")[0]}',
-                                          'all_post': f'all_post_{mouse_id.split("_")[0]}'})
-        if avg_dif_merge is None:
-            avg_dif_merge = curr_df
-        else:
-            avg_dif_merge = avg_dif_merge.join(curr_df.reset_index(drop=True), how='outer')
+    # Reshape DataFrame for Prism (old, not needed anymore)
+    # avg_dif_merge = None
+    # for mouse_id in avg_df_dif['mouse_id'].unique():
+    #     curr_df = avg_df_dif[avg_df_dif.mouse_id == mouse_id][['pre_post', 'early_post', 'late_post', 'all_post']]
+    #     curr_df = curr_df.rename(columns={'pre_post': f'pre_post_{mouse_id.split("_")[0]}',
+    #                                       'early_post': f'early_post_{mouse_id.split("_")[0]}',
+    #                                       'late_post': f'late_post_{mouse_id.split("_")[0]}',
+    #                                       'all_post': f'all_post_{mouse_id.split("_")[0]}'})
+    #     if avg_dif_merge is None:
+    #         avg_dif_merge = curr_df
+    #     else:
+    #         avg_dif_merge = avg_dif_merge.join(curr_df.reset_index(drop=True), how='outer')
 
 
     # Store data sorted by mice
-    for net in final_df['net_id'].unique():
-        out = avg_df_dif.loc[final_df['net_id'] == net]
-        out.to_csv(os.path.join(folder, f'single_cell_corr_dif_{net}.csv'))
+    if save_files:
+        for net in final_df['net_id'].unique():
+            out = avg_df_dif.loc[final_df['net_id'] == net]
+            out.to_csv(os.path.join(folder, f'single_cell_corr_dif_{net}.csv'))
 
-    # Store total correlation pair data sorted by mice (for scatter plot)
-    avg_df_clean['net_id'] = final_df['net_id']
-    avg_df_totalpost = avg_df_clean.pivot(index='pre', columns='net_id', values='all_post')
+    # # Store total correlation pair data sorted by mice (for scatter plot)
+    # avg_df_clean['net_id'] = final_df['net_id']
+    # avg_df_totalpost = avg_df_clean.pivot(index='pre', columns='net_id', values='all_post')
 
     # avg_df_totalpost.to_csv(os.path.join(folder, f'single_cell_corr_totalpost_allmice.csv'))
 
-    return avg_df_clean_sort, avg_df_dif, avg_df_totalpost
+    return avg_df_clean, avg_df_dif
 
-# #%% Load data
-#
-# queries = (
-#            (common_match.MatchedIndex & 'mouse_id=33'),       # 407 cells
-#            # (common_match.MatchedIndex & 'mouse_id=38'),
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41'),   # 246 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=63' & 'day<="2021-03-23"'),     # 350 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=69' & 'day<="2021-03-23"'),     # 350 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=83'),   # 270 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=85'),   # 250 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=86'),   # 86 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=89'),   # 183 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=90'),   # 131 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=91'),   # 299 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=93'),   # 397 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=95'),   # 350 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=108' & 'day<"2022-09-09"'),     # 316 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=110' & 'day<"2022-09-09"'),     # 218 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=111' & 'day<"2022-09-09"'),     # 201 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=113' & 'day<"2022-09-09"'),     # 350 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=114' & 'day<"2022-09-09"'),     # 307 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=115' & 'day<"2022-09-09"'),     # 331 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=116' & 'day<"2022-09-09"'),     # 350 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=122' & 'day<"2022-09-09"'),     # 401 cells
-#            (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=121' & 'day<"2022-09-09"'),     # 791 cells
-# )
-#
-# is_pc = []
-# pfs = []
-# spatial_maps = []
-# match_matrices = []
-# spat_dff_maps = []
-#
-# for i, query in enumerate(queries):
-#     if i == 2:
-#         match_matrices.append(query.construct_matrix(start_with_ref=True))
-#     else:
-#         match_matrices.append(query.construct_matrix(start_with_ref=False))
-#
-#     is_pc.append(query.get_matched_data(table=hheise_placecell.PlaceCell.ROI, attribute='is_place_cell',
-#                                         extra_restriction=dict(corridor_type=0, place_cell_id=2),
-#                                         return_array=True, relative_dates=True, surgery='Microsphere injection'))
-#
-#     pfs.append(query.get_matched_data(table=hheise_placecell.PlaceCell.PlaceField, attribute='bin_idx',
-#                                       extra_restriction=dict(corridor_type=0, place_cell_id=2),
-#                                       return_array=False, relative_dates=True, surgery='Microsphere injection'))
-#
-#     spatial_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_spikerate',
-#                                                extra_restriction=dict(corridor_type=0, place_cell_id=2),
-#                                                return_array=True, relative_dates=True,
-#                                                surgery='Microsphere injection'))
-#
-#     spat_dff_maps.append(query.get_matched_data(table=hheise_placecell.BinnedActivity.ROI, attribute='bin_activity',
-#                                                 extra_restriction=dict(corridor_type=0, place_cell_id=2),
-#                                                 return_array=True, relative_dates=True,
-#                                                 surgery='Microsphere injection'))
-#
-# folder = r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Data\analysis\matched_data'
-# with open(os.path.join(folder, f'spatial_activity_maps_spikerate.pkl'), 'wb') as file:
-#     pickle.dump(spatial_maps, file)
+
+def correlate_stability(df, plot=False, figname=None):
+
+    df = df.reset_index()
+    df['mouse_id'] = df.apply(lambda x: int(x['mouse_id'].split('_')[0]), axis=1)
+
+    # For each mouse, correlate single-neuron cross-session stability across phases and fit linear regression
+    results = []
+    plot_df = []
+    for i, (mouse_id, mouse_data) in enumerate(df.groupby('mouse_id')):
+        for j, phase_pair in enumerate((('pre', 'early_post'), ('pre', 'late_post'), ('early_post', 'late_post'))):
+
+            x = mouse_data[phase_pair[0]]
+            y = mouse_data[phase_pair[1]]
+            corr = stats.pearsonr(x, y)                 # Compute correlation
+            # slope, intercept = np.polyfit(x, y, 1)      # Linear regression
+
+            reg = linear_model.LinearRegression().fit(x.to_numpy().reshape(-1, 1), y.to_numpy().reshape(-1, 1))
+            score = reg.score(x.to_numpy().reshape(-1, 1), y.to_numpy().reshape(-1, 1))
+
+            results.append(pd.DataFrame([dict(mouse_id=mouse_id, phase_pair=f"{phase_pair[0]} - {phase_pair[1]}",
+                                              r=corr.statistic, p=corr.pvalue, slope=reg.coef_[0][0], r2=score)]))
+
+            if plot:
+                plot_df.append(pd.DataFrame(dict(mouse_id=mouse_id, x=x, y=y, phase_pair=f"{phase_pair[0]} - {phase_pair[1]}")))
+
+    results = pd.concat(results, ignore_index=True)
+
+    if plot:
+        plot_df = pd.concat(plot_df, ignore_index=True)
+
+        g = sns.lmplot(data=plot_df, x='x', y='y', col='phase_pair', row='mouse_id', facet_kws=dict(margin_titles=True),
+                       height=5, aspect=1)
+
+        for row_idx, row in enumerate(g.row_names):
+            for col_idx, col in enumerate(g.col_names):
+                curr_ax = g.axes[row_idx, col_idx]
+
+                curr_results = results[(results.mouse_id == row) & (results.phase_pair == col)].iloc[0].to_dict()
+
+                curr_ax.text(0.05, 0.99, f'r={curr_results["r"]:.3f}\n'
+                                         f'p={curr_results["p"]:.3f}\n'
+                                         f'slope={curr_results["slope"]:.3f}', transform=curr_ax.transAxes,
+                             verticalalignment='top', horizontalalignment='left', fontsize=12)
+
+                curr_ax.axvline(0, linestyle='--', c='grey', alpha=0.5)
+                curr_ax.axhline(0, linestyle='--', c='grey', alpha=0.5)
+
+        if figname is not None:
+            plt.savefig(os.path.join(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\single_cell_corr',
+                                     figname))
+
+    return results
+
+
+
 #%% Call function
+spat_maps = dc.load_data('spat_dff_maps')
+is_pc = dc.load_data('is_pc')
 
-spatial_maps = dc.load_data('spat_dff_maps')
+df_clean, df_dif = spatial_map_correlations_single_cells(spatial_maps=spat_maps, is_pcs=is_pc, align_days=False)
+df_clean, df_dif = spatial_map_correlations_single_cells(spatial_maps=spat_maps, is_pcs=is_pc, align_days=True, min_pc_frac=0.2)
 
-df_clean, df_dif, df_totalpost = spatial_map_correlations_single_cells(spatial_maps)
+# Compute mouse-mean correlation difference
+df_dif = df_dif.reset_index()
+df_dif['mouse_id'] = df_dif.apply(lambda x: int(x['mouse_id'].split('_')[0]), axis=1)
+df_dif_clean = df_dif.dropna(axis=0)
+df_dif_avg = df_dif_clean.groupby('mouse_id').mean().T
+df_dif_avg.loc[['pre_post', 'early_post', 'late_post']].to_clipboard(index=False, header=True)
+
+
+# Stability correlation between phases
+result = correlate_stability(df=df_clean, plot=True, figname="cross_session_correlation_pair.png")
+result = correlate_stability(df=df_clean)
+
+result.pivot(index='phase_pair', columns='mouse_id', values='r').loc[['pre - early_post', 'pre - late_post', 'early_post - late_post']].to_clipboard(index=False, header=False)

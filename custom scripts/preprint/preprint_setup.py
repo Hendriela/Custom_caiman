@@ -1494,7 +1494,7 @@ def spatial_map_correlations_single_cells(spatial_maps=list):
     avg_df_totalpost.to_csv(os.path.join(folder, f'single_cell_corr_totalpost_allmice.csv'))
 
 
-def place_cell_stability_fractions_score(is_pc):
+def place_cell_stability_fractions_score(is_pc_list):
     """ Code for the raw output from get_matched_data(). """
 
     # Remapping fractions pre vs post stroke (same as in fig 1)
@@ -1504,7 +1504,7 @@ def place_cell_stability_fractions_score(is_pc):
     BACKWARDS = True    # If true, a place cell's stability is measured by its activity 3 days before the current day instead of 3 days after
     DAY_DIFF = 3        # The day difference between sessions to be compared (usually 3)
 
-    for idx, animal in enumerate(is_pc):
+    for idx, animal in enumerate(is_pc_list):
         for net_id, data in animal.items():
 
             days = np.array(data[1])
@@ -1610,7 +1610,7 @@ def place_cell_stability_fractions_score(is_pc):
 
     # Additionally, compute remainder and stability scores per cell (how often a cell is a (stable) PC in pre vs post)
     rem_scores = []
-    for idx, animal in enumerate(is_pc):
+    for idx, animal in enumerate(is_pc_list):
         for net_id, data in animal.items():
 
             days = np.array(data[1])

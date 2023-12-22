@@ -12,6 +12,8 @@ import pickle
 import os
 import pandas as pd
 
+from schema import hheise_placecell, common_img
+
 
 def filter_matched_data(match_list: list, keep_nomatch=False):
     """
@@ -234,10 +236,26 @@ def load_data(data_type,
             fname = 'match_matrices.pkl'
         case data_type if data_type in ['is_pc', 'is_place_cell']:
             fname = 'is_pc.pkl'
-        case data_type if data_type in ['pfs', 'place_fields', 'place_field_idx']:
+        case data_type if data_type in ['pfs', 'place_fields', 'place_field_idx', 'pf_idx']:
             fname = 'pf_idx.pkl'
 
     with open(os.path.join(folder, fname), 'rb') as file:
         data = pickle.load(file)
 
     return data
+
+
+def fix_place_cell_ratio():
+
+    ### No mismatch for SpatialInformation place_cell_ratio
+    pks, pcr = hheise_placecell.PlaceCell().fetch('KEY', 'place_cell_ratio')
+
+    for key, ratio in zip(pks, pcr):
+        num_pcs = len((hheise_placecell.PlaceCell.ROI & key & 'is_place_cell=1'))
+        num_cells = len((common_img.Segmentation.ROI & key & 'accepted=1'))
+        if np.float16(num_pcs/num_cells) != np.float16(ratio):
+            print(f'Mismatch at {key}:\n{num_pcs/num_cells:.5f} vs PCR = {np.float16(ratio):.5f}')
+
+            hheise_placecell.PlaceCell().update1(dict(**key, place_cell_ratio=num_pcs/num_cells))
+
+    return

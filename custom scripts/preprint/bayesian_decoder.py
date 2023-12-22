@@ -14,7 +14,7 @@ import scipy.stats as scistats
 
 from schema import hheise_decoder, hheise_grouping, common_mice, common_img, hheise_placecell, hheise_behav
 
-useful_metrics = ['accuracy', 'mae', 'mae_quad', 'sensitivity_rz', 'specificity_rz']
+useful_metrics = ['accuracy', 'accuracy_quad', 'mae', 'mae_quad', 'sensitivity_rz', 'specificity_rz']
 #%% Plot accuracy for all mice in prestroke
 
 mice = np.unique(hheise_grouping.BehaviorGrouping().fetch('mouse_id'))
@@ -380,6 +380,8 @@ merge[merge.variable == 'accuracy'].pivot(index='period', columns='mouse_id', va
 
 data = pd.DataFrame((hheise_decoder.BayesianDecoderLastPrestroke & 'bayesian_id=1' & 'day < "2022-09-09"'
                      & 'mouse_id!=112').fetch('mouse_id', 'day', *useful_metrics, as_dict=True))
+data = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession & 'bayesian_id=1' & 'day < "2022-09-09"'
+                     & 'mouse_id!=112').fetch('mouse_id', 'day', *useful_metrics, as_dict=True))
 
 new_dfs = []
 for i, (mouse_id, mouse_data) in enumerate(data.groupby('mouse_id')):
@@ -448,9 +450,8 @@ columns.apply(lambda x: f'{x[0]}_{x[1]}').to_clipboard(index=False, header=False
 avg = merge.groupby(['mouse_id', 'period'])[[*useful_metrics, *[x+'_norm' for x in useful_metrics]]].mean(numeric_only=True)
 avg = avg.join(merge[['mouse_id', 'coarse', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()
 
-avg_prism = avg.pivot(index='period', columns='mouse_id', values='specificity_rz').loc[['pre', 'early', 'late']]
+avg_prism = avg.pivot(index='period', columns='mouse_id', values='accuracy_quad').loc[['pre', 'early', 'late']]
 avg_prism.to_clipboard(header=False, index=False)
-
 
 avg = merge.groupby(['mouse_id', 'period'])[['mean', 'median']].mean(numeric_only=True)
 avg = avg.join(merge[['mouse_id', 'coarse', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import os
 from schema import hheise_placecell, common_match, hheise_behav, hheise_pvc, hheise_grouping
 import preprint.data_cleaning as dc
 
@@ -153,8 +154,9 @@ def pvc_across_sessions(session1, session2, plot_heatmap=False, plot_in_ax=None,
     return pvc_matrix
 
 
-def draw_single_mouse_heatmaps(mouse_dict, day_diff=3, v_min=None, v_max=None, cmap='turbo',
-                               draw_zone_borders=True, verbose=False):
+def draw_single_mouse_heatmaps(mouse_dict, day_diff=3, v_min=None, v_max=None, cmap='turbo', plot_last_cbar=True,
+                               draw_zone_borders=True, verbose=False, only_return_matrix=False,
+                               directory=None):
     """
     Draw PVC heatmaps across time (pre, pre-post, early, late). One figure per mouse.
 
@@ -224,16 +226,23 @@ def draw_single_mouse_heatmaps(mouse_dict, day_diff=3, v_min=None, v_max=None, c
     avg_early_stroke = np.mean(np.stack(early_stroke), axis=0)
     avg_late_stroke = np.mean(np.stack(late_stroke), axis=0)
 
-    fig, axes = plt.subplots(1, 4, sharex='all', sharey='all', figsize=(18, 8))
-    sns.heatmap(avg_prestroke, ax=axes[0], vmin=v_min, vmax=v_max, cbar=plot_cbar, cmap=cmap)
-    sns.heatmap(pre_poststroke, ax=axes[1], vmin=v_min, vmax=v_max, cbar=plot_cbar, cmap=cmap)
-    sns.heatmap(avg_early_stroke, ax=axes[2], vmin=v_min, vmax=v_max, cbar=plot_cbar, cmap=cmap)
-    sns.heatmap(avg_late_stroke, ax=axes[3], vmin=v_min, vmax=v_max, cbar=True, cmap=cmap)
+    if only_return_matrix:
+        return {'pre': avg_prestroke, 'pre_post': pre_poststroke, 'early': avg_early_stroke, 'late': avg_late_stroke}
+
+    fig, axes = plt.subplots(1, 4, sharex='all', sharey='all', figsize=(23, 6), layout='constrained')
+    sns.heatmap(avg_prestroke, ax=axes[0], vmin=v_min, vmax=v_max, square=True, cbar=plot_cbar, cmap=cmap)
+    sns.heatmap(pre_poststroke, ax=axes[1], vmin=v_min, vmax=v_max, square=True, cbar=plot_cbar, cmap=cmap)
+    sns.heatmap(avg_early_stroke, ax=axes[2], vmin=v_min, vmax=v_max, square=True, cbar=plot_cbar, cmap=cmap)
+    sns.heatmap(avg_late_stroke, ax=axes[3], vmin=v_min, vmax=v_max, square=True, cbar=plot_last_cbar, cmap=cmap)
 
     # Make plot pretty
     titles = ['Prestroke', 'Pre-Post', 'Early Post', 'Late Post']
     for ax, title in zip(axes, titles):
         ax.set_title(title)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel('Session 2')
+    axes[0].set_ylabel('Session 1')
 
     if draw_zone_borders:
         zone_borders = (hheise_behav.CorridorPattern & 'pattern="training"').rescale_borders(n_bins=80)
@@ -244,16 +253,54 @@ def draw_single_mouse_heatmaps(mouse_dict, day_diff=3, v_min=None, v_max=None, c
                 curr_ax.axvline(zone[1], color='black', linestyle='--')
 
     fig.canvas.manager.set_window_title(mouse_id)
-    plt.tight_layout()
+
+    if directory is not None:
+        plt.savefig(os.path.join(directory, f'{mouse_id}.png'))
+        plt.close()
 
     # Re-set logging level
     if verbose:
         logging.basicConfig(level=logging.WARNING, force=True)
 
 
+def figure_plots(matrices, vmin=0, vmax=1, cmap='turbo', draw_zone_borders=True, directory=None):
+
+    curves = []
+    for row, (mouse_id, mouse_mats) in enumerate(matrices.items()):
+        for col, (phase, mat) in enumerate(mouse_mats.items()):
+
+            if directory is not None:
+
+                # Plot PVC matrix
+                plt.figure(layout='constrained', figsize=(12, 12), dpi=300)
+                ax = sns.heatmap(mat, vmin=vmin, vmax=vmax, square=True, cbar=False, cmap=cmap)
+                ax.set(xticks=[], yticks=[])
+
+                plt.savefig(os.path.join(directory, f"{mouse_id}_{phase}.png"))
+
+                if draw_zone_borders:
+                    zone_borders = (hheise_behav.CorridorPattern & 'pattern="training"').rescale_borders(n_bins=80)
+                    # zone_borders = np.round(zone_borders)
+                    for zone in zone_borders:
+                        # curr_ax.axvspan(zone[0], zone[1], facecolor='gray', alpha=0.4)
+                        ax.axvline(zone[0], color='black', linestyle='--')
+                        ax.axvline(zone[1], color='black', linestyle='--')
+                    plt.savefig(os.path.join(directory, f"{mouse_id}_{phase}_zones.png"))
+                plt.close()
+
+            # Query, compute and plot average PVC curve
+            curve = np.nanmean(np.stack((hheise_pvc.PvcCrossSessionEval * hheise_pvc.PvcCrossSession &
+                                         'locations="all"' & 'circular=0' & f'mouse_id={mouse_id}' &
+                                        f'phase="{phase}"').fetch('pvc_curve')), axis=0)
+
+            curves.append(pd.DataFrame(dict(mouse_id=mouse_id, phase=phase, pvc=curve,
+                                            pos=np.linspace(5, 400, 80).astype(int))))
+    return pd.concat(curves, ignore_index=True)
+
 #%% PVC Heatmaps
 
 spatial_maps = dc.load_data('decon_maps')
+spatial_maps = dc.load_data('dff_maps')
 
 ####################################################################################################################
 ####### First example plot for a single mouse. For each network, compute PVC matrices between two sessions #########
@@ -283,8 +330,31 @@ vmin = 0
 vmax = 1
 
 for mouse in spatial_maps:
-    draw_single_mouse_heatmaps(mouse_dict=mouse, day_diff=DAY_DIFF, v_min=vmin, v_max=vmax, verbose=False)
+    draw_single_mouse_heatmaps(mouse_dict=mouse, day_diff=DAY_DIFF, v_min=vmin, v_max=vmax, verbose=False,
+                               directory=r"W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\PVC\avg_matrices")
 
+
+# Make final overview for figure 3: One mouse per group + avg PVC curves
+sham_mouse = 91
+nodef_mouse = 114
+rec_mouse = 90
+norec_mouse = 41
+
+plot_matrices = {91: draw_single_mouse_heatmaps(spatial_maps[9], v_min=vmin, v_max=vmax, verbose=False,
+                                           plot_last_cbar=False, only_return_matrix=True),
+            114: draw_single_mouse_heatmaps(spatial_maps[16], v_min=vmin, v_max=vmax, verbose=False,
+                                           plot_last_cbar=False, only_return_matrix=True),
+            90: draw_single_mouse_heatmaps(spatial_maps[8], v_min=vmin, v_max=vmax, verbose=False,
+                                           plot_last_cbar=False, only_return_matrix=True),
+            41: draw_single_mouse_heatmaps(spatial_maps[1], v_min=vmin, v_max=vmax, verbose=False,
+                                           plot_last_cbar=False, only_return_matrix=True)
+            }
+curves = figure_plots(plot_matrices, directory=r"W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\PVC\avg_matrices\figure3")
+
+all_matrices = {int(list(dic.keys())[0].split('_')[0]): draw_single_mouse_heatmaps(dic, only_return_matrix=True) for dic in spatial_maps}
+curves = figure_plots(all_matrices)
+
+curves[curves.phase == 'late'].pivot(index='pos', columns='mouse_id', values='pvc').to_clipboard(index=False, header=False)
 
 #%% Calculate and plot PVC curves
 

@@ -158,23 +158,23 @@ for mouse in mice:
         data = [(hheise_behav.VRSession.VRTrial & key & f'trial_id={idx}').get_binned_licking(bin_size=1) for idx in
                 trials]
         data = np.vstack(data)
-        data[data > 0] = 1  # we only care about that a bin had a lick, not how many
+        # data[data > 0] = 1  # we only care about that a bin had a lick, not how many
         binary_licks.append(data)
 
     # Transform dates into days before surgery
     rel_days = np.array([(pk['day'] - surgery_day).days for pk in pks])
 
-    # if 3 not in rel_days:
-    #     rel_days[(rel_days == 2) | (rel_days == 4)] = 3
-    # rel_days[(rel_days == 5) | (rel_days == 6) | (rel_days == 7)] = 6
-    # rel_days[(rel_days == 8) | (rel_days == 9) | (rel_days == 10)] = 9
-    # rel_days[(rel_days == 11) | (rel_days == 12) | (rel_days == 13)] = 12
-    # rel_days[(rel_days == 14) | (rel_days == 15) | (rel_days == 16)] = 15
-    # rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
-    # rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
-    # rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
-    # if 28 not in rel_days:
-    #     rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
+    if 3 not in rel_days:
+        rel_days[(rel_days == 2) | (rel_days == 4)] = 3
+    rel_days[(rel_days == 5) | (rel_days == 6) | (rel_days == 7)] = 6
+    rel_days[(rel_days == 8) | (rel_days == 9) | (rel_days == 10)] = 9
+    rel_days[(rel_days == 11) | (rel_days == 12) | (rel_days == 13)] = 12
+    rel_days[(rel_days == 14) | (rel_days == 15) | (rel_days == 16)] = 15
+    rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
+    rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
+    rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
+    if 28 not in rel_days:
+        rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
 
     rel_sess = np.arange(len(rel_days)) - np.argmax(np.where(rel_days <= 0, rel_days, -np.inf))
 
@@ -195,7 +195,7 @@ df = df[df['rel_sess'] <= 9]
 df_filt = df[['mouse_id', 'rel_days', 'licks']]
 df_pivot = df_filt.pivot(columns='rel_days', index='mouse_id', values='licks')
 
-df_pivot.to_pickle('.\\20230726\\bin_licks_complete.pickle')
+df_pivot.to_pickle('.\\20230726\\absolute_bin_licks.pickle')
 
 #%% Sphere location
 
@@ -373,3 +373,29 @@ save_dict(decon, 'neural_data\\decon')
 save_dict(coords, 'neural_data\\cell_coords')
 save_dict(pf_com, 'neural_data\\pf_com')
 save_dict(pf_sd, 'neural_data\\pf_sd')
+
+
+# Stability classes
+from preprint import stable_unstable_classification as suc
+from preprint import data_cleaning as dc
+
+spatial_maps = dc.load_data('spat_dff_maps')
+is_pc_old = dc.load_data('is_pc')
+
+stability_classes = suc.classify_stability(is_pc_list=is_pc_old, spatial_map_list=spatial_maps, for_prism=False,
+                                           ignore_lost=True)
+
+stability_classes_neurons = {}
+for mouse_str, mouse_data in stability_classes.groupby('mouse_id'):
+    mouse_df = {}
+    for col in is_pc[int(mouse_str.split("_")[0])].columns:
+        if col <= 0:
+            mouse_df[col] = mouse_data[mouse_data.period == 'pre']['classes'].iloc[0]
+        elif col > 7:
+            mouse_df[col] = mouse_data[mouse_data.period == 'late']['classes'].iloc[0]
+        else:
+            mouse_df[col] = mouse_data[mouse_data.period == 'early']['classes'].iloc[0]
+    stability_classes_neurons[int(mouse_str.split("_")[0])] = pd.DataFrame(mouse_df)
+save_dict(stability_classes_neurons, 'neural_data\\stability_classes')
+
+
