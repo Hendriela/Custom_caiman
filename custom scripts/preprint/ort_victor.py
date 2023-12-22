@@ -49,4 +49,5 @@ def summarize_ort(table):
 #%%
 ort = summarize_ort(data)
 
-ort[(ort.group == 'micro') & (ort.experiment == 'testing')].pivot(columns='mouse_id', index='state', values='disc_index_o2_sum').to_clipboard(index=False, header=False)
+ort[(ort.state == 'Healthy') & (ort.experiment == 'testing')].pivot(columns='mouse_id', index='group',
+                                                                        values='disc_index_o2').to_clipboard(index=True, header=True)

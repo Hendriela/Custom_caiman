@@ -553,5 +553,21 @@ plt.legend()
 plt.show()
 
 
+#%% Plot heatmap of decoder confidence for example trial
 
+key = dict(mouse_id=114, day='2022-08-09', bayesian_id=1, trial_id=2)
 
+pos_true, pos_pred, confidence = (hheise_decoder.BayesianDecoderWithinSession.Trial & key).fetch1('pos_true', 'pos_predict', 'confidence')
+
+conf_rescale = (1/-confidence).T
+conf_norm = (confidence - np.nanmin(confidence, axis=1)[..., np.newaxis]) / (np.nanmax(confidence, axis=1) - np.nanmin(confidence, axis=1))[..., np.newaxis]
+conf_norm = (confidence/ np.nansum(-confidence, axis=1)[..., np.newaxis])
+
+plt.figure()
+ax = sns.heatmap(conf_rescale, vmin=0, vmax=0.06, cmap='magma')
+ax.invert_yaxis()
+
+plt.figure()
+ax = sns.heatmap(conf_norm.T, cmap='magma')
+ax.invert_yaxis()
+plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\bayesian_decoder\M114_20220809_trial2_confidence_norm.png')
