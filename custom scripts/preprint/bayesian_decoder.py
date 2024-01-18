@@ -564,8 +564,9 @@ conf_norm = (confidence - np.nanmin(confidence, axis=1)[..., np.newaxis]) / (np.
 conf_norm = (confidence/ np.nansum(-confidence, axis=1)[..., np.newaxis])
 
 plt.figure()
-ax = sns.heatmap(conf_rescale, vmin=0, vmax=0.06, cmap='magma')
+ax = sns.heatmap(conf_rescale, vmin=0, vmax=0.06, cmap='viridis')
 ax.invert_yaxis()
+plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\figure_stability\decoder\M114_20220809_trial2_confidence_viridis.png')
 
 plt.figure()
 ax = sns.heatmap(conf_norm.T, cmap='magma')

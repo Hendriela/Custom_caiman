@@ -440,7 +440,7 @@ for mouse in mice:
     sessions_com = []
     for sess_key in restrictions:
 
-        # raw_dff, mask_ids = (common_img.Segmentation & sess_key).get_traces('dff', include_id=True)
+        raw_dff, mask_ids = (common_img.Segmentation & sess_key).get_traces('dff', include_id=True)
         # raw_decon = (common_img.Segmentation & sess_key).get_traces('decon', decon_id=1)
         #
         rel_day = (datetime.strptime(sess_key['day'], '%Y-%m-%d').date() - microsphere_date).days
@@ -459,11 +459,11 @@ for mouse in mice:
         # dff_run = dff_norm[:, running_mask]
         # decon_run = decon_norm[:, running_mask]
 
-        # # Get place cell identity
-        # pc_masks = (hheise_placecell.PlaceCell.ROI & sess_key & 'place_cell_id=2' & 'is_place_cell=1'
-        #             & 'corridor_type=0').fetch('mask_id')
-        # is_pc_mask = np.zeros(len(mask_ids), dtype=int)
-        # is_pc_mask[np.isin(mask_ids, pc_masks)] = 1
+        # Get place cell identity
+        pc_masks = (hheise_placecell.PlaceCell.ROI & sess_key & 'place_cell_id=2' & 'is_place_cell=1'
+                    & 'corridor_type=0').fetch('mask_id')
+        is_pc_mask = np.zeros(len(mask_ids), dtype=int)
+        is_pc_mask[np.isin(mask_ids, pc_masks)] = 1
 
         coms = (common_img.Segmentation.ROI & sess_key & 'accepted=1').fetch('com')
 
@@ -471,7 +471,7 @@ for mouse in mice:
         # sessions_dff_run.append(array_to_series(dff_run, name=rel_day))
         # sessions_decon_normal.append(array_to_series(decon_norm, name=rel_day))
         # sessions_decon_run.append(array_to_series(decon_run, name=rel_day))
-        # sessions_pc.append(pd.Series(is_pc_mask, name=rel_day))
+        sessions_pc.append(pd.Series(is_pc_mask, name=rel_day))
         sessions_com.append(pd.Series(coms, name=rel_day))
 
     dff_normal[mouse] = pd.DataFrame(sessions_dff_normal).T
