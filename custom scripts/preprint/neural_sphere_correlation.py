@@ -11,6 +11,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy import stats
+import statsmodels.api as sm
 
 from util import helper
 from schema import hheise_placecell, hheise_behav, hheise_hist, hheise_pvc, hheise_decoder, common_mice, common_img
@@ -245,7 +246,7 @@ def plot_exclusion_ci(df_true, df_shuff):
 
 
 #%% Load basic data
-spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="spheres"' &
+spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="spheres"' & 'username="hheise"' &
                         f'mouse_id in {helper.in_query(mice)}').proj(spheres='count_extrap').fetch('mouse_id', 'spheres', as_dict=True))
 injection = pd.DataFrame((common_mice.Surgery & 'username="hheise"' & f'mouse_id in {helper.in_query(mice)}' &
                           'surgery_type="Microsphere injection"').fetch('mouse_id', 'surgery_date',as_dict=True))
@@ -364,7 +365,7 @@ g.map_dataframe(sns.scatterplot, x='spheres', y='stability').set(xscale='log')
 g = sns.FacetGrid(stab[stab.rel_day_align.isin(single_days)], col='rel_day_align', col_wrap=4)
 g.map_dataframe(sns.scatterplot, x='si_binned_run', y='stability')
 
-#%% Firing rate stability
+#%% Firing rate
 fr = pd.DataFrame((common_img.ActivityStatistics.ROI * common_img.Segmentation.ROI &
                    'accepted=1').fetch('mouse_id', 'day', 'rate_spikes', as_dict=True))
 fr = fr.groupby(['mouse_id', 'day']).agg('mean').reset_index()
@@ -385,3 +386,91 @@ g = sns.FacetGrid(fr[fr.rel_day_align.isin(single_days)], col='rel_day_align', c
 g.map_dataframe(sns.scatterplot, x='spheres', y='rate_spikes').set(xscale='log')
 g = sns.FacetGrid(fr[fr.rel_day_align.isin(single_days)], col='rel_day_align', col_wrap=4)
 g.map_dataframe(sns.scatterplot, x='si_binned_run', y='rate_spikes')
+
+
+#%% Performance - Metric - Correlation
+
+# def perform_linear_regressions(df):
+#     for phase, dataframe in df.groupby('phase'):
+#
+#         clean_frame = dataframe.dropna(axis=0)
+#
+#         vars = clean_frame.loc[:, ~clean_frame.columns.isin(['mouse_id', 'phase', 'si_binned_run'])]
+#         perf = clean_frame['si_binned_run']
+#
+#         model = sm.OLS(perf, sm.add_constant(vars['accuracy'])).fit()
+#
+#         result = stats.pearsonr(perf, vars['accuracy'])
+#         ci = result.confidence_interval(0.95)
+#
+#
+#         # x = sm.add_constant(clean_frame.loc[:, ~clean_frame.columns.isin(['mouse_id', 'phase', 'si_binned_run'])])
+#         # y = clean_frame['si_binned_run']
+#         #
+#         # model = sm.OLS(y, x).fit()
+#         # print(model.summary())
+#
+# def test_two_corr_coef(r1, n1, r2, n2):
+#
+#     def z_transform(r):
+#         return 0.5 * np.log((1+r)/(1-r))
+#
+#     # Z-transform correlation coefficients
+#     z_r1 = z_transform(r1)
+#     z_r2 = z_transform(r2)
+#
+#     # Standard error of the difference
+#     se_z = np.sqrt((1/(n1-3)) + (1/(n2-3)))
+#
+#     # Z statistic
+#     z = (z_r1 - z_r2)/se_z
+
+def run_glm(df):
+
+    for phase, dataframe in df.groupby('phase'):
+
+            clean_frame = dataframe.dropna(axis=0)
+
+            x = sm.add_constant(clean_frame.loc[:, ~clean_frame.columns.isin(['mouse_id', 'phase', 'si_binned_run'])])
+            y = clean_frame['si_binned_run']
+
+            results = sm.GLM(y, x, family=sm.families.Gaussian()).fit()
+            print(results.summary())
+
+            x_std = x.apply(lambda col: (col - col.mean())/col.std(), axis=0)
+            x_std['const'] = x['const']
+            y_std = (y - y.mean())/y.std()
+
+            results_std = sm.OLS(y, x).fit()
+            print(results_std.summary())
+
+
+
+merge_cols = ['mouse_id', 'day', 'spheres', 'si_binned_run', 'surgery_date', 'rel_day', 'rel_day_align']
+big_merge = pd.merge(decoder, pvc, on=merge_cols, how='outer', suffixes=(None, '_pvc'))
+big_merge = pd.merge(big_merge, pcr, on=merge_cols, how='outer', suffixes=(None, '_pcr'))
+big_merge = pd.merge(big_merge, stab, on=merge_cols, how='outer', suffixes=(None, '_stab'))
+big_merge = pd.merge(big_merge, fr, on=merge_cols, how='outer', suffixes=(None, '_fr'))
+
+big_merge['index'] = big_merge.apply(func=lambda x: f'{x.mouse_id}/{x.day}/{x.phase}', axis=1)
+
+# metrics = ['accuracy', 'sensitivity_rz', 'min_slope', 'max_pvc', 'place_cell_ratio', 'stability', 'rate_spikes']
+# big_merge.set_index('index')[['si_binned_run', *metrics]].to_clipboard()
+
+### Further processing
+# Exclude novel corridor dates and M94
+big_merge = big_merge[big_merge.day < pd.to_datetime("2022-09-09").date()]
+big_merge = big_merge[big_merge.mouse_id != 94]
+# Fix nan phases
+big_merge['phase'] = big_merge['phase'].fillna('pre')
+
+# Compute mouse-phase average
+avg_merge = big_merge.groupby(['mouse_id', 'phase']).agg({'accuracy': 'mean', 'sensitivity_rz': 'mean',
+                                                          'si_binned_run': 'mean', 'min_slope': 'mean', 'max_pvc': 'mean',
+                                                          'place_cell_ratio': 'mean', 'stability': 'mean', 'rate_spikes': 'mean',
+                                                          }).reset_index()
+avg_merge.pivot(index=['mouse_id', 'si_binned_run'], columns='phase', values='min_slope').loc[:, ['pre', 'early', 'late']].reset_index().to_clipboard(index=False)
+
+# Put metrics into GLM
+
+
