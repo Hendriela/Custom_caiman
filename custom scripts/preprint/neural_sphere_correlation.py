@@ -15,6 +15,7 @@ import statsmodels.api as sm
 
 from util import helper
 from schema import hheise_placecell, hheise_behav, hheise_hist, hheise_pvc, hheise_decoder, common_mice, common_img
+from preprint import data_cleaning as dc
 
 mice = [33, 41,  # Batch 3
         63, 69,  # Batch 5
@@ -22,53 +23,6 @@ mice = [33, 41,  # Batch 3
         108, 110, 111, 112, 113, 114, 115, 116, 122]  # Batch 8
 exercise = [83, 85, 89, 90, 91] # Mice that received physical exercise training
 single_days = [-4, -3, -2, -1, 0, 3, 6, 9, 12, 15, 18]  # days after 18 have few mice with many
-
-
-def merge_dfs(df, sphere_df, inj_df, vr_df=None):
-
-    df_merge = pd.merge(df, sphere_df, on='mouse_id')
-    df_merge = pd.merge(df_merge, inj_df, on='mouse_id')
-
-    df_merge['rel_day'] = df_merge.apply(lambda x: (x['day'] - x['surgery_date']).days, axis=1)
-
-    rel_days_align = []
-    for mouse_id, mouse_df in df_merge.groupby('mouse_id'):
-        rel_days = mouse_df.rel_day.copy()
-        if 3 not in rel_days:
-            rel_days[(rel_days == 2) | (rel_days == 4)] = 3
-        rel_days[(rel_days == 5) | (rel_days == 6) | (rel_days == 7)] = 6
-        rel_days[(rel_days == 8) | (rel_days == 9) | (rel_days == 10)] = 9
-        rel_days[(rel_days == 11) | (rel_days == 12) | (rel_days == 13)] = 12
-        rel_days[(rel_days == 14) | (rel_days == 15) | (rel_days == 16)] = 15
-        rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
-        rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
-        rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
-        if 28 not in rel_days:
-            rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
-        rel_sess = np.arange(len(rel_days)) - np.argmax(np.where(rel_days <= 0, rel_days, -np.inf))
-        rel_days[(-5 < rel_sess) & (rel_sess < 1)] = np.arange(-np.sum((-5 < rel_sess) & (rel_sess < 1))+1, 1)
-        rel_days.name = 'rel_day_align'
-        rel_days_align.append(rel_days)
-    rel_days_align = pd.concat(rel_days_align)
-    df_merge = df_merge.join(rel_days_align)
-
-    # Do not analyze day 1
-    df_merge = df_merge[df_merge.rel_day_align != 1]
-
-    def get_phase(row):
-        if row.rel_day_align <= 0:
-            return 'pre'
-        elif row.rel_day_align <= 7:
-            return 'early'
-        else:
-            return 'late'
-    df_merge['phase'] = df_merge.apply(get_phase, axis=1)
-
-    if vr_df is not None:
-        df_merge = pd.merge(df_merge, vr_df, on=['mouse_id', 'day'])
-
-    return df_merge
-
 
 def correlate_metric(df, y_metric, x_metric='spheres', time_name='rel_day_align', plotting=False, ax=None,
                      exclude_mice=None, include_mice=None, neg_corr=False, ci_level=0.95):
@@ -258,7 +212,7 @@ vr_performance = pd.DataFrame((hheise_behav.VRPerformance & f'mouse_id in {helpe
 metrics = ['accuracy', 'mae_quad', 'sensitivity_rz']
 decoder = pd.DataFrame((hheise_decoder.BayesianDecoderWithinSession() &
                         'bayesian_id=1').fetch('mouse_id', 'day', *metrics, as_dict=True))
-decoder = merge_dfs(df=decoder, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
+decoder = dc.merge_dfs(df=decoder, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
 # Plot scatter plots
 data = decoder[decoder.rel_day_align.isin(single_days)]
@@ -299,7 +253,7 @@ decoder_corr_ex.pivot(index='day', columns='metric', values='corr_p').to_clipboa
 
 #%% VR Performance
 
-performance = merge_dfs(df=vr_performance, sphere_df=spheres, inj_df=injection)
+performance = dc.merge_dfs(df=vr_performance, sphere_df=spheres, inj_df=injection)
 
 g = sns.FacetGrid(performance[performance.rel_day_align.isin(single_days)], col='rel_day_align', col_wrap=4)
 g.map_dataframe(sns.scatterplot, x='spheres', y='si_binned_run').set(xscale='log')
@@ -322,7 +276,7 @@ metrics = ['max_pvc', 'min_slope', 'pvc_rel_dif']
 pvc = pd.DataFrame((hheise_pvc.PvcCrossSessionEval() * hheise_pvc.PvcCrossSession & 'locations="all"' &
                     'circular=0').fetch('mouse_id', 'phase', 'day', 'max_pvc', 'min_slope', 'pvc_rel_dif', as_dict=True))
 pvc.rename(columns={'phase': 'phase_orig'}, inplace=True)
-pvc = merge_dfs(df=pvc, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
+pvc = dc.merge_dfs(df=pvc, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
 pvc_corr = pd.concat([correlate_metric(pvc, met, time_name='phase_orig') for met in metrics], ignore_index=True)
 pvc_corr.pivot(index='day', columns='y_metric', values='corr_p').loc[['pre', 'pre_post', 'early', 'late']].to_clipboard()
@@ -330,7 +284,7 @@ pvc_corr.pivot(index='day', columns='y_metric', values='corr_p').loc[['pre', 'pr
 #%% Place cell ratio
 pcr = pd.DataFrame((hheise_placecell.PlaceCell() & 'corridor_type=0' &
                     'place_cell_id=2').fetch('mouse_id', 'day', 'place_cell_ratio', as_dict=True))
-pcr = merge_dfs(df=pcr, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
+pcr = dc.merge_dfs(df=pcr, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
 pcr_corr = correlate_metric(pcr, y_metric='place_cell_ratio')
 pcr_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard()
@@ -346,7 +300,7 @@ plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
 stab = pd.DataFrame((hheise_placecell.SpatialInformation.ROI() & 'corridor_type=0' &
                     'place_cell_id=2').fetch('mouse_id', 'day', 'stability', as_dict=True))
 stab = stab.groupby(['mouse_id', 'day']).agg('mean').reset_index()
-stab = merge_dfs(df=stab, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
+stab = dc.merge_dfs(df=stab, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
 stab_corr = correlate_metric(stab, y_metric='stability')
 stab_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False, header=True)
@@ -369,7 +323,7 @@ g.map_dataframe(sns.scatterplot, x='si_binned_run', y='stability')
 fr = pd.DataFrame((common_img.ActivityStatistics.ROI * common_img.Segmentation.ROI &
                    'accepted=1').fetch('mouse_id', 'day', 'rate_spikes', as_dict=True))
 fr = fr.groupby(['mouse_id', 'day']).agg('mean').reset_index()
-fr = merge_dfs(df=fr, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
+fr = dc.merge_dfs(df=fr, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
 fr_corr = correlate_metric(fr, y_metric='rate_spikes')
 fr_corr.pivot(index='day', columns='y_metric', values='corr').to_clipboard(index=False, header=True)
@@ -470,6 +424,8 @@ avg_merge = big_merge.groupby(['mouse_id', 'phase']).agg({'accuracy': 'mean', 's
                                                           'place_cell_ratio': 'mean', 'stability': 'mean', 'rate_spikes': 'mean',
                                                           }).reset_index()
 avg_merge.pivot(index=['mouse_id', 'si_binned_run'], columns='phase', values='min_slope').loc[:, ['pre', 'early', 'late']].reset_index().to_clipboard(index=False)
+
+avg_merge.pivot(index='mouse_id', columns='phase', values='si_binned_run').loc[:, ['pre', 'early', 'late']].reset_index().to_clipboard(index=False)
 
 # Put metrics into GLM
 
