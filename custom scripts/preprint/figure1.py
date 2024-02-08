@@ -623,7 +623,7 @@ def plot_matched_cells_across_sessions_correlation_split(plot_sessions: List[int
                                                          quantiles: Tuple[float, float] = (0.25, 0.75),
                                                          rel_noncoding_size: int = 2, cross_validation: bool=False,
                                                          normalize: Optional[str] = None, titles: Optional[Iterable] = None,
-                                                         smooth: Optional[int] = None, cmap='turbo') -> plt.Figure:
+                                                         smooth: Optional[int] = None, gaussian_sigma: Optional[int] = None, cmap='turbo') -> plt.Figure:
     """
     Plot traces of matched neurons across sessions. Neurons are sorted by location of max activity in a given session.
 
@@ -646,6 +646,26 @@ def plot_matched_cells_across_sessions_correlation_split(plot_sessions: List[int
     Returns:
         Matplotlib figure
     """
+
+    def plot_heatmap(data_to_plot, axis, group_idx, day_idx, group_name):
+        sns.heatmap(data_to_plot, ax=axis, cbar=False, vmin=vmin, vmax=vmax, cmap=cmap)
+
+        for z in zones:
+            axis.axvline(z[0], linestyle='--', c='green')
+            axis.axvline(z[1], linestyle='--', c='green')
+
+        if day_idx != 0:
+            axis.set_yticks([])
+        else:
+            axis.set_ylabel(group_name, fontsize=15, labelpad=-3)
+
+        axis.set_xticks([])
+        if group_idx == len(groups) - 1:
+            axis.set_xlabel('Track position [m]', fontsize=15)
+            # ax.set_title(f'{traces_sort.shape[1]-idx}d prestroke')
+
+        if (group_idx == 0) and (titles is not None):
+            axis.set_title(titles[day_idx])
 
     # Build arrays
     sort_session_idx = np.where(np.array(plot_sessions) == sort_session)[0][0]
@@ -751,6 +771,7 @@ def plot_matched_cells_across_sessions_correlation_split(plot_sessions: List[int
 
     # For each group, sort and split cells, and plot traces
     for j, group in enumerate(groups):
+
         if group in coarse.group.values:
             df_filt = df[df.coarse == group]
         elif group in fine.group.values:
@@ -842,32 +863,27 @@ def plot_matched_cells_across_sessions_correlation_split(plot_sessions: List[int
         # Plot traces for each day as heatmaps
         for i in range(stacked_data.shape[1]):
 
-            # sns.heatmap(stacked_data[:, i], ax=ax[j, i], cbar=False, cmap='turbo')
-            sns.heatmap(ndimage.gaussian_filter1d(stacked_data[:, i], axis=1, sigma=1), ax=ax[j, i], cbar=False,
-                        vmin=vmin, vmax=vmax, cmap=cmap)
-
-            for z in zones:
-                ax[j, i].axvline(z[0], linestyle='--', c='green')
-                ax[j, i].axvline(z[1], linestyle='--', c='green')
-
-            if i != 0:
-                ax[j, i].set_yticks([])
+            if gaussian_sigma is not None:
+                plot_data = ndimage.gaussian_filter1d(stacked_data[:, i], axis=1, sigma=gaussian_sigma)
             else:
-                ax[j, i].set_ylabel(group, fontsize=15, labelpad=-3)
+                plot_data = stacked_data[:, i]
 
-            ax[j, i].set_xticks([])
-            if j == len(groups) - 1:
-                ax[j, i].set_xlabel('Track position [m]', fontsize=15)
-                # ax.set_title(f'{traces_sort.shape[1]-idx}d prestroke')
+            if normalize == 'session':
+                plot_data = (plot_data-np.nanmin(plot_data))/(np.nanmax(plot_data)-np.nanmin(plot_data))
+                vmin = 0
+                vmax = 1
 
-            if (j == 0) and (titles is not None):
-                ax[j, i].set_title(titles[i])
+            # sns.heatmap(stacked_data[:, i], ax=ax[j, i], cbar=False, cmap='turbo')
+            if len(groups) == 1:
+                plot_heatmap(plot_data, axis=ax[i], group_idx=j, day_idx=i, group_name=group)
+            else:
+                plot_heatmap(plot_data, axis=ax[j, i], group_idx=j, day_idx=i, group_name=group)
 
     return fig
 
 
 # Plot matched cells across days, split into groups
-plot_matched_cells_across_sessions_correlation_split(plot_sessions=[-2, -1, 0, 3, 6, 12, 15], groups=("Stroke", "Control"),
-                                                     normalize=None, titles=[-2, -1, 0, 3, 6, 12, 15])
-plt.savefig(os.path.join(folder, 'figure1\\stable_unstable_crosssession_smooth_nocrossval.svg'))
+plot_matched_cells_across_sessions_correlation_split(plot_sessions=[-2, -1, 0, 3, 6, 12, 15], groups=("Stroke",),
+                                                     normalize='all', gaussian_sigma=1, titles=[-2, -1, 0, 3, 6, 12, 15])
+plt.savefig(os.path.join(folder, 'figure1\\stable_unstable_crosssession_smooth_nocrossval_session_normalized_onlyStroke.png'))
 
