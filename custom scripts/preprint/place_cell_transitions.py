@@ -113,10 +113,13 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
 
                     if rel_days[next_day_idx] <= 0:
                         pc_trans['pre'][i] = pc_trans['pre'][i] + mat
+                        # print(f'Day {rel_days[next_day_idx]} sorted under "Pre"')
                     elif rel_days[next_day_idx] <= 7:
                         pc_trans['early'][i] = pc_trans['early'][i] + mat
+                        # print(f'Day {rel_days[next_day_idx]} sorted under "Early"')
                     else:
                         pc_trans['late'][i] = pc_trans['late'][i] + mat
+                        # print(f'Day {rel_days[next_day_idx]} sorted under "Late"')
 
                     # Split PC-PC into stable (pf_idx overlap) and unstable PC transitions
                     pc_pc_idx = (day1_pc + day2_pc) == 4
@@ -260,6 +263,39 @@ def transition_matrix_to_prism(matrix_df: pd.DataFrame, phase, include_lost=Fals
     return df
 
 
+def compute_kullback_leibler_div(dist_true, dist_rng, include_lost=False, with_stable=False):
+    """ Compute Kullback-Leibler-Divergence of True and Shuffled transition distributions. """
+
+    def preprocess_matrix(arr, incl_lost):
+        """ Filters and normalizes a transition matrix. """
+        if not incl_lost:
+            arr = arr[1:, 1:]
+
+        # Transform counts to probabilities
+        return arr / arr.sum()
+
+    # Define which columns of the dataframes to use
+    cols = list(dist_true.columns[1:4])
+    if with_stable:
+        cols = ['stab_'+col for col in cols]
+
+    # Perform computation row-wise (for each mouse) and column-wise (for each phase)
+    kl_df = []
+    for row_idx in range(len(dist_true)):
+        for phase in cols:
+
+            # Extract transition matrices
+            true_arr = preprocess_matrix(dist_true.loc[row_idx, phase], incl_lost=include_lost)
+            rng_arr = preprocess_matrix(dist_rng.loc[row_idx, phase], incl_lost=include_lost)
+
+            # Compute Kullback-Leibler divergence between true and shuffled distributions
+            # If the observed probability P(x) is 0, also the contribution of that transition is 0
+            kld = np.sum([n1 * np.log2(n1 / n2) if n1 > 0 else 0 for n1, n2 in zip(true_arr.flatten(), rng_arr.flatten())])
+            kl_df.append(pd.DataFrame([dict(mouse_id=dist_true.loc[row_idx, 'mouse_id'], phase=phase.split('_')[-1],
+                                            kld=kld)]))
+    return pd.concat(kl_df)
+
+
 def plot_shuffled_data(true_df, rng_df, stable=False, norm=None, include_lost=False, statistic='percentile',
                        directory=None):
 
@@ -375,12 +411,20 @@ def plot_shuffled_data(true_df, rng_df, stable=False, norm=None, include_lost=Fa
 pf_idx = dc.load_data('pf_idx')
 is_pc = dc.load_data('is_pc')
 
-# pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
-pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
-pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=50, avg_mat=True)
+pc_transition_old = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
+pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, align_days=True)
+# Many iterations (>500) is needed to get at least one of the more unlikely transitions)
+pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=1000, avg_mat=True, align_days=True)
 
 
+transition_matrix_to_prism(matrix_df=pc_transition, phase='late', include_lost=False, with_stable=False,
+                           norm='forward').to_clipboard(index=True, header=True)
 transition_matrix_to_prism(matrix_df=pc_transition_rng, phase='late', include_lost=False, with_stable=False,
-                           norm='forward').to_clipboard(index=True, header=False)
+                           norm='forward').to_clipboard(index=True, header=True)
 
 plot_shuffled_data(true_df=pc_transition, rng_df=pc_transition_rng, directory=r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\place_cell_transitions')
+
+
+# Kullback-Leibler divergence between true and shuffled distributions
+kl_div = compute_kullback_leibler_div(dist_true=pc_transition, dist_rng=pc_transition_rng)
+kl_div.pivot(index='phase', columns='mouse_id', values='kld').loc[['pre', 'early', 'late']].to_clipboard(index=True, header=True)
