@@ -384,13 +384,18 @@ save_dict(pf_sd, 'neural_data\\pf_sd')
 from preprint import stable_unstable_classification as suc
 from preprint import data_cleaning as dc
 
+with open(os.path.join(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data',
+                       f'is_pc.pkl'), 'rb') as file:
+    is_pc = pickle.load(file)
+
 spatial_maps = dc.load_data('spat_dff_maps')
 is_pc_old = dc.load_data('is_pc')
 
 stability_classes = suc.classify_stability(is_pc_list=is_pc_old, spatial_map_list=spatial_maps, for_prism=False,
-                                           ignore_lost=True)
+                                           ignore_lost=True, align_days=True)
 
 stability_classes_neurons = {}
+stability_classes_neurons_aligned = {}
 for mouse_str, mouse_data in stability_classes.groupby('mouse_id'):
     mouse_df = {}
     for col in is_pc[int(mouse_str.split("_")[0])].columns:
@@ -400,9 +405,30 @@ for mouse_str, mouse_data in stability_classes.groupby('mouse_id'):
             mouse_df[col] = mouse_data[mouse_data.period == 'late']['classes'].iloc[0]
         else:
             mouse_df[col] = mouse_data[mouse_data.period == 'early']['classes'].iloc[0]
-    stability_classes_neurons[int(mouse_str.split("_")[0])] = pd.DataFrame(mouse_df)
-save_dict(stability_classes_neurons, 'neural_data\\stability_classes')
+    mouse_df = pd.DataFrame(mouse_df)
+    stability_classes_neurons[int(mouse_str.split("_")[0])] = mouse_df.copy()
 
+    rel_dates = np.array(mouse_df.columns)
+    if 3 not in rel_dates:
+        rel_dates[(rel_dates == 2) | (rel_dates == 4)] = 3
+    rel_dates[(rel_dates == 5) | (rel_dates == 6) | (rel_dates == 7)] = 6
+    rel_dates[(rel_dates == 8) | (rel_dates == 9) | (rel_dates == 10)] = 9
+    rel_dates[(rel_dates == 11) | (rel_dates == 12) | (rel_dates == 13)] = 12
+    rel_dates[(rel_dates == 14) | (rel_dates == 15) | (rel_dates == 16)] = 15
+    rel_dates[(rel_dates == 17) | (rel_dates == 18) | (rel_dates == 19)] = 18
+    rel_dates[(rel_dates == 20) | (rel_dates == 21) | (rel_dates == 22)] = 21
+    rel_dates[(rel_dates == 23) | (rel_dates == 24) | (rel_dates == 25)] = 24
+    if 28 not in rel_dates:
+        rel_dates[(rel_dates == 26) | (rel_dates == 27) | (rel_dates == 28)] = 27
+
+    # Uncomment this code if prestroke days should also be aligned (probably not good nor necessary)
+    rel_sess = np.arange(len(rel_dates)) - np.argmax(np.where(rel_dates <= 0, rel_dates, -np.inf))
+    rel_dates[(-5 < rel_sess) & (rel_sess < 1)] = np.arange(-np.sum((-5 < rel_sess) & (rel_sess < 1)) + 1, 1)
+    mouse_df.columns = rel_dates
+    stability_classes_neurons_aligned[int(mouse_str.split("_")[0])] = mouse_df
+
+save_dict(stability_classes_neurons, 'neural_data\\stability_classes')
+save_dict(stability_classes_neurons_aligned, 'neural_data\\stability_classes_aligned')
 
 
 #%% UNMATCHED DATA
@@ -598,4 +624,22 @@ save_dict({k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray
 save_dict({k: v.applymap(lambda x: x.astype(np.float16) if type(x) == np.ndarray else x) for k, v in decon_running.items()},
           'decon_tracked_only_running')
 
+#%% Load data for examination
 
+with open(os.path.join(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data',
+                       f'spatial_activity_maps_dff.pkl'), 'rb') as file:
+    spat = pickle.load(file)
+with open(os.path.join(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data',
+                       f'stability_classes.pkl'), 'rb') as file:
+    stab_classes = pickle.load(file)
+with open(os.path.join(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data',
+                       f'is_pc.pkl'), 'rb') as file:
+    is_pc = pickle.load(file)
+
+spat41 = spat[85]
+stab41 = stab_classes[85]
+pc41 = is_pc[85]
+
+spat_mask = np.array(spat41.isna())
+pc_mask = np.array(pc41.isna())
+np.array_equal(spat_mask, pc_mask)

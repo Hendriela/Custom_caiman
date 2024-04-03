@@ -81,3 +81,69 @@ for i, ax in enumerate(axes.flatten()):
         ax.text(0.99, 0.95, f'r={corr.statistic:.3f}\np={corr.pvalue:.3f}', transform=ax.transAxes, c=text_color,
                 verticalalignment='top', horizontalalignment='right')
 
+#%% running speed dif
+
+import numpy as np
+import pandas as pd
+from schema import hheise_hist, common_mice, hheise_behav
+from util import helper
+from preprint import data_cleaning as dc
+
+mice = [33, 41,  # Batch 3
+        63, 69,  # Batch 5
+        83, 85, 86, 89, 90, 91, 93, 95,  # Batch 7
+        108, 110, 111, 113, 114, 115, 116, 122]  # Batch 8
+
+spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="spheres"' & 'username="hheise"' &
+                        f'mouse_id in {helper.in_query(mice)}').proj(spheres='count_extrap').fetch('mouse_id', 'spheres', as_dict=True))
+injection = pd.DataFrame((common_mice.Surgery & 'username="hheise"' & f'mouse_id in {helper.in_query(mice)}' &
+                          'surgery_type="Microsphere injection"').fetch('mouse_id', 'surgery_date',as_dict=True))
+injection.surgery_date = injection.surgery_date.dt.date
+
+mean_speed = []
+for mouse in mice:
+    days = (hheise_behav.VRPerformance & f'mouse_id = {mouse}' & 'perf_param_id=0').fetch('day')
+    speed = (hheise_behav.VRPerformance & f'mouse_id = {mouse}' & 'perf_param_id=0').get_mean(attr = 'mean_running_speed')
+    mean_speed.append(pd.DataFrame(dict(mouse_id=mouse, day=days, speed=speed)))
+mean_speed = pd.concat(mean_speed)
+
+speed_df = dc.merge_dfs(df=mean_speed, sphere_df=spheres, inj_df=injection)
+speed_df_all = speed_df.loc[(speed_df.rel_day_align > -60) & (speed_df.rel_day_align < 28)]
+speed_df_baseline = speed_df.loc[(speed_df.rel_day_align > -6) & (speed_df.rel_day_align < 28)]
+
+avg_speed_df_all = speed_df_all.groupby(['mouse_id', 'phase']).agg({'speed': np.nanmean}).reset_index()
+avg_speed_df_baseline = speed_df_baseline.groupby(['mouse_id', 'phase']).agg({'speed': np.nanmean}).reset_index()
+
+avg_speed_df_all.pivot(index='phase', columns='mouse_id', values='speed').loc[['pre', 'early', 'late']].to_clipboard(index=True, header=True)
+avg_speed_df_baseline.pivot(index='phase', columns='mouse_id', values='speed').loc[['pre', 'early', 'late']].to_clipboard(index=False, header=False)
+
+#%% Lick rate
+
+import numpy as np
+import pandas as pd
+from schema import hheise_hist, common_mice, hheise_behav
+from util import helper
+from preprint import data_cleaning as dc
+
+mice = [33, 41,  # Batch 3
+        63, 69,  # Batch 5
+        83, 85, 86, 89, 90, 91, 93, 95,  # Batch 7
+        108, 110, 111, 113, 114, 115, 116, 122]  # Batch 8
+
+spheres = pd.DataFrame((hheise_hist.MicrosphereSummary.Metric & 'metric_name="spheres"' & 'username="hheise"' &
+                        f'mouse_id in {helper.in_query(mice)}').proj(spheres='count_extrap').fetch('mouse_id', 'spheres', as_dict=True))
+injection = pd.DataFrame((common_mice.Surgery & 'username="hheise"' & f'mouse_id in {helper.in_query(mice)}' &
+                          'surgery_type="Microsphere injection"').fetch('mouse_id', 'surgery_date',as_dict=True))
+injection.surgery_date = injection.surgery_date.dt.date
+
+lick_rate = pd.DataFrame((hheise_behav.AvgLickRate & f'mouse_id in {helper.in_query(mice)}').fetch('mouse_id', 'day', 'lick_rate_normal', as_dict=True))
+
+lick_df = dc.merge_dfs(df=lick_rate, sphere_df=spheres, inj_df=injection)
+lick_df_all = lick_df.loc[(lick_df.rel_day_align > -60) & (lick_df.rel_day_align < 28)]
+lick_df_baseline = lick_df.loc[(lick_df.rel_day_align > -6) & (lick_df.rel_day_align < 28)]
+
+avg_lick_df_all = lick_df_all.groupby(['mouse_id', 'phase']).agg({'lick_rate_normal': np.nanmean}).reset_index()
+avg_lick_df_baseline = lick_df_baseline.groupby(['mouse_id', 'phase']).agg({'lick_rate_normal': np.nanmean}).reset_index()
+
+avg_lick_df_all.pivot(index='phase', columns='mouse_id', values='lick_rate_normal').loc[['pre', 'early', 'late']].to_clipboard(index=True, header=True)
+avg_lick_df_baseline.pivot(index='phase', columns='mouse_id', values='lick_rate_normal').loc[['pre', 'early', 'late']].to_clipboard(index=False, header=False)

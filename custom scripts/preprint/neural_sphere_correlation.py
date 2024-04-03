@@ -17,6 +17,7 @@ from util import helper
 from schema import hheise_placecell, hheise_behav, hheise_hist, hheise_pvc, hheise_decoder, common_mice, common_img
 from preprint import data_cleaning as dc
 
+
 mice = [33, 41,  # Batch 3
         63, 69,  # Batch 5
         83, 85, 86, 89, 90, 91, 93, 94, 95,  # Batch 7
@@ -297,13 +298,19 @@ plot_simple_exclusion(df_true=corr_true, df_shuff=corr_shuffle)
 plot_exclusion_ci(df_true=corr_true, df_shuff=corr_shuffle)
 
 #%% Within-session stability
+# stab = pd.DataFrame((hheise_placecell.SpatialInformation.ROI() * hheise_placecell.PlaceCell.ROI() & 'corridor_type=0' &
+#                     'place_cell_id=2' & 'is_place_cell=1').fetch('mouse_id', 'day', 'stability', as_dict=True))
 stab = pd.DataFrame((hheise_placecell.SpatialInformation.ROI() & 'corridor_type=0' &
                     'place_cell_id=2').fetch('mouse_id', 'day', 'stability', as_dict=True))
+transform_stab = True   # Whether to transform Fisher-transformed stability values back to correlation coefficients
+if transform_stab:
+    stab['stability'] = np.tanh(stab['stability'])
+
 stab = stab.groupby(['mouse_id', 'day']).agg('mean').reset_index()
 stab = dc.merge_dfs(df=stab, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
 stab_corr = correlate_metric(stab, y_metric='stability')
-stab_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False, header=True)
+stab_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=True, header=True)
 
 stab_corr = correlate_metric(stab, y_metric='stability', x_metric='si_binned_run', neg_corr=True)
 stab_corr.pivot(index='day', columns='y_metric', values='corr_p').to_clipboard(index=False, header=True)
@@ -423,7 +430,7 @@ avg_merge = big_merge.groupby(['mouse_id', 'phase']).agg({'accuracy': 'mean', 's
                                                           'si_binned_run': 'mean', 'min_slope': 'mean', 'max_pvc': 'mean',
                                                           'place_cell_ratio': 'mean', 'stability': 'mean', 'rate_spikes': 'mean',
                                                           }).reset_index()
-avg_merge.pivot(index=['mouse_id', 'si_binned_run'], columns='phase', values='min_slope').loc[:, ['pre', 'early', 'late']].reset_index().to_clipboard(index=False)
+avg_merge.pivot(index=['mouse_id', 'si_binned_run'], columns='phase', values='stability').loc[:, ['pre', 'early', 'late']].reset_index().to_clipboard(index=True)
 
 avg_merge.pivot(index='mouse_id', columns='phase', values='si_binned_run').loc[:, ['pre', 'early', 'late']].reset_index().to_clipboard(index=False)
 

@@ -8,6 +8,7 @@ Created on 07/02/2024 16:49
 import pandas as pd
 import numpy as np
 import seaborn as sns
+import pingouin as pg
 
 from schema import hheise_connectivity, hheise_hist, common_mice, hheise_behav, hheise_grouping
 from util import helper
@@ -32,7 +33,7 @@ group = (hheise_grouping.BehaviorGrouping() & 'cluster="fine"' & 'grouping_id=4'
 group.loc[group.group == "No Deficit", 'group'] = "Sham"
 
 #%%
-metrics = ['skewness', 'perc99',  'avg_corr', 'median_corr', 'avg_corr_pc', 'median_corr_pc']
+metrics = ['skewness', 'perc99', 'perc80', 'avg_corr', 'median_corr', 'avg_corr_pc', 'median_corr_pc']
 conn_data = pd.DataFrame((hheise_connectivity.NeuronNeuronCorrelation & 'trace_type="dff"' &
                           f'mouse_id in {helper.in_query(mice)}').fetch('mouse_id', 'day', *metrics, as_dict=True))
 conn = dc.merge_dfs(df=conn_data, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
@@ -41,7 +42,7 @@ def average_corrcoef(arr):
     return np.tanh(np.nanmean(np.arctanh(arr)))
 
 # Compute mouse averages across phases
-avg_conn = conn.groupby(['mouse_id', 'phase']).agg({'skewness': np.nanmean, 'perc99': average_corrcoef,
+avg_conn = conn.groupby(['mouse_id', 'phase']).agg({'skewness': np.nanmean, 'perc99': average_corrcoef, 'perc80': average_corrcoef,
                                                     'avg_corr': average_corrcoef, 'median_corr': average_corrcoef,
                                                     'avg_corr_pc': average_corrcoef, 'median_corr_pc': average_corrcoef})
 avg_conn = avg_conn.join(group.set_index('mouse_id'), on='mouse_id').reset_index()
@@ -58,5 +59,16 @@ for ax in g.axes[2:]:
 
 #%% Export for prism
 
-avg_conn.pivot(index='phase', columns='mouse_id', values='skewness').loc[['pre', 'early', 'late']].to_clipboard(index=False, header=False)
+avg_conn.pivot(index='phase', columns='mouse_id', values='perc80').loc[['pre', 'early', 'late']].to_clipboard(index=True, header=True)
+
+
+#%% Test 20th percentile functional pair dataset for sphericity
+
+# Import and filter data
+filepath = r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell-pair-fractions-in-correlation-distribution-quantile-0.8.csv'
+data = pd.read_csv(filepath)
+data = data.loc[:, data.iloc[0] == 'above count divided by total count by cell type quantile 0.8']
+nc_nc = data.loc[:, data.iloc[1] == 'non-coding-non-coding'].iloc[2:].set_axis(['pre', 'early', 'late'], axis=1,inplace=True,copy=False)
+nc_pc = data.loc[:, data.iloc[1] == 'non-coding-place-cell'].iloc[2:].set_axis(['pre', 'early', 'late'], axis=1,inplace=True,copy=False)
+pc_pc = data.loc[:, data.iloc[1] == 'place-cell-place-cell'].iloc[2:].set_axis(['pre', 'early', 'late'], axis=1,inplace=True,copy=False)
 
