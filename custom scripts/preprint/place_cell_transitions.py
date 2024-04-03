@@ -91,7 +91,7 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
                         #     mat_shuff.append(func.transition_matrix(mask1=day1_pc, mask2=day2_pc_shuff, num_classes=3, percent=False))
                         # mat = np.stack(mat_shuff)
 
-                        mat = func.transition_matrix(mask1=day1_pc, mask2=rng.permutation(day2_pc),
+                        mat = func.transition_matrix(mask1=rng.permutation(day1_pc), mask2=day2_pc,
                                                      num_classes=3, percent=False)
 
                         # mat_shuff_mean = np.mean(mat_shuff, axis=0)
@@ -263,16 +263,24 @@ def transition_matrix_to_prism(matrix_df: pd.DataFrame, phase, include_lost=Fals
     return df
 
 
-def compute_kullback_leibler_div(dist_true, dist_rng, include_lost=False, with_stable=False):
+def compute_kullback_leibler_div(dist_true, dist_rng, include_lost=False, with_stable=False, pc_direction=None):
     """ Compute Kullback-Leibler-Divergence of True and Shuffled transition distributions. """
 
-    def preprocess_matrix(arr, incl_lost):
+    def preprocess_matrix(arr, incl_lost, pc_dir):
         """ Filters and normalizes a transition matrix. """
         if not incl_lost:
             arr = arr[1:, 1:]
 
+        if pc_dir is not None:
+            if pc_direction == 'backward':
+                arr = arr[:, -1:]
+            elif pc_direction == 'forward':
+                arr = arr[-1:]
+            else:
+                raise ValueError(f'PC direction of {pc_direction} is undefined.')
+
         # Transform counts to probabilities
-        return arr / arr.sum()
+        return arr / arr.sum(), arr.sum()
 
     # Define which columns of the dataframes to use
     cols = list(dist_true.columns[1:4])
@@ -285,14 +293,14 @@ def compute_kullback_leibler_div(dist_true, dist_rng, include_lost=False, with_s
         for phase in cols:
 
             # Extract transition matrices
-            true_arr = preprocess_matrix(dist_true.loc[row_idx, phase], incl_lost=include_lost)
-            rng_arr = preprocess_matrix(dist_rng.loc[row_idx, phase], incl_lost=include_lost)
+            true_arr, n_cells_true = preprocess_matrix(dist_true.loc[row_idx, phase], incl_lost=include_lost, pc_dir=pc_direction)
+            rng_arr, n_cells_rng = preprocess_matrix(dist_rng.loc[row_idx, phase], incl_lost=include_lost, pc_dir=pc_direction)
 
             # Compute Kullback-Leibler divergence between true and shuffled distributions
             # If the observed probability P(x) is 0, also the contribution of that transition is 0
             kld = np.sum([n1 * np.log2(n1 / n2) if n1 > 0 else 0 for n1, n2 in zip(true_arr.flatten(), rng_arr.flatten())])
             kl_df.append(pd.DataFrame([dict(mouse_id=dist_true.loc[row_idx, 'mouse_id'], phase=phase.split('_')[-1],
-                                            kld=kld)]))
+                                            kld=kld, n_cells_true=n_cells_true, n_cells_rng=n_cells_rng)]))
     return pd.concat(kl_df)
 
 
@@ -414,7 +422,7 @@ is_pc = dc.load_data('is_pc')
 pc_transition_old = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc)
 pc_transition = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, align_days=True)
 # Many iterations (>500) is needed to get at least one of the more unlikely transitions)
-pc_transition_rng = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=1000, avg_mat=True, align_days=True)
+pc_transition_rng_1 = quantify_place_cell_transitions(pf_list=pf_idx, pc_list=is_pc, shuffle=1000, avg_mat=True, align_days=True)
 
 
 transition_matrix_to_prism(matrix_df=pc_transition, phase='late', include_lost=False, with_stable=False,
@@ -425,6 +433,11 @@ transition_matrix_to_prism(matrix_df=pc_transition_rng, phase='late', include_lo
 plot_shuffled_data(true_df=pc_transition, rng_df=pc_transition_rng, directory=r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\place_cell_transitions')
 
 
+"""
+Without shuffling: Compare frequencies of D2 classes (PC/NC) with frequencies of D2 classes only of cells that were PC/NC before
+"""
+
 # Kullback-Leibler divergence between true and shuffled distributions
-kl_div = compute_kullback_leibler_div(dist_true=pc_transition, dist_rng=pc_transition_rng)
+kl_div = compute_kullback_leibler_div(dist_true=pc_transition, dist_rng=pc_transition_rng_1, pc_direction='forward')
 kl_div.pivot(index='phase', columns='mouse_id', values='kld').loc[['pre', 'early', 'late']].to_clipboard(index=True, header=True)
+kl_div.pivot(index='mouse_id', columns='phase', values='n_cells_true').to_clipboard(index=True, header=True)
