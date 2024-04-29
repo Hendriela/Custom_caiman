@@ -19,12 +19,22 @@ from preprint import placecell_heatmap_transition_functions as func
 
 def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff=3, shuffle=None, avg_mat=False):
 
+    def get_adjusted_cell_counts(class_arr):
+        counts = np.bincount(class_arr)[1:]
+        if len(counts) == 1:
+            counts = np.append(counts, values=0)
+        elif len(counts) == 2:
+            pass
+        else:
+            return
+        return counts
+
     pc_transitions = []
 
     for mouse_idx, mouse in enumerate(pc_list):
 
         mouse_id = list(mouse.keys())[0]
-        # if mouse_id == '41_1':
+        # if mouse_id == '63_1':
         #     break
         # Extract data and align days if necessary
         rel_days = np.array(mouse[mouse_id][1])
@@ -62,6 +72,8 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
 
         pc_trans = {'pre': np.zeros((iterations, 3, 3)), 'early': np.zeros((iterations, 3, 3)), 'late': np.zeros((iterations, 3, 3))}
         stable_pc_trans = {'pre': np.zeros((iterations, 4, 4)), 'early': np.zeros((iterations, 4, 4)), 'late': np.zeros((iterations, 4, 4))}
+        kld_pcs = {'pre': [], 'early': [], 'late': []}
+        kld_ncs = {'pre': [], 'early': [], 'late': []}
 
         for i in range(iterations):
 
@@ -111,14 +123,42 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
                     else:
                         mat = func.transition_matrix(mask1=day1_pc, mask2=day2_pc, num_classes=3, percent=False)
 
+                    # Compute Kullback-Leibler divergence for each day separately (from cell class frequencies)
+                    day2_counts = get_adjusted_cell_counts(day2_pc)
+                    if day2_counts is None:
+                        raise IndexError(f'Wrong number of classes in M{mouse_id}, day {day}.')
+
+                    q_arr = day2_counts / day2_counts.sum()  # Exclude lost cells
+
+                    if np.sum(day1_pc == 2) <= 3:   # If the previous day had 3 place cells or less, we ignore this session pair
+                        kld_pc = np.nan
+                        kld_nc = np.nan
+                    else:
+                        class_counts_pc = get_adjusted_cell_counts(day2_pc[day1_pc == 2])
+                        class_counts_nc = get_adjusted_cell_counts(day2_pc[day1_pc == 1])
+
+                        pc_arr = class_counts_pc / class_counts_pc.sum()
+                        nc_arr = class_counts_nc / class_counts_nc.sum()
+
+                        kld_pc = np.sum([n1 * np.log2(n1 / n2) if n1 > 0 else 0 for n1, n2 in zip(pc_arr.flatten(), q_arr.flatten())])
+                        kld_nc = np.sum([n1 * np.log2(n1 / n2) if n1 > 0 else 0 for n1, n2 in zip(nc_arr.flatten(), q_arr.flatten())])
+
                     if rel_days[next_day_idx] <= 0:
                         pc_trans['pre'][i] = pc_trans['pre'][i] + mat
+                        kld_pcs['pre'].append(kld_pc)
+                        kld_ncs['pre'].append(kld_nc)
                         # print(f'Day {rel_days[next_day_idx]} sorted under "Pre"')
+
                     elif rel_days[next_day_idx] <= 7:
                         pc_trans['early'][i] = pc_trans['early'][i] + mat
+                        kld_pcs['early'].append(kld_pc)
+                        kld_ncs['early'].append(kld_nc)
                         # print(f'Day {rel_days[next_day_idx]} sorted under "Early"')
+
                     else:
                         pc_trans['late'][i] = pc_trans['late'][i] + mat
+                        kld_pcs['late'].append(kld_pc)
+                        kld_ncs['late'].append(kld_nc)
                         # print(f'Day {rel_days[next_day_idx]} sorted under "Late"')
 
                     # Split PC-PC into stable (pf_idx overlap) and unstable PC transitions
@@ -153,9 +193,16 @@ def quantify_place_cell_transitions(pf_list, pc_list, align_days=False, day_diff
             pc_trans = {k: np.nanmean(v, axis=0) for k, v in pc_trans.items()}
             stable_pc_trans = {k: np.nanmean(v, axis=0) for k, v in stable_pc_trans.items()}
 
+        # Average KLDs across periods
+        kld_pc = {k: np.nanmean(v, axis=0) for k, v in kld_pcs.items()}
+        kld_nc = {k: np.nanmean(v, axis=0) for k, v in kld_ncs.items()}
+
+
         pc_transitions.append(pd.DataFrame([dict(mouse_id=int(mouse_id.split('_')[0]),
                                                  pc_pre=pc_trans['pre'].squeeze(), pc_early=pc_trans['early'].squeeze(), pc_late=pc_trans['late'].squeeze(),
-                                                 stab_pc_pre=stable_pc_trans['pre'].squeeze(), stab_pc_early=stable_pc_trans['early'].squeeze(), stab_pc_late=stable_pc_trans['late'].squeeze())]))
+                                                 stab_pc_pre=stable_pc_trans['pre'].squeeze(), stab_pc_early=stable_pc_trans['early'].squeeze(), stab_pc_late=stable_pc_trans['late'].squeeze(),
+                                                 kld_pc_pre=kld_pc['pre'], kld_pc_early=kld_pc['early'], kld_pc_late=kld_pc['late'],
+                                                 kld_nc_pre=kld_nc['pre'], kld_nc_early=kld_nc['early'], kld_nc_late=kld_nc['late'])]))
 
     return pd.concat(pc_transitions, ignore_index=True)
 
@@ -304,6 +351,172 @@ def compute_kullback_leibler_div(dist_true, dist_rng, include_lost=False, with_s
     return pd.concat(kl_df)
 
 
+def compute_kld_without_shuffling(dist):
+    """ Compute Kullback-Leibler-Divergence of all vs only PC/NC transitions. """
+
+    # Define which columns of the dataframes to use
+    cols = list(dist.columns[1:4])
+
+    # Perform computation row-wise (for each mouse) and column-wise (for each phase)
+    kl_df = []
+    for row_idx in range(len(dist)):
+        for phase in cols:
+
+            # Default distribution: Probabilities of a cell being a NC or PC, irrespective of previous function (equal to occurrence)
+            q_arr = np.sum(dist.loc[row_idx, phase][1:, 1:], axis=0) / np.sum(dist.loc[row_idx, phase][1:, 1:])
+            # Test distribution 1: Probabilities of a cell being a NC or PC, given that the cell was a PC the day before
+            n_cells_pc = dist.loc[row_idx, phase][2, 1:].sum()
+            pc_arr = dist.loc[row_idx, phase][2, 1:] / n_cells_pc
+            # Test distribution 2: Probabilities of a cell being a NC or PC, given that the cell was a NC the day before
+            nc_arr = dist.loc[row_idx, phase][1, 1:] / dist.loc[row_idx, phase][1, 1:].sum()
+
+            # Compute Kullback-Leibler divergence between both distributions
+            # If the observed probability P(x) is 0, also the contribution of that transition is 0
+            kld_pc = np.sum([n1 * np.log2(n1 / n2) if n1 > 0 else 0 for n1, n2 in zip(pc_arr.flatten(), q_arr.flatten())])
+            kld_nc = np.sum([n1 * np.log2(n1 / n2) if n1 > 0 else 0 for n1, n2 in zip(nc_arr.flatten(), q_arr.flatten())])
+
+            kl_df.append(pd.DataFrame([dict(mouse_id=dist.loc[row_idx, 'mouse_id'], phase=phase.split('_')[-1],
+                                            kld_pc=kld_pc, kld_nc=kld_nc, n_pc=n_cells_pc)]))
+    return pd.concat(kl_df)
+
+
+def compute_kld_per_session(pc_list, align_days=False, day_diff=3, n_iter=1000, pc_limit=3):
+
+    def get_adjusted_cell_counts(class_arr):
+        counts = np.bincount(class_arr)[1:]
+        if len(counts) == 1:
+            counts = np.append(counts, values=0)
+        elif len(counts) == 2:
+            pass
+        else:
+            return
+        return counts
+
+    pc_transitions = []
+
+    for mouse_idx, mouse in enumerate(pc_list):
+
+        mouse_id = list(mouse.keys())[0]
+        # if mouse_id == '63_1':
+        #     break
+        # Extract data and align days if necessary
+        rel_days = np.array(mouse[mouse_id][1])
+
+        if align_days:
+            if 3 not in rel_days:
+                rel_days[(rel_days == 2) | (rel_days == 4)] = 3
+            rel_days[(rel_days == 5) | (rel_days == 6) | (rel_days == 7)] = 6
+            rel_days[(rel_days == 8) | (rel_days == 9) | (rel_days == 10)] = 9
+            rel_days[(rel_days == 11) | (rel_days == 12) | (rel_days == 13)] = 12
+            rel_days[(rel_days == 14) | (rel_days == 15) | (rel_days == 16)] = 15
+            rel_days[(rel_days == 17) | (rel_days == 18) | (rel_days == 19)] = 18
+            rel_days[(rel_days == 20) | (rel_days == 21) | (rel_days == 22)] = 21
+            rel_days[(rel_days == 23) | (rel_days == 24) | (rel_days == 25)] = 24
+            if 28 not in rel_days:
+                rel_days[(rel_days == 26) | (rel_days == 27) | (rel_days == 28)] = 27
+            rel_sess = np.arange(len(rel_days)) - np.argmax(np.where(rel_days <= 0, rel_days, -np.inf))
+            rel_days[(-5 < rel_sess) & (rel_sess < 1)] = np.arange(-np.sum((-5 < rel_sess) & (rel_sess < 1)) + 1, 1)
+
+        pc_data = mouse[mouse_id][0]
+        pc_data = pd.DataFrame(pc_data, columns=rel_days)
+
+        # Ignore day 1
+        rel_days = rel_days[rel_days != 1]
+        pc_data = pc_data.loc[:, pc_data.columns != 1]
+
+        kld_all = {'pre': [], 'early': [], 'late': []}
+        kld_pcs = {'pre': [], 'early': [], 'late': []}
+        kld_ncs = {'pre': [], 'early': [], 'late': []}
+
+        # Loop through days and get place cell transitions between sessions that are 3 days apart
+        for day_idx, day in enumerate(rel_days):
+
+            next_day_idx = np.where(rel_days == day + day_diff)[0]
+
+            # If a session 3 days later exists, get place cell transitions
+            if len(next_day_idx) == 1:
+
+                # General PC - non-PC transitions
+                # Add 1 to the pc data to include "Lost" cells
+                day1_pc = pc_data.iloc[:, day_idx].to_numpy() + 1
+                day1_pc = np.nan_to_num(day1_pc).astype(int)
+                day2_pc = pc_data.iloc[:, next_day_idx].to_numpy().squeeze() + 1
+                day2_pc = np.nan_to_num(day2_pc).astype(int)
+
+                ### Compute Kullback-Leibler divergence for each day separately (from cell class frequencies)
+                day2_counts = get_adjusted_cell_counts(day2_pc)
+                if day2_counts is None:
+                    raise IndexError(f'Wrong number of classes in M{mouse_id}, day {day}.')
+
+                q_arr = day2_counts / day2_counts.sum()  # Exclude lost cells
+
+                if np.sum(day1_pc == 2) <= pc_limit:   # If the previous day had "pc_limit" place cells or less, we ignore this session pair
+                    kld_pc = np.nan
+                    kld_nc = np.nan
+                    kld_total = np.nan
+                else:
+                    class_counts_pc = get_adjusted_cell_counts(day2_pc[day1_pc == 2])
+                    class_counts_nc = get_adjusted_cell_counts(day2_pc[day1_pc == 1])
+
+                    if class_counts_pc is None or np.sum(q_arr == 0) > 0:
+                        kld_pc = np.nan
+                    else:
+                        pc_arr = class_counts_pc / class_counts_pc.sum()
+                        kld_pc = np.sum([n1 * np.log2(n1 / n2) if n1 > 0 else 0 for n1, n2 in
+                                         zip(pc_arr.flatten(), q_arr.flatten())])
+
+                    if class_counts_nc is None or np.sum(q_arr == 0) > 0:
+                        kld_nc = np.nan
+                    else:
+                        nc_arr = class_counts_nc / class_counts_nc.sum()
+                        kld_nc = np.sum([n1 * np.log2(n1 / n2) if n1 > 0 else 0 for n1, n2 in zip(nc_arr.flatten(), q_arr.flatten())])
+
+                    ### Compute Kullback-Leibler divergence for all transitions simultaneously against shuffling
+                    mat = func.transition_matrix(mask1=day1_pc, mask2=day2_pc, num_classes=3, percent=False)[1:, 1:]
+                    mat_rng = np.empty((n_iter, *mat.shape))
+                    for i in range(n_iter):
+                        mat_rng[i] = func.transition_matrix(mask1=np.random.permutation(day1_pc), mask2=day2_pc, num_classes=3, percent=False)[1:, 1:]
+                    mat_rng = np.mean(mat_rng, axis=0)
+
+                    mat_freq = mat / mat.sum()
+                    mat_rng_freq = mat_rng / mat_rng.sum()
+                    if np.sum(mat_rng_freq == 0) > 0:
+                        kld_total = np.nan
+                    else:
+                        kld_total = np.sum([n1 * np.log2(n1 / n2) if n1 > 0 else 0 for n1, n2 in zip(mat_freq.flatten(), mat_rng_freq.flatten())])
+
+                if rel_days[next_day_idx] <= 0:
+                    kld_pcs['pre'].append(kld_pc)
+                    kld_ncs['pre'].append(kld_nc)
+                    kld_all['pre'].append(kld_total)
+                    # print(f'Day {rel_days[next_day_idx]} sorted under "Pre"')
+
+                elif rel_days[next_day_idx] <= 7:
+                    kld_pcs['early'].append(kld_pc)
+                    kld_ncs['early'].append(kld_nc)
+                    kld_all['early'].append(kld_total)
+                    # print(f'Day {rel_days[next_day_idx]} sorted under "Early"')
+
+                else:
+                    kld_pcs['late'].append(kld_pc)
+                    kld_ncs['late'].append(kld_nc)
+                    kld_all['late'].append(kld_total)
+                    # print(f'Day {rel_days[next_day_idx]} sorted under "Late"')
+
+        # Average KLDs across periods
+        kld_pc = {k: np.nanmean(v, axis=0) for k, v in kld_pcs.items()}
+        kld_nc = {k: np.nanmean(v, axis=0) for k, v in kld_ncs.items()}
+        kld_all = {k: np.nanmean(v, axis=0) for k, v in kld_all.items()}
+
+        pc_transitions.append(pd.DataFrame([dict(mouse_id=int(mouse_id.split('_')[0]),
+                                                 kld_pc_pre=kld_pc['pre'], kld_pc_early=kld_pc['early'], kld_pc_late=kld_pc['late'],
+                                                 kld_nc_pre=kld_nc['pre'], kld_nc_early=kld_nc['early'], kld_nc_late=kld_nc['late'],
+                                                 kld_all_pre=kld_all['pre'], kld_all_early=kld_all['early'], kld_all_late=kld_all['late'])]))
+
+    return pd.concat(pc_transitions, ignore_index=True)
+
+
+
 def plot_shuffled_data(true_df, rng_df, stable=False, norm=None, include_lost=False, statistic='percentile',
                        directory=None):
 
@@ -441,3 +654,18 @@ Without shuffling: Compare frequencies of D2 classes (PC/NC) with frequencies of
 kl_div = compute_kullback_leibler_div(dist_true=pc_transition, dist_rng=pc_transition_rng_1, pc_direction='forward')
 kl_div.pivot(index='phase', columns='mouse_id', values='kld').loc[['pre', 'early', 'late']].to_clipboard(index=True, header=True)
 kl_div.pivot(index='mouse_id', columns='phase', values='n_cells_true').to_clipboard(index=True, header=True)
+
+# Kullback-Leibler divergence between all and only PC/NC cells
+kl_div = compute_kld_without_shuffling(dist=pc_transition)
+kl_div.pivot(index='phase', columns='mouse_id', values='kld_nc').loc[['pre', 'early', 'late']].to_clipboard(index=True, header=True)
+kl_div.pivot(index='mouse_id', columns='phase', values='n_cells_true').to_clipboard(index=True, header=True)
+
+# Kullback-Leibler divergence computed for each session pair separately
+kld_df = pc_transition[['mouse_id', 'kld_pc_pre', 'kld_pc_early', 'kld_pc_late']]
+kld_df_long = kld_df.melt(id_vars='mouse_id', value_vars=['kld_pc_pre', 'kld_pc_early', 'kld_pc_late'])
+kld_df_long.pivot(index='variable', columns='mouse_id', values='value').loc[['kld_pc_pre', 'kld_pc_early', 'kld_pc_late']].to_clipboard(index=True, header=True)
+
+# Kullback-Leibler divergence computed for each session pair separately, against shuffled for all transitions
+kl_div = compute_kld_per_session(pc_list=is_pc, align_days=True, n_iter=1000, pc_limit=0)
+kl_div_long = kl_div.melt(id_vars='mouse_id', value_vars=['kld_all_pre', 'kld_all_early', 'kld_all_late'])
+kl_div_long.pivot(index='variable', columns='mouse_id', values='value').loc[['kld_all_pre', 'kld_all_early', 'kld_all_late']].to_clipboard(index=True, header=True)
