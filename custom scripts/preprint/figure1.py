@@ -88,6 +88,30 @@ def example_fov():
 
 def example_tracked_cells():
 
+    def fetch_trial_mask(day):
+        tm = (hheise_placecell.PCAnalysis & 'mouse_id=41' & f'day="{day}"' & 'place_cell_id=2').fetch1('trial_mask')
+        t_borders = np.where(np.diff(tm) == 1)[0]
+        return tm, t_borders
+
+    def plot_cells(trace_df, cell_rows):
+        # Fetch trial masks to separate trials
+        tm1, tb1 = fetch_trial_mask("2020-08-18")
+        tm2, tb2 = fetch_trial_mask("2020-08-30")
+        tm3, tb3 = fetch_trial_mask("2020-09-11")
+        borders = [tb1, tb2, tb3]
+
+        days = np.array([-7, 5, 17])
+
+        fig, ax = plt.subplots(nrows=3, ncols=1, sharex='none', sharey='all')
+
+        for day_idx, day in enumerate(days):
+            [ax[day_idx].axvline(x, color='red') for x in borders[day_idx]]
+            for cell in cell_rows:
+                act = trace_df[day].loc[cell]
+                ax[day_idx].plot(act, label=cell)
+        ax[-1].legend()
+
+
     date1, img1 = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-18"').fetch1('day', 'avg_image')
     date2, img2 = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-08-30"').fetch1('day', 'avg_image')
     date3, img3 = (common_img.QualityControl & 'mouse_id=41' & 'day="2020-09-11"').fetch1('day', 'avg_image')
@@ -104,6 +128,65 @@ def example_tracked_cells():
 
     plt.imshow(cut1, cmap='Greys_r')
 
+    # Get cell IDs of some landmark cells (from cell_matching GUI)
+    match_matrix = (common_match.MatchedIndex & 'username="hheise"' & 'mouse_id=41').construct_matrix()['41_1']
+
+    with open(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data\dff.pkl', 'rb') as file:
+        dff = pickle.load(file)
+
+    cell_rows = [272, 119, 95]     # row index in matched matrix of matched cell
+    cell_rows = [89, 95, 116, 119, 240, 312, 330, 333, 346]        # row index in matched matrix of matched cell
+
+    plot_cells(trace_df=dff[41], cell_rows=[312, 232, 272])
+    plot_cells(trace_df=dff[41], cell_rows=cell_rows)
+
+    # Matrix rows of final selected cells for Figure 1C
+    selected_cells = match_matrix.loc[[89, 240, 346]]
+
+    # Plot contours of selected cells
+    fig, ax = plt.subplots(nrows=1, ncols=3)
+    (common_img.Segmentation.ROI & 'mouse_id=41' & 'day="2020-08-18"' &
+     f'mask_id in {helper.in_query([367, 790, 895])}').plot_contours(show_id=True, background='avg_image', ax=ax[0])
+    (common_img.Segmentation.ROI & 'mouse_id=41' & 'day="2020-08-30"' &
+     f'mask_id in {helper.in_query([863, 848, 896])}').plot_contours(show_id=True, background='avg_image', ax=ax[1])
+    (common_img.Segmentation.ROI & 'mouse_id=41' & 'day="2020-09-11"' &
+     f'mask_id in {helper.in_query([645, 196, 193])}').plot_contours(show_id=True, background='avg_image', ax=ax[2])
+
+    # Plot contours of selected cells
+    fig, ax = plt.subplots(nrows=1, ncols=3, sharex='all', sharey='all', layout='constrained')
+    (common_img.Segmentation.ROI & 'mouse_id=41' & 'day="2020-08-18"' &
+     f'mask_id in {helper.in_query(selected_cells.iloc[:, 0])}').plot_contours(show_id=True, background='avg_image', ax=ax[0])
+    (common_img.Segmentation.ROI & 'mouse_id=41' & 'day="2020-08-30"' &
+     f'mask_id in {helper.in_query(selected_cells.iloc[:, 6])}').plot_contours(show_id=True, background='avg_image', ax=ax[1])
+    (common_img.Segmentation.ROI & 'mouse_id=41' & 'day="2020-09-11"' &
+     f'mask_id in {helper.in_query(selected_cells.iloc[:, 10])}').plot_contours(show_id=True, background='avg_image', ax=ax[2])
+    ax[0].set_title(selected_cells.columns[0])
+    ax[1].set_title(selected_cells.columns[6])
+    ax[2].set_title(selected_cells.columns[10])
+
+    ### Plot traces of selected cells in a single trial of each day
+    # day1: trial 6
+    # day2: trial 16
+    # day3: trial 4
+
+    # Fetch trial masks to separate trials
+    tm1 = (hheise_placecell.PCAnalysis & 'mouse_id=41' & 'day="2020-08-18"' & 'place_cell_id=2').fetch1('trial_mask')
+    tm2 = (hheise_placecell.PCAnalysis & 'mouse_id=41' & 'day="2020-08-30"' & 'place_cell_id=2').fetch1('trial_mask')
+    tm3 = (hheise_placecell.PCAnalysis & 'mouse_id=41' & 'day="2020-09-11"' & 'place_cell_id=2').fetch1('trial_mask')
+    tms = [tm1, tm2, tm3]
+    trials = [6, 16, 4]
+    cell_rows = [89, 240, 346]
+    days = np.array([-7, 5, 17])
+
+    fig, ax = plt.subplots(nrows=3, ncols=1, sharex='none', sharey='all', layout='constrained')
+
+    for day_idx, day in enumerate(days):
+        for cell in cell_rows:
+            act = dff[41][day].loc[cell][tms[day_idx] == trials[day_idx]]
+            x = np.linspace(0, len(act)/30, len(act))
+            ax[day_idx].plot(x, act, label=cell)
+    ax[-1].legend()
+    fig.savefig(r"C:\Users\hheise.UZH\Desktop\preprint\figure1\tracked_cells_example_traces.svg")
 
 
 def example_lick_histogram():
@@ -465,7 +548,7 @@ def plot_example_placecell():
 
         return day1, day2
 
-    d1, d2 = plot_cell_pairs(spatial_activity=spat_act, pc_row=stable_pc_sort.loc[589])
+    d1, d2 = plot_cell_pairs(spatial_activity=spat_act, pc_row=stable_pc_sort.loc[143])
     pd.Series(d2).to_clipboard(index=False, header=False)
 
     """
@@ -475,8 +558,6 @@ def plot_example_placecell():
     remapping:
     1511, 170, 589
     """
-
-
 
 
 def plot_performance_neural_correlations():
@@ -882,8 +963,78 @@ def plot_matched_cells_across_sessions_correlation_split(plot_sessions: List[int
     return fig
 
 
+def find_example_cells_for_classes():
+
+    def create_plot(traces, row_ids, n_sess=3, offset=0.5, xrange=(0, 80), figsize=(39, 140)):
+        mm = 1 / 2.54 / 10  # millimeters in inches
+        fig, ax = plt.subplots(nrows=len(row_ids), ncols=1, sharey='all', sharex='all',
+                               figsize=(figsize[0] * mm, figsize[1] * mm), layout='constrained')
+        zones = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(80)
+
+
+        for i, cell in enumerate(row_ids):
+            cell_trace = traces.loc[cell][:n_sess]
+            for sess in range(len(cell_trace)):
+                ax[i].plot(cell_trace[sess] - offset*sess)
+            ax[i].set_title(cell)
+            ax[i].set_xlim(xrange)
+
+            for z in zones:
+                ax[i].axvline(z[0], linestyle='--', c='green')
+                ax[i].axvline(z[1], linestyle='--', c='green')
+
+        return fig
+
+
+
+    df = pd.read_pickle(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Papers\preprint\class_quantification\example_plot_data.pickle')
+
+    # Enter groups
+    coarse = (hheise_grouping.BehaviorGrouping & 'grouping_id = 4' & 'cluster = "coarse"').get_groups()
+    fine = (hheise_grouping.BehaviorGrouping & 'grouping_id = 4' & 'cluster = "fine"').get_groups()
+    df = df.merge(coarse, how='left', on='mouse_id').rename(columns={'group': 'coarse'})
+    df = df.merge(fine, how='left', on='mouse_id').rename(columns={'group': 'fine'})
+
+    zones = (hheise_behav.CorridorPattern() & 'pattern="training"').rescale_borders(80)
+
+    # Get stable and unstable cells from most/least correlated pre-stroke cells
+    df_sort = df[(df.is_pc == 1) & (df.mouse_id == 116)].sort_values(by='pre_cor', ascending=False)
+
+    # Plot traces to find good example
+    idx = -17
+    plt.figure(); sns.heatmap(df_sort.traces.iloc[idx]).set_title(df_sort.index[idx])
+
+    idx = 5
+    plt.figure(); sns.heatmap(df[(df.is_pc == 0) & (df.mouse_id == 116)].traces.iloc[idx]).set_title(df[(df.is_pc == 0) & (df.mouse_id == 116)].index[idx])
+
+    """
+    Row idx of df:
+    M41:
+        stable cell: 163 (M41, 2020-08-24, mask_id 358)
+        unstable cell: 207 (M41, 2020-08-24, mask_id 227)
+        noncoding cell: 160 (M41, 2020-08-24, mask_id 345)
+    M116: --> used in figure 1H
+        stable cell: 1176 (M116, 2022-08-09, mask_id 1405)
+        unstable cell: 1208 (M116, 2022-08-09, mask_id 757)
+        noncoding cell: 1057 (M116, 2022-08-09, mask_id 246)
+    """
+
+    # Plot candidate cells together to see if they make a nice plot
+    fig = create_plot(df.traces, [1176, 1208, 1057], n_sess=4, offset=1, xrange=(13, 45), figsize=(35, 140))
+    fig.savefig(r"C:\Users\hheise.UZH\Desktop\preprint\figure1\place_cell_example_traces.svg")
+
+
+    # Extract activity data from first four sessions and save it for prism
+    pd.DataFrame(df.traces.loc[163][:4]).T.to_clipboard(index=False, header=False)
+    pd.DataFrame(df.traces.loc[207][:4]).T.to_clipboard(index=False, header=False)
+    pd.DataFrame(df.traces.loc[170][:4]).T.to_clipboard(index=False, header=False)
+
+
 # Plot matched cells across days, split into groups
 plot_matched_cells_across_sessions_correlation_split(plot_sessions=[-2, -1, 0, 3, 6, 12, 15], groups=("Stroke",),
                                                      normalize='all', gaussian_sigma=1, titles=[-2, -1, 0, 3, 6, 12, 15])
 plt.savefig(os.path.join(folder, 'figure1\\stable_unstable_crosssession_smooth_nocrossval_session_normalized_onlyStroke.png'))
 
+# Changed function call to find examples of remapping and stable PCs
+plot_matched_cells_across_sessions_correlation_split(plot_sessions=[-3, -2, -1, 0], groups=("Sham",),
+                                                     normalize='all', gaussian_sigma=1, titles=[-3, -2, -1, 0])
