@@ -23,6 +23,7 @@ from preprint.Filippo.utilities import plot_quantiles_with_data, remove_unwanted
 
 import argparse
 
+from schema import common_match, hheise_placecell
 
 """
 Email by Hendrik Heiser on 19.11.2023:
@@ -180,6 +181,103 @@ def counts_from_uniques(cell, values):
     return np.array([np.sum(cell == v) for v in values])
 
 
+def get_stable_classes_single_day(matched_ids_day, sess_str, stable_class, mouse_id, mat_shape):
+
+    # Get mask IDs of all cells in that session
+    sess_dict = common_match.MatchedIndex().string2key(sess_str)
+    mask_ids = (hheise_placecell.TransientOnly.ROI & f'mouse_id={mouse_id}' & sess_dict & 'place_cell_id=2').fetch('mask_id')
+
+    if len(mask_ids) != mat_shape[0]:
+        raise IndexError(f'M{mouse_id}, day {sess_str}: # mask IDs does not match with # cells in pc_classes_matrix')
+
+    """
+    Set class numbers:
+    Noncoding/untracked: 0    -    Unstable PC: 1    -    Stable PC: 3
+    
+    This creates the following values for cell pairs in the cross-matrix:
+    NC  - NC    : 0
+    NC  - uPC   : 1
+    uPC - uPC   : 2
+    uPC - sPC   : 4
+    sPC - NC    : 3
+    sPC - sPC   : 6
+    
+    Filters to include all pairs with that cell class:
+    NC : 0, 1, 3
+    uPC: 1, 2, 4
+    sPC: 3, 4, 6
+    """
+
+    stab_class_numbers = stable_class.copy()
+    stab_class_numbers.loc[stable_class == 1] = 0       # NCs were previously class 1, now 0
+    stab_class_numbers.loc[stable_class == 2] = 1       # uPCs were previously class 2, now 1
+    stab_class_numbers = stab_class_numbers.to_numpy()
+
+    # Create empty array
+    stab_class_arr = np.zeros(mat_shape)
+
+    # Add class row-wise and column-wise to create cross-matrix
+    # Filter out untracked cells
+    tracked_mask = np.where(matched_ids_day != -1)[0]
+
+    # Transform matched_ids_day (range of mask IDs of all ROIs) to index in mask_ids (range of mask IDs of accepted ROIs)
+    idx_matched_ids = np.isin(mask_ids, matched_ids_day[tracked_mask])
+
+    stab_class_arr[idx_matched_ids] += stab_class_numbers[tracked_mask, np.newaxis]       # row-wise
+    stab_class_arr[:, idx_matched_ids] += stab_class_numbers[np.newaxis, tracked_mask]    # col-wise
+
+    return stab_class_arr
+
+
+
+def get_stable_classes(df):
+    """
+    Insert: Map cell pairs based on their stable PC:
+    0 if pair does not include stable PCs
+    1 if one cell is stable PC
+    2 if both cells are stable PCs
+
+    Create correlation matrix shaped from all imaged cells of a session (e.g. 678x678 cells for M95, -11)
+    Stable PCs have a 1 in their row/column, and double stable PC pairs have a 2 at their intersect point
+    """
+
+    stable_pc_classes_matrix = df.notnull().astype('int').replace(0, np.nan).astype('object')
+
+    # Load stable PC classification
+    stable_class_path = r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data\stability_classes.pkl'
+    with open(stable_class_path, 'rb') as f:
+        stable_classes = pickle.load(f)
+
+    for mouse_id in df.index:
+
+        match_query = (common_match.MatchedIndex & 'username="hheise"' & f'mouse_id={mouse_id}')
+        if mouse_id in [63, 69]:
+            match_query = match_query & 'day<="2021-03-23"'
+        elif mouse_id >= 108:
+            match_query = match_query & 'day<"2022-09-09"'
+
+        if mouse_id == 63:
+            match_matrix = match_query.construct_matrix(start_with_ref=True)
+        else:
+            match_matrix = match_query.construct_matrix()
+        match_matrix = match_matrix[list(match_matrix.keys())[0]]
+
+        if len(match_matrix.columns) != len(df.loc[mouse_id].dropna()):
+            raise IndexError(f'M{mouse_id}: Match matrix and traces have different number of days.')
+
+        for sess_str in match_matrix:
+            # Get column indices for match matrix (mouse-specific, no skipped session, uses session string)
+            #                    and df matrix (all mice, skipped sessions, uses relative days)
+            match_day_idx = np.where(match_matrix.columns == sess_str)[0][0]
+            df_day_idx = np.where(df.columns == df.loc[mouse_id].dropna().index[match_day_idx])[0][0]
+
+            stable_pc_classes_matrix.loc[mouse_id].iloc[df_day_idx] = (
+                get_stable_classes_single_day(matched_ids_day=match_matrix[sess_str].astype(int).to_numpy(),
+                                              sess_str=sess_str, mouse_id=mouse_id,
+                                              stable_class=stable_classes[mouse_id].iloc[:, match_day_idx],
+                                              mat_shape=df.loc[mouse_id].iloc[df_day_idx].shape))
+
+
 if __name__ == '__main__':
 
     os.chdir('/home/ga48kuh/NASgroup/labmembers/filippokiessler/wahl-colab')
@@ -223,17 +321,8 @@ if __name__ == '__main__':
     filtered_corrmat_traces_df = df_corr_result(traces_corrmat_dict_filtered)
     traces_correlation_vectors = filtered_corrmat_traces_df.applymap(get_correlation_vector, na_action='ignore')
 
-    """
-    Insert: Map cell pairs based on their stable PC:
-    0 if pair does not include stable PCs
-    1 if one cell is stable PC
-    2 if both cells are stable PCs
-    
-    Create correlation matrix shaped from all imaged cells of a session (e.g. 678x678 cells for M95, -11)
-    Stable PCs have a 1 in their row/column, and double stable PC pairs have a 2 at their intersect point
-    """
-
-
+    # Get class matrix for stable/unstable classification
+    get_stable_classes(df=pc_classes_matrix)
 
     # remap the cell pair categories to place cell and non-place cell
     remapped_final_pc_vec = pc_classes_matrix.applymap(get_correlation_vector, na_action='ignore')
