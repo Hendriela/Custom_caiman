@@ -229,7 +229,6 @@ def get_stable_classes_single_day(matched_ids_day, sess_str, stable_class, mouse
     return stab_class_arr
 
 
-
 def get_stable_classes(df):
     """
     Insert: Map cell pairs based on their stable PC:
@@ -277,6 +276,85 @@ def get_stable_classes(df):
                                               stable_class=stable_classes[mouse_id].iloc[:, match_day_idx],
                                               mat_shape=df.loc[mouse_id].iloc[df_day_idx].shape))
 
+    return stable_pc_classes_matrix
+
+
+def get_quantile_class_frequency(quant, traces_correlation_vect, remapped_class_vec, unique_cats,
+                                 qfunction=lambda x, y: x > y):
+    """ This function computes the frequencies of cell classes within the top quantile. Numbers add up to 1. """
+
+    # Compute quantile for each session
+    correlation_vec_quantiles = traces_correlation_vect.applymap(lambda cell: np.quantile(cell, quant),
+                                                                 na_action='ignore')
+    # Check for each cell if it is above the quantile threshold or not
+    corr_greater_than_quantile = apply_function_to_cells(traces_correlation_vect, correlation_vec_quantiles,
+                                                         qfunction, ignore_nan=True)
+
+    # calculate fraction of cells that are place cells and greater than the xth quantile
+    cellpairs_greater_than_quantile = apply_function_to_cells(corr_greater_than_quantile, remapped_class_vec,
+                                                              lambda x, y: y[x], ignore_nan=True)
+
+    # For each session, get count of each cell class
+    cellcats_greater_than_quantile_counts = cellpairs_greater_than_quantile.applymap(
+        lambda x: counts_from_uniques(x, unique_cats), na_action='ignore')
+    cellcats_greater_than_quantile_frac = cellcats_greater_than_quantile_counts.applymap(lambda x: x / x.sum(),
+                                                                                              na_action='ignore')
+
+    # split fractions according to pre, early late
+    cellcats_quantile_frac_pre_early_late_division = divide_pre_early_late(cellcats_greater_than_quantile_frac)
+
+    # calculate mean fractions by pair category over pre, early and late poststroke
+    cellcats_quantile_frac_pre_early_late_meanlist = [
+        avg_over_columns(cellcats_quantile_frac_pre_early_late_division[0], last3=True),
+        avg_over_columns(cellcats_quantile_frac_pre_early_late_division[1]),
+        avg_over_columns(cellcats_quantile_frac_pre_early_late_division[2])]  # results should sum to 1
+
+    return cellcats_quantile_frac_pre_early_late_meanlist, cellcats_greater_than_quantile_frac
+
+
+def get_quantile_part_of_class_frequency(quant, traces_correlation_vect, remapped_class_vec, unique_cats,
+                                         qfunction=lambda x, y: x > y):
+    """ This function computes the fraction of cell class counts which are within the top quantile. Numbers do not
+    add up to 1, but chance level is at 1-quant. """
+
+    # Compute quantile for each session
+    correlation_vec_quantiles = traces_correlation_vect.applymap(lambda cell: np.quantile(cell, quant),
+                                                                 na_action='ignore')
+    # Check for each cell if its above the quantile threshold or not
+    corr_greater_than_quantile = apply_function_to_cells(traces_correlation_vect, correlation_vec_quantiles,
+                                                         qfunction, ignore_nan=True)
+
+    # calculate fraction of cells that are place cells and greater than the xth quantile
+    cellpairs_greater_than_quantile = apply_function_to_cells(corr_greater_than_quantile, remapped_class_vec,
+                                                              lambda x, y: y[x], ignore_nan=True)
+
+    # For each session, get total count of each cell class and within the top percentile
+    cellcats_counts = remapped_class_vec.applymap(lambda x: counts_from_uniques(x, unique_cats), na_action='ignore')
+    cellcats_greater_than_quantile_counts = cellpairs_greater_than_quantile.applymap(
+        lambda x: counts_from_uniques(x, unique_cats), na_action='ignore')
+
+    # Get fraction of total cell class counts that are within the top percentile by dividing both counts
+    cellcats_greater_than_quantile_frac = cellcats_greater_than_quantile_counts / cellcats_counts
+
+    # split fractions & counts according to pre, early late
+    cellcats_quantile_frac_pre_early_late_division = divide_pre_early_late(cellcats_greater_than_quantile_frac)
+    cellcats_quantile_counts_pre_early_late_division = divide_pre_early_late(cellcats_greater_than_quantile_counts)
+
+
+    # calculate mean fractions by pair category over pre, early and late poststroke
+    cellcats_quantile_frac_pre_early_late_meanlist = [
+        avg_over_columns(cellcats_quantile_frac_pre_early_late_division[0], last3=True),
+        avg_over_columns(cellcats_quantile_frac_pre_early_late_division[1]),
+        avg_over_columns(cellcats_quantile_frac_pre_early_late_division[2])]
+
+    # calculate mean counts by pair category over pre, early and late poststroke
+    cellcats_quantile_counts_pre_early_late_meanlist = [
+        avg_over_columns(cellcats_quantile_counts_pre_early_late_division[0], last3=True),
+        avg_over_columns(cellcats_quantile_counts_pre_early_late_division[1]),
+        avg_over_columns(cellcats_quantile_counts_pre_early_late_division[2])]
+
+    return cellcats_quantile_frac_pre_early_late_meanlist, cellcats_quantile_counts_pre_early_late_meanlist
+
 
 if __name__ == '__main__':
 
@@ -322,50 +400,46 @@ if __name__ == '__main__':
     traces_correlation_vectors = filtered_corrmat_traces_df.applymap(get_correlation_vector, na_action='ignore')
 
     # Get class matrix for stable/unstable classification
-    get_stable_classes(df=pc_classes_matrix)
+    stab_pc_classes_matrix = get_stable_classes(df=pc_classes_matrix)
 
     # remap the cell pair categories to place cell and non-place cell
     remapped_final_pc_vec = pc_classes_matrix.applymap(get_correlation_vector, na_action='ignore')
+    remapped_final_stab_pc_vec = stab_pc_classes_matrix.applymap(get_correlation_vector, na_action='ignore')
     # compute dataframe of vectors for correlation statistic for every pair category:
     unique_categories = get_unique_cell_pair_categories(
         remapped_final_pc_vec)  # the ordering of these unique values applies to all contents of the
     string_pair_mapping = {0: 'non-coding-non-coding', 1: 'non-coding-place-cell', 2: 'place-cell-place-cell'}
 
+    unique_categories_stab = get_unique_cell_pair_categories(
+        remapped_final_stab_pc_vec)  # the ordering of these unique values applies to all contents of the
+    string_pair_mapping_stab = {0: 'non-coding-non-coding', 1: 'non-coding-unstable', 2: 'unstable-unstable',
+                                3: 'non-coding-stable', 4: 'unstable-stable', 6: 'stable-stable'}
+
 
     # derivative of the apply_function_to_cells function
-
     # calculate quantiles of correlation vectors (equivalently of correlation matrices)
-    def get_quantile_means_of_distribution_pc_counts(quantile, traces_correlation_vectors, remapped_final_pc_vec,
-                                                     qfunction=lambda x, y: x > y):
-        correlation_vec_quantiles = traces_correlation_vectors.applymap(lambda cell: np.quantile(cell, quantile),
-                                                                        na_action='ignore')
-        corr_greater_than_quantile = apply_function_to_cells(traces_correlation_vectors, correlation_vec_quantiles,
-                                                             qfunction, ignore_nan=True)
 
-        # calculate fraction of cells that place cells and greater than the 0.0 quantile
-        cellpairs_greater_than_quantile = apply_function_to_cells(corr_greater_than_quantile, remapped_final_pc_vec,
-                                                                  lambda x, y: y[x], ignore_nan=True)
+    # Compute the distribution of cell classes within the top quantile (sums to 1)
+    quantile = 0.8
+    cellcats_quantile_dist_pre_early_late, cellcats_greater_than_quantile_dist = get_quantile_class_frequency(
+        quant=quantile, traces_correlation_vect=traces_correlation_vectors, remapped_class_vec=remapped_final_pc_vec,
+        unique_cats=unique_categories)
 
-        cellcats_greater_than_quantile_counts = cellpairs_greater_than_quantile.applymap(
-            lambda x: counts_from_uniques(x, unique_categories), na_action='ignore')
-        cellcats_greater_than_quantile_fractions = cellcats_greater_than_quantile_counts.applymap(lambda x: x / x.sum(),
-                                                                                                  na_action='ignore')
-
-        # split fractions according to pre, early late
-        cellcats_quantile_frac_pre_early_late_division = divide_pre_early_late(cellcats_greater_than_quantile_fractions)
-
-        # calculate mean fractions by pair category over pre, early and late poststroke
-        cellcats_quantile_frac_pre_early_late_meanlist = [
-            avg_over_columns(cellcats_quantile_frac_pre_early_late_division[0], last3=True),
-            avg_over_columns(cellcats_quantile_frac_pre_early_late_division[1]),
-            avg_over_columns(cellcats_quantile_frac_pre_early_late_division[2])]  # results should sum to 1
-
-        return cellcats_quantile_frac_pre_early_late_meanlist, cellcats_greater_than_quantile_fractions
+    cellcats_quantile_dist_pre_early_late_stab, cellcats_greater_than_quantile_dist_stab = get_quantile_class_frequency(
+        quant=quantile, traces_correlation_vect=traces_correlation_vectors, remapped_class_vec=remapped_final_stab_pc_vec,
+        unique_cats=unique_categories_stab)
 
 
-    quantile = 0
-    cellcats_quantile_frac_pre_early_late_meanlist_greater, cellcats_greater_than_quantile_fractions = get_quantile_means_of_distribution_pc_counts(
-        quantile, traces_correlation_vectors, remapped_final_pc_vec)
+    # Compute the fraction of total cell class counts that are within the top quantile (averages around 1-quant)
+    cellcats_quantile_frac_pre_early_late, cellcats_quantile_counts_pre_early_late = get_quantile_part_of_class_frequency(
+        quant=quantile, traces_correlation_vect=traces_correlation_vectors, remapped_class_vec=remapped_final_pc_vec,
+        unique_cats=unique_categories)
+
+    cellcats_quantile_frac_pre_early_late_stab, cellcats_quantile_counts_pre_early_late_stab = get_quantile_part_of_class_frequency(
+        quant=quantile, traces_correlation_vect=traces_correlation_vectors,
+        remapped_class_vec=remapped_final_stab_pc_vec,
+        unique_cats=unique_categories_stab)
+
     # make plots for coarse and for fine division
     length = len(cellcats_quantile_frac_pre_early_late_meanlist_greater[0].iloc[0])
 
