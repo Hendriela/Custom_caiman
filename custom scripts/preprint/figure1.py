@@ -1038,3 +1038,15 @@ plt.savefig(os.path.join(folder, 'figure1\\stable_unstable_crosssession_smooth_n
 # Changed function call to find examples of remapping and stable PCs
 plot_matched_cells_across_sessions_correlation_split(plot_sessions=[-3, -2, -1, 0], groups=("Sham",),
                                                      normalize='all', gaussian_sigma=1, titles=[-3, -2, -1, 0])
+
+
+def get_number_pc_per_session():
+    with open(r'C:\Users\hheise.UZH\PycharmProjects\Caiman\custom scripts\preprint\Filippo\neural_data\is_pc_all_cells.pkl', 'rb') as file:
+        is_pc_all_cells = pickle.load(file)
+
+    # Count place cells for each mouse
+    pc_counts = {}
+    for mouse_id, mouse_df in is_pc_all_cells.items():
+        pc_counts[mouse_id] = mouse_df.sum(axis=0).rename(mouse_id)
+
+    pc_count_df = pd.concat(pc_counts).reset_index().pivot(index='level_0', columns='level_1', values=0)
