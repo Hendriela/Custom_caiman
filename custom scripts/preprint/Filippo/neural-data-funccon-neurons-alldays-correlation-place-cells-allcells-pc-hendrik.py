@@ -356,6 +356,27 @@ def get_quantile_part_of_class_frequency(quant, traces_correlation_vect, remappe
     return cellcats_quantile_frac_pre_early_late_meanlist, cellcats_quantile_counts_pre_early_late_meanlist
 
 
+def transform_for_prism_export(phase_list, pair_names, phase_names=None):
+
+    if phase_names is None:
+        phase_names = ['pre', 'early', 'late']
+
+    # Expand series to dataframe
+    dfs = []
+    for phase_name, series in zip(phase_names, phase_list):
+        df = pd.DataFrame(series.tolist(), index=series.index, columns=pair_names.values()).reset_index(names='mouse_id')
+        df['phase'] = phase_name
+        dfs.append(df)
+
+    return pd.concat(dfs, ignore_index=True)
+
+def change_class_labels(arr, mapper):
+    new_arr = arr.copy()
+    for key, val in mapper.items():
+        new_arr[arr == key] = val
+    return new_arr
+
+
 if __name__ == '__main__':
 
     os.chdir('/home/ga48kuh/NASgroup/labmembers/filippokiessler/wahl-colab')
@@ -392,15 +413,18 @@ if __name__ == '__main__':
     with open(pc_division_path, 'rb') as file:
         pc_classes_matrix = pickle.load(file)
 
+    # Get class matrix for stable/unstable classification
+    # stab_pc_classes_matrix = get_stable_classes(df=pc_classes_matrix)
+    stab_pc_division_path = r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\correlation_matrices\mouse-cell-pair-identifiers-stable.pkl'
+    with open(stab_pc_division_path, 'rb') as file:
+        stab_pc_classes_matrix = pickle.load(file)
+
     pc_classes_matrix = remove_mice_from_df(pc_classes_matrix, unwanted_mice)
 
     traces_corrmat_dict_filtered = remove_unwanted_mice(traces_corrmat_dict,
                                                         unwanted_mice)  # remove mouse 121 and 63. 63 is removed here because it has too few cells that are tracked on all days
     filtered_corrmat_traces_df = df_corr_result(traces_corrmat_dict_filtered)
     traces_correlation_vectors = filtered_corrmat_traces_df.applymap(get_correlation_vector, na_action='ignore')
-
-    # Get class matrix for stable/unstable classification
-    stab_pc_classes_matrix = get_stable_classes(df=pc_classes_matrix)
 
     # remap the cell pair categories to place cell and non-place cell
     remapped_final_pc_vec = pc_classes_matrix.applymap(get_correlation_vector, na_action='ignore')
@@ -416,11 +440,19 @@ if __name__ == '__main__':
                                 3: 'non-coding-stable', 4: 'unstable-stable', 6: 'stable-stable'}
 
 
+    # Change class mapping to only care about one cell from the pair
+    # New classes: 0: nc-nc pairs --- 1: at least one cell is an unstable PC (except if other cell is stable) --- 2: at least one cell is a stable PC
+    remapper = {2: 1, 3: 2, 4: 2, 6: 2}
+    string_pair_mapping_stab_single = {0: 'non-coding', 1: 'unstable', 2: 'stable'}
+    remapped_final_stab_pc_vec_re = remapped_final_stab_pc_vec.applymap(change_class_labels, na_action='ignore', mapper=remapper)
+    unique_categories_stab_re = get_unique_cell_pair_categories(remapped_final_stab_pc_vec_re)
+
     # derivative of the apply_function_to_cells function
     # calculate quantiles of correlation vectors (equivalently of correlation matrices)
+    phases = ['pre', 'early', 'late']
+    quantile = 0.95
 
     # Compute the distribution of cell classes within the top quantile (sums to 1)
-    quantile = 0.8
     cellcats_quantile_dist_pre_early_late, cellcats_greater_than_quantile_dist = get_quantile_class_frequency(
         quant=quantile, traces_correlation_vect=traces_correlation_vectors, remapped_class_vec=remapped_final_pc_vec,
         unique_cats=unique_categories)
@@ -428,7 +460,6 @@ if __name__ == '__main__':
     cellcats_quantile_dist_pre_early_late_stab, cellcats_greater_than_quantile_dist_stab = get_quantile_class_frequency(
         quant=quantile, traces_correlation_vect=traces_correlation_vectors, remapped_class_vec=remapped_final_stab_pc_vec,
         unique_cats=unique_categories_stab)
-
 
     # Compute the fraction of total cell class counts that are within the top quantile (averages around 1-quant)
     cellcats_quantile_frac_pre_early_late, cellcats_quantile_counts_pre_early_late = get_quantile_part_of_class_frequency(
@@ -439,6 +470,23 @@ if __name__ == '__main__':
         quant=quantile, traces_correlation_vect=traces_correlation_vectors,
         remapped_class_vec=remapped_final_stab_pc_vec,
         unique_cats=unique_categories_stab)
+
+    cellcats_quantile_frac_pre_early_late_stab_re, cellcats_quantile_counts_pre_early_late_stab_re = get_quantile_part_of_class_frequency(
+        quant=quantile, traces_correlation_vect=traces_correlation_vectors,
+        remapped_class_vec=remapped_final_stab_pc_vec_re,
+        unique_cats=unique_categories_stab_re)
+
+    quant_dist_stab = transform_for_prism_export(phase_list=cellcats_quantile_dist_pre_early_late_stab,
+                                                 pair_names=string_pair_mapping_stab, phase_names=phases)
+    quant_dist_stab.pivot(index='phase', columns='mouse_id', values='stable-stable').loc[phases].to_clipboard(index=False, header=False)
+
+    quant_frac_stab = transform_for_prism_export(phase_list=cellcats_quantile_frac_pre_early_late_stab,
+                                                 pair_names=string_pair_mapping_stab, phase_names=phases)
+    quant_frac_stab.pivot(index='phase', columns='mouse_id', values='non-coding-non-coding').loc[phases].to_clipboard(index=False, header=False)
+
+    quant_frac_stab_re = transform_for_prism_export(phase_list=cellcats_quantile_frac_pre_early_late_stab_re,
+                                                    pair_names=string_pair_mapping_stab_single, phase_names=phases)
+    quant_frac_stab_re.pivot(index='phase', columns='mouse_id', values='non-coding').loc[phases].to_clipboard(index=False, header=False)
 
     # make plots for coarse and for fine division
     length = len(cellcats_quantile_frac_pre_early_late_meanlist_greater[0].iloc[0])
