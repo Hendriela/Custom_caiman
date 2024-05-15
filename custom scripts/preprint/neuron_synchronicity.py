@@ -201,4 +201,62 @@ def load_data(root = r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_co
 
         data_dict['dff']['99'].pivot(index='period', columns='mouse', values=avg_cols[0]).loc[['pre', 'early', 'late']].to_clipboard(index=False, header=False)
 
+#%% neuron-neuron correlation in dependence of euclidean distance (from Filippos matrices
+import pickle
 
+def get_flat_halfmatrices(cell1, cell2):
+    if np.any(np.isnan(cell1)):
+        non_nan_cells = np.where(~np.isnan(cell1[0]))[0]
+        if len(non_nan_cells) == 0:
+            non_nan_cells = np.where(np.isnan(cell1[-1]))[0]
+            if len(non_nan_cells) == 0:
+                non_nan_cells = np.where(np.isnan(cell1[5]))[0]
+                if len(non_nan_cells) == 0:
+                    raise IndexError('Used wrong index to find nan cells.')
+
+        cell1 = cell1[non_nan_cells][:, non_nan_cells]
+        cell2 = cell2[non_nan_cells][:, non_nan_cells]
+
+    cell1_flat = cell1[np.tril_indices_from(cell1, k=-1)]
+    cell2_flat = cell2[np.tril_indices_from(cell2, k=-1)]
+
+    return cell1_flat, cell2_flat
+
+
+with open(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Data\analysis\Filippo\correlation_matrices\correlation-mat-unsorted-sa.pkl', 'rb') as file:
+    corr = pickle.load(file)
+with open(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Data\analysis\Filippo\correlation_matrices\distance-mat-unsorted.pkl', 'rb') as file:
+    dist = pickle.load(file)
+
+
+# Compute correlation between neuron-neuron correlation and distance for all mice, all sessions
+corr_dfs = []
+for mouse in dist.index:
+    for day in dist.columns:
+        if day != 1:
+            try:
+                # In this case, we can compute values
+                curr_corr, curr_dist = get_flat_halfmatrices(corr[mouse][day]['corr'], dist.loc[mouse, day])
+
+                # sns.scatterplot(x=curr_dist, y=curr_corr)
+
+                r, p = sts.pearsonr(curr_corr, curr_dist)
+
+                if day <= 0:
+                    phase = 'pre'
+                elif day <= 7:
+                    phase = 'early'
+                else:
+                    phase = 'late'
+
+                corr_dfs.append(pd.DataFrame([dict(mouse_id=mouse, day=day, phase=phase,
+                                                   r=r, p_val=p, n_pairs=len(curr_corr))]))
+            except KeyError:
+                # If there is no value for a given mouse-day, the corr dict will raise a key error
+                pass
+
+corr_df = pd.concat(corr_dfs, ignore_index=True)
+
+corr_df_avg = corr_df.groupby(by=['mouse_id', 'phase'], as_index=False).agg({'r': 'mean'})
+
+corr_df_avg.pivot(index='phase', columns='mouse_id', values='r').loc[['pre', 'early', 'late']].to_clipboard(index=True, header=True)
