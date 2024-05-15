@@ -563,10 +563,39 @@ conf_rescale = (1/-confidence).T
 conf_norm = (confidence - np.nanmin(confidence, axis=1)[..., np.newaxis]) / (np.nanmax(confidence, axis=1) - np.nanmin(confidence, axis=1))[..., np.newaxis]
 conf_norm = (confidence/ np.nansum(-confidence, axis=1)[..., np.newaxis])
 
+
+# Customize color map to have small values in white
+import matplotlib as mpl
+
+
+def white_extend_cmap(cmap_name, white_frac, cmap_res=256):
+
+    orig_range = int(np.round(cmap_res-(cmap_res*white_frac)))
+    orig = mpl.colormaps[cmap_name].resampled(orig_range)
+    start_col = orig(0)
+    vals = np.ones((cmap_res-orig_range, 4))
+    vals[:, 0] = np.linspace(start_col[0], 1, cmap_res-orig_range)
+    vals[:, 1] = np.linspace(start_col[1], 1, cmap_res-orig_range)
+    vals[:, 2] = np.linspace(start_col[2], 1, cmap_res-orig_range)
+    white_cmap = mpl.colors.ListedColormap(np.flip(vals, 0))
+
+    newcolors = np.vstack((
+        white_cmap(np.linspace(0, 1, cmap_res-orig_range)),
+        orig(np.linspace(0, 1, orig_range))
+    ))
+    return mpl.colors.ListedColormap(newcolors, name=f'extended_{cmap_name}')
+
+
+white_crest = white_extend_cmap(cmap_name='crest', white_frac=0.25)
+
 plt.figure()
-ax = sns.heatmap(conf_rescale, vmin=0, vmax=0.06, cmap='viridis')
+ax = sns.heatmap(conf_rescale, vmin=0, vmax=0.06, cmap=white_crest)
 ax.invert_yaxis()
-plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\figure_stability\decoder\M114_20220809_trial2_confidence_viridis.png')
+plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\figure_stability\decoder\M114_20220809_trial2_confidence_white_crest.png')
+
+sns.heatmap(np.random.random((10, 10)), cmap=white_crest)
+plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\figure_stability\decoder\white_crest_colorbar.svg')
+
 
 plt.figure()
 ax = sns.heatmap(conf_norm.T, cmap='magma')
