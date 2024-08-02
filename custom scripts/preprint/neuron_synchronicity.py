@@ -38,7 +38,7 @@ group.loc[group.group == "No Deficit", 'group'] = "Sham"
 
 #%%
 metrics = ['skewness', 'perc99', 'perc95', 'perc80', 'avg_corr', 'median_corr', 'avg_corr_pc', 'median_corr_pc']
-conn_data = pd.DataFrame((hheise_connectivity.NeuronNeuronCorrelation & 'trace_type="spat_dff"' &
+conn_data = pd.DataFrame((hheise_connectivity.NeuronNeuronCorrelation & 'trace_type="dff"' &
                           f'mouse_id in {helper.in_query(mice)}').fetch('mouse_id', 'day', *metrics, as_dict=True))
 conn = dc.merge_dfs(df=conn_data, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
 
@@ -65,6 +65,34 @@ for ax in g.axes[2:]:
 #%% Export for prism
 
 avg_conn.pivot(index='phase', columns='mouse_id', values='perc95').loc[['pre', 'early', 'late']].to_clipboard(index=True, header=True)
+
+#%% Example distributions for PhD defense presentation
+
+conn_data = pd.DataFrame((hheise_connectivity.NeuronNeuronCorrelation & 'trace_type="dff"' &
+                          f'mouse_id = 41').fetch('mouse_id', 'day', 'corr_matrix', as_dict=True))
+conn = dc.merge_dfs(df=conn_data, sphere_df=spheres, inj_df=injection, vr_df=vr_performance)
+
+sns.set_context("talk")
+data = pd.concat([pd.DataFrame(data=dict(r=conn.iloc[4]['corr_matrix'].flatten(), day=-1)),
+                  pd.DataFrame(data=dict(r=conn.iloc[6]['corr_matrix'].flatten(), day=5)),
+                  pd.DataFrame(data=dict(r=conn.iloc[9]['corr_matrix'].flatten(), day=14))],
+                 ignore_index=True).dropna()
+g = sns.displot(data, x='r', kind='hist', hue='day', element="step", bins=100)
+g.ax.set_yscale('log')
+
+g = sns.displot(data[data.day==-1], x='r', kind='hist', element="step", bins=100, stat='percent')
+g.ax.set_yscale('log')
+g.ax.axvline(np.nanpercentile(data[data.day==-1]['r'], q=95), color='yellow')
+g.ax.axvline(np.nanpercentile(data[data.day==5]['r'], q=95), color='red')
+g.ax.axvline(np.nanpercentile(data[data.day==14]['r'], q=95), color='black')
+ax.set_xlabel('functional connectivity')
+
+fig, ax = plt.subplots(nrows=1, ncols=3)
+sns.heatmap(conn.iloc[4]['corr_matrix'], vmin=-0.3, vmax=0.8, ax=ax[0], cbar=False)
+sns.heatmap(conn.iloc[6]['corr_matrix'], vmin=-0.3, vmax=0.8, ax=ax[1], cbar=False)
+sns.heatmap(conn.iloc[9]['corr_matrix'], vmin=-0.3, vmax=0.8, ax=ax[2], cbar=False)
+
+plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\figure_synchronicity\M41_-1_distribution.svg')
 
 
 #%% Kernel Density Estimates of correlation matrices
@@ -143,6 +171,17 @@ nc_nc = data.loc[:, data.iloc[1] == 'non-coding-non-coding'].iloc[2:].set_axis([
 nc_pc = data.loc[:, data.iloc[1] == 'non-coding-place-cell'].iloc[2:].set_axis(['pre', 'early', 'late'], axis=1,inplace=True,copy=False)
 pc_pc = data.loc[:, data.iloc[1] == 'place-cell-place-cell'].iloc[2:].set_axis(['pre', 'early', 'late'], axis=1,inplace=True,copy=False)
 
+# Figure 4D
+filepath = r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_correlations\correlation-by-cellpairs-STABLE-cellpairs-above-0.95-quantile-div-totalcount-dff.csv'
+filepath = r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_correlations\fraction-above-div-totalcount-stability-classes-quantile-0.95-dff.csv'
+data = pd.read_csv(filepath)
+
+# average across periods
+period_avg = data.groupby(by=['mouse', 'period']).agg({'stable_stable': np.nanmean, 'non_coding_non_coding': np.nanmean}).reset_index()
+period_avg.pivot(index='period', columns='mouse', values='non_coding_non_coding').loc[['pre', 'early', 'late']].to_clipboard(header=True, index=True)
+
+period_avg = data.groupby(by=['mouse_id', 'period']).agg({'stable-stable': np.nanmean, 'non-coding-non-coding': np.nanmean}).reset_index()
+period_avg.pivot(index='period', columns='mouse_id', values='non-coding-non-coding').loc[['pre', 'early', 'late']].to_clipboard(header=True, index=True)
 
 
 #%% Import and handle Filippos data for celltype-specific pairs in top X percentile of highly correlated cells
@@ -174,6 +213,8 @@ def load_data(root = r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_co
         # avg_df_filt = avg_df[~avg_df.mouse.isin(nan_mice)]
 
         data_dict[dtype][percentile] = avg_df
+
+    return data_dict
 
     # Make two quick plots
     cols = ['NC-NC', 'NC-PC', 'PC-PC']

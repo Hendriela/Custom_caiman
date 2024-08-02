@@ -28,15 +28,17 @@ deficit_flicker = [108, 110, 112]
 sham_injection = [115, 122]
 mice = [*no_deficit, *recovery, *no_deficit_flicker, *deficit_no_flicker, *deficit_flicker, *sham_injection]
 
+mice = [41, 63, 69, 93, 121]
+
 # Normalized performance data (normalized to 3 days pre-stroke)
-norm_performance = (hheise_behav.VRPerformance & f'mouse_id in {helper.in_query(mice)}').get_normalized_performance(baseline_days=3, plotting=False)
+norm_performance = (hheise_behav.VRPerformance & f'mouse_id in {helper.in_query(mice)}').get_normalized_performance(baseline_days=3, plotting=False, normalize=False)
 # Pivot data for export to Prism
 prism_performance = norm_performance.pivot(index='day', columns='mouse_id', values='performance')
-prism_performance.to_csv(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Presentations\Progress Reports\09.11.2022\batch8_performance.csv',
-                         sep='\t')
+prism_performance.to_csv(r'W:\Helmchen Group\Neurophysiology-Storage-01\Wahl\Hendrik\PhD\Presentations\Progress Reports\09.11.2022\batch8_performance.csv',
+                         sep=',')
 
 # Plot dFF examples of flicker sessions
-dff = (common_img.Segmentation & 'mouse_id=110' & 'day="2022-08-21"').get_traces(include_reject=True)
+dff = (common_img.Segmentation & 'mouse_id=110' & 'day="2022-08-21"').get_traces(include_reject=False)
 max_idx = np.unravel_index(np.argmax(dff, axis=None), dff.shape)[0]
 
 idx = np.array([64698, 71863, 79059, 86225, 93360, 100528]) // 30   # start idx of flicker periods for M112
@@ -55,7 +57,7 @@ ax.spines['top'].set_visible(False)
 #%% Synapsis Forum Poster
 
 def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternative='two-sided', run_bootstrap=False,
-                        sort=False, cmap='magma', export_csv=False,
+                        sort=None, cmap='magma', export_csv=False,
                         dirpath = r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch8\analysis\flicker'):
     """
 
@@ -69,7 +71,7 @@ def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternat
     """
 
     def upper(df):
-        '''Returns the upper triangle of a correlation matrix.
+        ''' Returns the upper triangle of a correlation matrix.
         You can use scipy.spatial.distance.squareform to recreate matrix from upper triangle.
         Args:
           df: pandas or numpy correlation matrix
@@ -87,11 +89,18 @@ def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternat
         return df[mask]
 
     ## Compute correlation (remove diagonal)
+    trace1_corr = np.corrcoef(trace1)
     trace2_corr = np.corrcoef(trace2)
 
-    if sort:
-        # Sort neurons by mean correlation in ON condition
-        col_mean = np.nanmedian(trace2_corr, axis=1)
+    if sort is not None:
+        if sort == 'on':
+            # Sort neurons by mean correlation in ON condition
+            col_mean = np.nanmedian(trace2_corr, axis=1)
+        elif sort == 'off':
+            # Sort neurons by mean correlation in OFF condition
+            col_mean = np.nanmedian(trace1_corr, axis=1)
+        else:
+            raise ValueError
         col_sort_idx = np.argsort(-col_mean)
         trace2 = trace2[col_sort_idx]
         trace1 = trace1[col_sort_idx]
@@ -184,8 +193,8 @@ def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternat
     pair_change_tril = trace2_tril-trace1_tril
     pair_change = pair_change_tril.flatten()[~np.isnan(pair_change_tril.flatten())]
 
-    pair_abs_thresh = np.std(pair_change)
-    pair_abs_thresh = 0.2
+    pair_abs_thresh = np.std(pair_change)*2
+    # pair_abs_thresh = 0.2
     increased_r = np.sum(pair_change >= pair_abs_thresh)/len(pair_change)*100
     decreased_r = np.sum(pair_change <= -pair_abs_thresh)/len(pair_change)*100
     same_r = np.sum(np.logical_and(pair_change > -pair_abs_thresh, pair_change < pair_abs_thresh))/len(pair_change)*100
@@ -213,10 +222,18 @@ def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternat
     plt.setp(ax_kde.get_legend().get_title(), fontsize=20)
     ax_kde.spines['right'].set_visible(False)
     ax_kde.spines['top'].set_visible(False)
+
+    # Plot mean, median, upper and lower quartile
+    for df, color in zip([df1, df2], ['grey', 'green']):
+        ax_kde.axvline(np.mean(df['r']), color=color)
+        ax_kde.axvline(np.median(df['r']), color=color, linestyle='--')
+        ax_kde.axvline(np.quantile(df['r'], q=0.25), color=color, linestyle=':')
+        ax_kde.axvline(np.quantile(df['r'], q=0.75), color=color, linestyle=':')
+
     plt.tight_layout()
 
     plt.figure()
-    sns.violinplot(data=df_neur_avg, x='Flicker', y='r').set(title='Neuron avg')
+    sns.violinplot(data=df_neur_avg, x='metric', y='r', hue='Flicker', split=True, density_norm='width', inner='quart').set(title='Neuron avg')
 
     if export_csv:
         np.savetxt(os.path.join(dirpath, f'{name1}_NeurAvg_corr.csv'), trace1_neur.T, fmt='%.8f')
@@ -256,7 +273,7 @@ def compare_corr_matrix(trace1, trace2, name1='trace1', name2='trace2', alternat
 
 # Plot deconvolved
 key = {'mouse_id':110, 'day':"2022-08-21"}
-decon = (common_img.Segmentation & key).get_traces('decon', include_reject=True)
+decon = (common_img.Segmentation & key).get_traces('decon', include_reject=False)
 # Get idx of flicker periods
 flick = 492     # Flicker starts in file_00025 at frame 492
 flick1 = flick + (common_img.RawImagingFile & key & 'part<22').fetch('nr_frames').sum()
@@ -277,14 +294,14 @@ x=np.arange(len(y))/30
 plt.figure()
 plt.plot(x, y)
 plt.xlabel('time [s]', fontsize=14)
-plt.ylabel('dF/F', fontsize=14)
+plt.ylabel('spike probability', fontsize=14)
 ax = plt.gca()
 ax.spines['right'].set_visible(False)
 ax.spines['top'].set_visible(False)
 [plt.axvspan(i-shift/30, i+60-shift/30, color='red', alpha=0.2) for i in idx_sec]
 
 # Activity during flicker vs between flicker
-snr = (common_img.Segmentation.ROI & key).fetch('snr')
+snr = (common_img.Segmentation.ROI & key & 'accepted=1').fetch('snr')
 snr_mask = snr > 3  # Only use neurons with an SNR > 3 (high-noise neurons might be contaminated
 
 shift = (common_img.RawImagingFile & key & 'part<22').fetch('nr_frames').sum()
@@ -386,8 +403,95 @@ vs2_1min_off_mat, vs2_1min_off_stat = compare_corr_matrix(trace1=fr_off_2nd_min,
 vs3_2min_off_mat, vs3_2min_off_stat = compare_corr_matrix(trace1=fr_off_1st_min, trace2=fr_off_2nd_min, name1='pre3', name2='pre2', export_csv=False)
 
 # plt.tight_layout()
-plt.savefig(r'W:\Neurophysiology-Storage1\Wahl\Hendrik\PhD\Data\Batch8\analysis\flicker\corr_matrix_1st_min_off.png')
+plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\flicker\avg_corr_histogram_3rd_min_off.svg')
 
+#%% PhD Thesis
+import scipy as sp
+
+def plot_histos(dataset, attr, xlabel, kde=False, nbins=50, ylim=None):
+    fig = plt.figure()
+    if kde:
+        ax_kde = sns.kdeplot(data=dataset, x=attr, hue='Flicker', bw_adjust=0.8, fill=True, common_norm=True,
+                             palette=['green', 'grey'], alpha=0.5)
+    else:
+        ax_kde = sns.histplot(data=dataset, x=attr, hue="Flicker", stat="percent", element="poly", fill=True,
+                              palette=['green', 'grey'], alpha=0.5, bins=nbins)
+
+    ax_kde.set_ylabel('# neurons', fontsize=25)
+    ax_kde.set_xlabel(xlabel, fontsize=25)
+    ax_kde.tick_params(axis='both', which='major', labelsize=20)
+    plt.setp(ax_kde.get_legend().get_texts(), fontsize=20)
+    plt.setp(ax_kde.get_legend().get_title(), fontsize=20)
+    if ylim is not None:
+        ax_kde.set_ylim(ylim[0], ylim[1])
+    ax_kde.spines['right'].set_visible(False)
+    ax_kde.spines['top'].set_visible(False)
+
+    # Plot mean, median, upper and lower quartile
+    for flicker, color in zip(['ON', 'OFF'], ['green', 'grey']):
+        dset = dataset.loc[dataset.Flicker == flicker][attr]
+        ax_kde.axvline(np.mean(dset), color=color)
+        ax_kde.axvline(np.median(dset), color=color, linestyle='--')
+        ax_kde.axvline(np.quantile(dset, q=0.25), color=color, linestyle=':')
+        ax_kde.axvline(np.quantile(dset, q=0.75), color=color, linestyle=':')
+
+    plt.tight_layout()
+
+# Plot histograms of firing rate distributions
+fr_on_mean = np.sum(fr_on, axis=1) / (fr_on.shape[1]/30)
+fr_off_mean = np.sum(fr_off_3rd_min, axis=1) / (fr_off_3rd_min.shape[1]/30)
+
+df1 = pd.DataFrame(dict(Flicker='ON', avg_fr=fr_on_mean, metric='neuron_avg'))
+df2 = pd.DataFrame(dict(Flicker='OFF', avg_fr=fr_off_mean, metric='neuron_avg'))
+df_neur_avg = pd.concat([df1, df2])
+
+plot_histos(dataset=df_neur_avg, attr='avg_fr', xlabel='Mean firing rate', nbins=40, ylim=(0, 10))
+plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\flicker\avg_fr_histogram_3rd_min_off.svg')
+
+# Plot histograms of mean func-con distributions
+df1 = pd.DataFrame(dict(Flicker='ON', avg_corr=on_corr_neur, metric='neuron_avg'))
+df2 = pd.DataFrame(dict(Flicker='OFF', avg_corr=off_corr_neur, metric='neuron_avg'))
+df_neur_corr_avg = pd.concat([df1, df2])
+
+plot_histos(dataset=df_neur_corr_avg, attr='avg_corr', xlabel='Mean correlation', kde=False, nbins=40, ylim=(0, 10))
+plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\flicker\avg_corr_histogram_3rd_min_off.svg')
+
+# Scatter point clouds (like in Fig 4)
+def ax_plot_coor_fit_with_vectors(axis, xvec, yvec, xrange=np.array([-0.2, 0.8]), xy=None):
+    # function to plot scatters and make both linear fit and correlation value of the point cloud
+    x = xrange
+    if xy == None:
+        xy = (-0.1, 0.6)
+    axis.scatter(xvec, yvec, s=1, color='r')
+    axis.plot(x, x, color='k')
+    axis.set_aspect('equal')
+    fit = sp.stats.linregress(xvec, yvec)
+    axis.plot(x, x * fit.slope + fit.intercept, color='green')
+    try:
+        coef = sp.stats.pearsonr(xvec, yvec)
+        axis.annotate(f'slope = {fit.slope:.2f}\nr = {coef.statistic:.2f}\np = {coef.pvalue:.4f}',
+                    xy=xy, fontsize=10)
+        return axis, fit, coef
+    except:
+        axis.annotate(f'slope = {fit.slope:.2f}\ntoo few data points', xy=xy, fontsize=10)
+        return axis, fit, np.nan
+
+fr_on_mean = np.sum(fr_on, axis=1) / (fr_on.shape[1]/30)
+fr_off_mean = np.sum(fr_off_3rd_min, axis=1) / (fr_off_3rd_min.shape[1]/30)
+
+off_corr = np.corrcoef(fr_off_3rd_min)
+np.fill_diagonal(off_corr, np.nan)
+on_corr = np.corrcoef(fr_on)
+np.fill_diagonal(on_corr, np.nan)
+off_corr_neur = np.arctan(np.nanmean(np.arctanh(off_corr), axis=0))
+on_corr_neur = np.arctan(np.nanmean(np.arctanh(on_corr), axis=0))
+
+fig, ax = plt.subplots(ncols=2)
+ax_fr, _, _ = ax_plot_coor_fit_with_vectors(axis=ax[0], xvec=fr_off_mean, yvec=fr_on_mean, xrange=np.array([0, 1.2]), xy=(0.1, 1.1))
+ax_corr, _, _ = ax_plot_coor_fit_with_vectors(axis=ax[1], xvec=off_corr_neur, yvec=on_corr_neur, xrange=np.array([-0.005, 0.04]), xy=(-0.004, 0.03))
+
+to_copy = pd.DataFrame({'off': fr_off_mean, 'on': fr_on_mean}).to_clipboard(index=False)
+to_copy = pd.DataFrame({'off': off_corr_neur, 'on': on_corr_neur}).to_clipboard(index=False)
 
 
 

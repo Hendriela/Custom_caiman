@@ -322,7 +322,7 @@ if __name__ == '__main__':
 
     # Export transition matrix for prism
     transition_matrix_for_prism(trans_matrices, phase='pre_early', include_lost=False, norm='forward').to_clipboard(header=True, index=True)
-    transition_matrix_for_prism(trans_matrices, phase='early_late', include_lost=False, norm='backward').to_clipboard(header=False, index=False)
+    transition_matrix_for_prism(trans_matrices_rng, phase='early_late', include_lost=False, norm='forward').to_clipboard(header=True, index=True)
     transition_matrix_for_prism(trans_matrices_rng, phase='pre_early', include_lost=False, norm='forward').to_clipboard(header=True, index=True)
 
 # for i in range(len(stability_classes_new)):
@@ -331,3 +331,14 @@ if __name__ == '__main__':
 #
 #     np.sum(class_new - class_old)
 
+    # Find numbers of cells that stay stable PCs for all three phases
+    dfs = []
+    for mouse in stability_classes.mouse_id.unique():
+        classes = np.sum(np.stack(stability_classes.loc[stability_classes.mouse_id == mouse, 'classes']), axis=0)
+        dfs.append(pd.DataFrame(index=[int(mouse.split("_")[0])], data=dict(n_stable=np.sum(classes == 9), n_total=len(classes), frac=np.sum(classes == 9)/len(classes)*100)))
+    always_stable = pd.concat(dfs)
+    always_stable.drop(index=121, inplace=True)
+
+    always_stable.n_stable.sum()
+    always_stable.frac.mean()
+    always_stable.frac.std()/np.sqrt(len(always_stable.frac))

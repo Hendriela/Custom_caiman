@@ -359,8 +359,8 @@ for ax in g.axes:
 
 #%% Add behavioral grouping
 
-coarse = (hheise_grouping.BehaviorGrouping & 'grouping_id = 0' & 'cluster = "coarse"').get_groups()
-fine = (hheise_grouping.BehaviorGrouping & 'grouping_id = 0' & 'cluster = "fine"').get_groups()
+coarse = (hheise_grouping.BehaviorGrouping & 'grouping_id = 4' & 'cluster = "coarse"').get_groups()
+fine = (hheise_grouping.BehaviorGrouping & 'grouping_id = 4' & 'cluster = "fine"').get_groups()
 
 # Adjust correlations of MAE and MAE_quad (let all be positive)
 perf_corr_long.loc[perf_corr_long['variable'].isin(['mae', 'mae_quad']), 'value'] = -perf_corr_long.loc[perf_corr_long['variable'].isin(['mae', 'mae_quad']), 'value']
@@ -555,14 +555,24 @@ plt.show()
 
 #%% Plot heatmap of decoder confidence for example trial
 
-key = dict(mouse_id=114, day='2022-08-09', bayesian_id=1, trial_id=2)
+key = dict(mouse_id=114, day='2022-08-09', bayesian_id=1, trial_id=2)   # Good example (Figure 3F)
+key = dict(mouse_id=41, day='2020-08-27', bayesian_id=1, trial_id=0)    # Decent accuracy
+key = dict(mouse_id=41, day='2020-08-30', bayesian_id=1, trial_id=0)    # Complete failure
 
 pos_true, pos_pred, confidence = (hheise_decoder.BayesianDecoderWithinSession.Trial & key).fetch1('pos_true', 'pos_predict', 'confidence')
 
 conf_rescale = (1/-confidence).T
-conf_norm = (confidence - np.nanmin(confidence, axis=1)[..., np.newaxis]) / (np.nanmax(confidence, axis=1) - np.nanmin(confidence, axis=1))[..., np.newaxis]
-conf_norm = (confidence/ np.nansum(-confidence, axis=1)[..., np.newaxis])
-
+# conf_norm = (confidence - np.nanmin(confidence, axis=1)[..., np.newaxis]) / (np.nanmax(confidence, axis=1) - np.nanmin(confidence, axis=1))[..., np.newaxis]
+# conf_norm = (confidence/ np.nansum(-confidence, axis=1)[..., np.newaxis])
+#
+# plt.figure()
+# ax = sns.heatmap(conf_rescale, vmin=0, vmax=0.06, cmap=white_crest)
+# ax = sns.heatmap(conf_rescale, cmap=white_crest)
+# ax.invert_yaxis()
+#
+# plt.figure()
+# plt.plot(pos_pred, color='orange')
+# plt.plot(pos_true, color='black')
 
 # Customize color map to have small values in white
 import matplotlib as mpl
@@ -591,7 +601,7 @@ white_crest = white_extend_cmap(cmap_name='crest', white_frac=0.25)
 plt.figure()
 ax = sns.heatmap(conf_rescale, vmin=0, vmax=0.06, cmap=white_crest)
 ax.invert_yaxis()
-plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\figure_stability\decoder\M114_20220809_trial2_confidence_white_crest.png')
+plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\figure_stability\decoder\M41_20200827_trial0_confidence_white_crest.png')
 
 sns.heatmap(np.random.random((10, 10)), cmap=white_crest)
 plt.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\figure_stability\decoder\white_crest_colorbar.svg')
