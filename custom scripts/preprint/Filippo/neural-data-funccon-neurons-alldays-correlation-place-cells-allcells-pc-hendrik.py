@@ -216,6 +216,8 @@ def get_stable_classes_single_day(matched_ids_day, sess_str, stable_class, mouse
     # Create empty array
     stab_class_arr = np.zeros(mat_shape)
 
+    stab_class_arr_nan = np.zeros(mat_shape) * np.nan
+
     # Add class row-wise and column-wise to create cross-matrix
     # Filter out untracked cells
     tracked_mask = np.where(matched_ids_day != -1)[0]
@@ -226,7 +228,12 @@ def get_stable_classes_single_day(matched_ids_day, sess_str, stable_class, mouse
     stab_class_arr[idx_matched_ids] += stab_class_numbers[tracked_mask, np.newaxis]       # row-wise
     stab_class_arr[:, idx_matched_ids] += stab_class_numbers[np.newaxis, tracked_mask]    # col-wise
 
-    return stab_class_arr
+    stab_class_arr_nan[idx_matched_ids]=0
+    stab_class_arr_nan[:, idx_matched_ids] = 0
+    stab_class_arr_nan[idx_matched_ids] += stab_class_numbers[tracked_mask, np.newaxis]       # row-wise
+    stab_class_arr_nan[:, idx_matched_ids] += stab_class_numbers[np.newaxis, tracked_mask]    # col-wise
+
+    return stab_class_arr_nan
 
 
 def get_stable_classes(df):
@@ -320,20 +327,21 @@ def get_quantile_part_of_class_frequency(quant, traces_correlation_vect, remappe
     # Compute quantile for each session
     correlation_vec_quantiles = traces_correlation_vect.applymap(lambda cell: np.quantile(cell, quant),
                                                                  na_action='ignore')
-    # Check for each cell if its above the quantile threshold or not
+    # Check for each cell if its above the quantile threshold or not (validated, Number of TRUE per session is 5%)
     corr_greater_than_quantile = apply_function_to_cells(traces_correlation_vect, correlation_vec_quantiles,
                                                          qfunction, ignore_nan=True)
 
-    # calculate fraction of cells that are place cells and greater than the xth quantile
+    # calculate fraction of cells that are place cells and greater than the xth quantile (validated, mask
+    # remapped_class_vec with cells in quantile, yields shorter array with length quantile*len(remapped_class_vec))
     cellpairs_greater_than_quantile = apply_function_to_cells(corr_greater_than_quantile, remapped_class_vec,
                                                               lambda x, y: y[x], ignore_nan=True)
 
-    # For each session, get total count of each cell class and within the top percentile
+    # For each session, get total count of each cell class and within the top percentile (validated)
     cellcats_counts = remapped_class_vec.applymap(lambda x: counts_from_uniques(x, unique_cats), na_action='ignore')
     cellcats_greater_than_quantile_counts = cellpairs_greater_than_quantile.applymap(
         lambda x: counts_from_uniques(x, unique_cats), na_action='ignore')
 
-    # Get fraction of total cell class counts that are within the top percentile by dividing both counts
+    # Get fraction of total cell class counts that are within the top percentile by dividing both counts (validated, division happens element-wise)
     cellcats_greater_than_quantile_frac = cellcats_greater_than_quantile_counts / cellcats_counts
 
     # split fractions & counts according to pre, early late
@@ -352,6 +360,28 @@ def get_quantile_part_of_class_frequency(quant, traces_correlation_vect, remappe
         avg_over_columns(cellcats_quantile_counts_pre_early_late_division[0], last3=True),
         avg_over_columns(cellcats_quantile_counts_pre_early_late_division[1]),
         avg_over_columns(cellcats_quantile_counts_pre_early_late_division[2])]
+
+    # Export session-wise dataframe to CSV for Filippo
+    # Step 1: Flatten the DataFrame using melt
+    df_melted = cellcats_greater_than_quantile_frac.reset_index().melt(id_vars='index', var_name='day', value_name='array')
+
+    # Step 2: Expand the numpy arrays into separate columns
+    df_expanded = df_melted['array'].apply(pd.Series)
+    df_expanded.columns = [list(string_pair_mapping_stab.values())[i] for i in range(df_expanded.shape[1])]
+
+    # Step 3: Concatenate the flattened DataFrame with the expanded arrays
+    df2 = pd.concat([df_melted[['index', 'day']], df_expanded], axis=1).rename(columns={'index': 'mouse_id'})
+
+    # Add columns
+    period = np.array(['early'] * len(df2))
+    period[df2.day < 1] = 'pre'
+    period[df2.day > 7] = 'late'
+    df2['period'] = period
+
+    merge = df2.merge(fine, how='left', on='mouse_id').rename(columns={'group': 'fine'})
+    merge = merge.merge(coarse, how='left', on='mouse_id').rename(columns={'group': 'coarse'})
+    merge.to_csv(r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_correlations\correlation-by-cellpairs-STABLE-cellpairs-above-0.95-quantile-div-totalcount-dff.csv')
+
 
     return cellcats_quantile_frac_pre_early_late_meanlist, cellcats_quantile_counts_pre_early_late_meanlist
 
@@ -515,16 +545,53 @@ if __name__ == '__main__':
             f'{savestr}/{division_name}-allcats-{quantile}-correlation-cell-distribution-greater-{args.dataset}.png',
             dpi=300)
 
-    # export data to csv
+    # export data to csv (for Filippo)
+
+
+    # Transform results DF into a CSV for Filippo
+
+    def get_quantile_means_of_distribution_pc_counts(quant, tcv, pc_vec, unique_cats,
+                                                     qfunction=lambda x, y: x > y):
+        correlation_vec_quantiles = tcv.applymap(lambda cell: np.quantile(cell, quant),
+                                                                        na_action='ignore')
+        corr_greater_than_quantile = apply_function_to_cells(tcv, correlation_vec_quantiles,
+                                                             qfunction, ignore_nan=True)
+
+        # calculate fraction of cells that place cells and greater than the 0.0 quantile
+        cellpairs_greater_than_quantile = apply_function_to_cells(corr_greater_than_quantile, pc_vec,
+                                                                  lambda x, y: y[x], ignore_nan=True)
+
+        cellcats_greater_than_quantile_counts = cellpairs_greater_than_quantile.applymap(
+            lambda x: counts_from_uniques(x, unique_cats), na_action='ignore')
+        cellcats_greater_than_quantile_fractions = cellcats_greater_than_quantile_counts.applymap(lambda x: x / x.sum(),
+                                                                                                  na_action='ignore')
+
+        # split fractions according to pre, early late
+        cellcats_quantile_frac_pre_early_late_division = divide_pre_early_late(cellcats_greater_than_quantile_fractions)
+
+        # calculate mean fractions by pair category over pre, early and late poststroke
+        cellcats_quantile_frac_pre_early_late_meanlist = [
+            avg_over_columns(cellcats_quantile_frac_pre_early_late_division[0], last3=True),
+            avg_over_columns(cellcats_quantile_frac_pre_early_late_division[1]),
+            avg_over_columns(cellcats_quantile_frac_pre_early_late_division[2])]  # results should sum to 1
+
+        return cellcats_quantile_frac_pre_early_late_meanlist, cellcats_greater_than_quantile_fractions
+
+
+    quantile = .95
+    cellcats_quantile_frac_pre_early_late_meanlist_greater, cellcats_greater_than_quantile_fractions = get_quantile_means_of_distribution_pc_counts(
+        quant=quantile, tcv=traces_correlation_vectors, pc_vec=remapped_final_stab_pc_vec, unique_cats=unique_categories_stab)
+
     datalist = [cellcats_quantile_frac_pre_early_late_meanlist_greater]
     datalist_renamed = []
     for l, name in zip(datalist, ['greater', 'smaller', 'greater divided by smaller']):
         for stat, period in zip(l, ['pre', 'early', 'late']):
             pairtype_stats = [stat.apply(lambda cell: cell[i]).rename((period, f'{name} quantile {quantile}', pairtype))
-                              for i, pairtype in string_pair_mapping.items()]
+                              for i, pairtype in string_pair_mapping_stab.items()]
             datalist_renamed.append(pairtype_stats)
 
     datalist_flat = [x for quantile_stat in datalist_renamed for x in quantile_stat]
     data_df = pd.concat(datalist_flat, axis=1)
 
-    data_df.to_csv(f'{savestr}/cell-pair-fractions-in-correlation-distribution-quantile-{quantile}.csv')
+    savestr= r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_correlations'
+    data_df.to_csv(f'{savestr}/cell-pair-fractions-STABLE-in-correlation-distribution-quantile-{quantile}.csv')
