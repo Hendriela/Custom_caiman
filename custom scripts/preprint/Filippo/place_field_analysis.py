@@ -41,11 +41,33 @@ for ax, period in zip(axes, ['pre', 'early', 'late']):
     for z in zones:
         ax.axvspan(z[0], z[1], color='green', alpha=0.2)
 
-    sns.histplot(data=df_melt[df_melt.period == period], x='coord', bins=81, hue='group', stat='percent',
+    sns.histplot(data=df_melt[df_melt.period == period], x='coord', bins=80, hue='group', stat='percent',
                  common_norm=False, element='step', palette=color_dict, ax=ax)
     ax.set_ylabel(period)
     if period != 'pre':
         ax.get_legend().remove()
 
 
+# Transform place field coordinates to distance to next reward zone
+def get_distance(centers, borders):
+    """ Get distance in bin coordinates from last RZ end. """
+    def comp_dist(cent, b):
+        dist = cent - b
+        return np.min(dist[dist > 0])
+    try:
+        return [comp_dist(c, borders) for c in np.array(centers)]
+    except TypeError:
+        return comp_dist(centers, borders)
 
+end2end = zones[1, 1]-zones[0, 1]
+start2end = zones[1, 1]-zones[1, 0]
+df_melt['dist_from_rz_end'] = df_melt['coord'].apply(get_distance, borders=np.append(zones[0, 1]-end2end, zones[:, 1]))
+
+fig, axes = plt.subplots(nrows=3, sharex='all', layout='constrained')
+for ax, period in zip(axes, ['pre', 'early', 'late']):
+    ax.axvspan(end2end-start2end, end2end, color='green', alpha=0.2)
+    sns.histplot(data=df_melt[df_melt.period == period], x='dist_from_rz_end', bins=22, hue='group', stat='percent',
+                 common_norm=False, element='step', palette=color_dict, ax=ax)
+    ax.set_ylabel(period)
+    if period != 'pre':
+        ax.get_legend().remove()
