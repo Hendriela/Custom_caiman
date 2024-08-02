@@ -13,9 +13,10 @@ Uses all cells (since PC classification is done daily), not tracked cells.
 # this script only considers stable, and nonstable cell categories (all pairs of categories)
 # importantly, only cells that are measured on all days are present.
 import pickle
+
 import numpy as np
 
-from time import perf_counter_ns
+from time import perf_counter
 from datetime import timedelta
 
 import os
@@ -26,7 +27,9 @@ import matplotlib
 import pandas as pd
 import seaborn as sns
 
-from schema import common_mice, common_img
+from schema import common_mice, common_img, hheise_placecell
+from util import helper
+
 from preprint.Filippo.utilities import plot_quantiles_with_data, remove_unwanted_mice, df_corr_result, get_correlation_vector, \
     avg_over_columns, divide_pre_early_late, avg_over_columns_nanmean
 
@@ -257,8 +260,8 @@ def plot_grouped_boxplots(df, suptitle, baseline):
     return fig, axes
 
 def get_cell_pair_mask_ids(cormat_trace_df):
-    """ Create a DF with same structure as traces_correlation_vectors (1 flattened np.array per session) with tuples of
-    mask_ids for each cell pair, to keep track of cell identities of paired cells. """
+    """ Create a DF with same structure as traces_correlation_vectors (one 2D np.array per session) with mask_ids for
+    each cell pair (in two axes), to keep track of cell identities of paired cells. """
     # Make DF with same shape as original
     mask_id_df = cormat_trace_df.copy()
     mask_id_df.loc[:] = np.nan
@@ -286,12 +289,66 @@ def get_cell_pair_mask_ids(cormat_trace_df):
                 mask_id_pairs = result[np.tril_indices_from(result, k=-1)]
 
                 # Enter flattened array into DF
-                mask_id_df.loc[mouse_id, rel_day] = mask_id_pairs
+                mask_id_df.loc[mouse_id, rel_day] = np.vstack(mask_id_pairs)
     return mask_id_df
 
 
-def check_place_fields():
-    return
+def check_place_fields(corr_masks, mask_vecs, pc_vecs):
+
+    unique_pfs = corr_masks.copy()
+    unique_pfs.loc[:] = np.nan
+    pairwise_pfs = unique_pfs.copy()
+
+    for mouse_id in corr_masks.index:
+        # Get surgery date for the current mouse to compute dates from relative days
+        curr_surg_date = (common_mice.Surgery & f'mouse_id={mouse_id}' & 'username="hheise"' &
+                          'surgery_type="Microsphere injection"').fetch1('surgery_date').date()
+        for rel_day in corr_masks.columns:
+            if not np.all(np.isnan(corr_masks.loc[mouse_id, rel_day])):
+                abs_date = curr_surg_date + timedelta(days=rel_day)
+                curr_corr = corr_masks.loc[mouse_id, rel_day]
+                curr_ids = mask_vecs.loc[mouse_id, rel_day]
+                curr_pcs = pc_vecs.loc[mouse_id, rel_day]
+
+                # Get mask IDs of highly correlating place cell pairs
+                pc_ids = curr_ids[(curr_pcs == 2) & curr_corr]
+
+                if len(pc_ids) == 0:
+                    continue
+
+                db_mask_ids = (hheise_placecell.PlaceCell.PlaceField & 'username="hheise"' & f'mouse_id={mouse_id}' & f'day="{abs_date}"'
+                               & 'corridor_type=0' & 'large_enough=1' & 'strong_enough=1' & 'transients=1').fetch('mask_id')
+
+                # Sanity check that all pc_ids also have place fields
+                assert np.all(np.isin(np.unique(pc_ids), db_mask_ids))
+
+                # Get center of mass of all place cells part of a highly-correlating PC pair
+                pf_coms = (hheise_placecell.PlaceCell.PlaceField & 'username="hheise"' & f'mouse_id={mouse_id}' &
+                           f'day="{abs_date}"' & 'corridor_type=0' & 'large_enough=1' & 'strong_enough=1' &
+                           'transients=1' & f'mask_id in {helper.in_query(np.unique(pc_ids))}').fetch('com')
+                unique_pfs.loc[mouse_id, rel_day] = pf_coms
+
+                # Get center of mass of all PC pairs, associated together in 2D array (like mask_vecs). If a PC has more
+                # than one place field, take the one with the smallest standard deviation of its CoM
+                pf_com_pairs = np.zeros(pc_ids.shape)
+                for m_id in np.unique(pc_ids):
+                    curr_com = (hheise_placecell.PlaceCell.PlaceField & 'username="hheise"' & f'mouse_id={mouse_id}' &
+                           f'day="{abs_date}"' & 'corridor_type=0' & 'large_enough=1' & 'strong_enough=1' &
+                           'transients=1' & f'mask_id={m_id}').fetch('com', order_by='com_sd', limit=1)[0]
+                    pf_com_pairs[pc_ids == m_id] = curr_com
+                pairwise_pfs.loc[mouse_id, rel_day] = pf_com_pairs
+
+    return unique_pfs, pairwise_pfs
+
+
+def time_code(n_iter):
+    times = np.ones(n_iter)
+    for i in range(n_iter):
+        start = perf_counter()
+        test = np.array([list(tup) for tup in mask_id_pairs])
+        # test2 = np.vstack(mask_id_pairs)
+        times[i] = perf_counter() - start
+    print(f"Mean execution time: {np.mean(times):.4f} +/- {np.std(times):.4f} s")
 
 
 class Arguments:
@@ -368,7 +425,7 @@ if __name__ == '__main__':
     # derivative of the apply_function_to_cells function
 
     # calculate quantiles of correlation vectors (equivalently of correlation matrices)
-    def get_quantile_means_of_distribution_pc_counts(quant, tcv, pc_vec, mask_id_vec, qfunction=lambda x, y: x > y):
+    def get_quantile_means_of_distribution_pc_counts(quant, tcv, pc_vec, qfunction=lambda x, y: x > y):
         correlation_vec_quantiles = tcv.applymap(lambda cell: np.quantile(cell, quant),
                                                  na_action='ignore')
         corr_greater_than_quantile = apply_function_to_cells(tcv, correlation_vec_quantiles,
@@ -404,14 +461,15 @@ if __name__ == '__main__':
 
     quantile = args.quantile
     cellcats_quantile_frac_pre_early_late_meanlist_greater, cellcats_greater_than_quantile_fractions, cellcats_greater_than_quantile_counts, corr_greater_quant = get_quantile_means_of_distribution_pc_counts(
-        quant=quantile, tcv=traces_correlation_vectors, pc_vec=remapped_final_pc_vec, mask_id_vec=mask_id_vectors)
+        quant=quantile, tcv=traces_correlation_vectors, pc_vec=remapped_final_pc_vec)
 
     ############################################################
     ### CHECK PLACE FIELDS OF HIGHLY-CORRELATING PLACE CELLS ###
     ############################################################
 
-    check_place_fields(corr_masks=corr_greater_quant, pc_vecs=remapped_final_pc_vec)
-
+    unique_fields, pairwise_fields = check_place_fields(corr_masks=corr_greater_quant, mask_vecs=mask_id_vectors, pc_vecs=remapped_final_pc_vec)
+    unique_fields.to_pickle(r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_correlations\95th_perc_pc-pc_unique_fields.pkl')
+    pairwise_fields.to_pickle(r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_correlations\95th_perc_pc-pc_pairwise_fields.pkl')
 
     #######################################################################################################################################################
     # make plots for coarse and for fine division
