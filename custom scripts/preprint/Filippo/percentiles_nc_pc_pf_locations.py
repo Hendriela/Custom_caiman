@@ -18,6 +18,7 @@ import numpy as np
 
 from time import perf_counter
 from datetime import timedelta
+import itertools
 
 import os
 import matplotlib.pyplot as plt
@@ -293,7 +294,7 @@ def get_cell_pair_mask_ids(cormat_trace_df):
     return mask_id_df
 
 
-def check_place_fields(corr_masks, mask_vecs, pc_vecs):
+def check_place_fields(corr_masks, mask_vecs, pc_vecs, control=False):
 
     unique_pfs = corr_masks.copy()
     unique_pfs.loc[:] = np.nan
@@ -322,10 +323,23 @@ def check_place_fields(corr_masks, mask_vecs, pc_vecs):
                 # Sanity check that all pc_ids also have place fields
                 assert np.all(np.isin(np.unique(pc_ids), db_mask_ids))
 
-                # Get center of mass of all place cells part of a highly-correlating PC pair
-                pf_coms = (hheise_placecell.PlaceCell.PlaceField & 'username="hheise"' & f'mouse_id={mouse_id}' &
-                           f'day="{abs_date}"' & 'corridor_type=0' & 'large_enough=1' & 'strong_enough=1' &
-                           'transients=1' & f'mask_id in {helper.in_query(np.unique(pc_ids))}').fetch('com')
+                if control:
+                    # Adaptation: get all PCs that are not part of pc-pc pairs (as control)
+                    control_ids = np.unique(db_mask_ids)[~np.isin(np.unique(db_mask_ids), np.unique(pc_ids))]
+                    if len(control_ids) == 0:
+                        continue
+                    pf_coms = (hheise_placecell.PlaceCell.PlaceField & 'username="hheise"' & f'mouse_id={mouse_id}' &
+                               f'day="{abs_date}"' & 'corridor_type=0' & 'large_enough=1' & 'strong_enough=1' &
+                               'transients=1' & f'mask_id in {helper.in_query(control_ids)}').fetch('com')
+
+                    # Make pairs out of control IDs
+                    pc_ids = np.array([pair for pair in itertools.combinations(control_ids, 2)])
+
+                else:
+                    # Get center of mass of all place cells part of a highly-correlating PC pair
+                    pf_coms = (hheise_placecell.PlaceCell.PlaceField & 'username="hheise"' & f'mouse_id={mouse_id}' &
+                               f'day="{abs_date}"' & 'corridor_type=0' & 'large_enough=1' & 'strong_enough=1' &
+                               'transients=1' & f'mask_id in {helper.in_query(np.unique(pc_ids))}').fetch('com')
                 unique_pfs.loc[mouse_id, rel_day] = pf_coms
 
                 # Get center of mass of all PC pairs, associated together in 2D array (like mask_vecs). If a PC has more
@@ -333,8 +347,8 @@ def check_place_fields(corr_masks, mask_vecs, pc_vecs):
                 pf_com_pairs = np.zeros(pc_ids.shape)
                 for m_id in np.unique(pc_ids):
                     curr_com = (hheise_placecell.PlaceCell.PlaceField & 'username="hheise"' & f'mouse_id={mouse_id}' &
-                           f'day="{abs_date}"' & 'corridor_type=0' & 'large_enough=1' & 'strong_enough=1' &
-                           'transients=1' & f'mask_id={m_id}').fetch('com', order_by='com_sd', limit=1)[0]
+                                f'day="{abs_date}"' & 'corridor_type=0' & 'large_enough=1' & 'strong_enough=1' &
+                                'transients=1' & f'mask_id={m_id}').fetch('com', order_by='com_sd', limit=1)[0]
                     pf_com_pairs[pc_ids == m_id] = curr_com
                 pairwise_pfs.loc[mouse_id, rel_day] = pf_com_pairs
 
@@ -467,9 +481,9 @@ if __name__ == '__main__':
     ### CHECK PLACE FIELDS OF HIGHLY-CORRELATING PLACE CELLS ###
     ############################################################
 
-    unique_fields, pairwise_fields = check_place_fields(corr_masks=corr_greater_quant, mask_vecs=mask_id_vectors, pc_vecs=remapped_final_pc_vec)
-    unique_fields.to_pickle(r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_correlations\95th_perc_pc-pc_unique_fields.pkl')
-    pairwise_fields.to_pickle(r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_correlations\95th_perc_pc-pc_pairwise_fields.pkl')
+    unique_fields, pairwise_fields = check_place_fields(corr_masks=corr_greater_quant, mask_vecs=mask_id_vectors, pc_vecs=remapped_final_pc_vec, control=True)
+    unique_fields.to_pickle(r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_correlations\place_field_locations\95th_perc_pc-pc_unique_fields_control.pkl')
+    pairwise_fields.to_pickle(r'C:\Users\hheise.UZH\Desktop\preprint\Filippo\cell_pair_correlations\place_field_locations\95th_perc_pc-pc_pairwise_fields_control.pkl')
 
     #######################################################################################################################################################
     # make plots for coarse and for fine division
