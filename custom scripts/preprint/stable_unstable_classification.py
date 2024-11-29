@@ -19,6 +19,9 @@ from preprint import placecell_heatmap_transition_functions as func
 
 def classify_stability(is_pc_list, spatial_map_list, for_prism=True, ignore_lost=False, align_days=False, aligned_column_names=False):
 
+    def z_score(arr):
+        return (arr - np.nanmean(arr)) / np.nanstd(arr)
+
     mice = [next(iter(dic.keys())) for dic in spatial_map_list]
 
     dfs = []
@@ -46,13 +49,13 @@ def classify_stability(is_pc_list, spatial_map_list, for_prism=True, ignore_lost
         mask_early = (0 < rel_dates) & (rel_dates <= 7)
         mask_late = rel_dates > 7
 
-        classes_pre, stability_thresh = func.quantify_stability_split(is_pc_arr=is_pc_list[i][mouse][0][:, mask_pre],
+        classes_pre, stab_pre, stability_thresh = func.quantify_stability_split(is_pc_arr=is_pc_list[i][mouse][0][:, mask_pre],
                                                                       spat_dff_arr=spatial_map_list[i][mouse][0][:, mask_pre],
                                                                       rel_days=rel_dates[mask_pre], mouse_id=mouse)
-        classes_early = func.quantify_stability_split(is_pc_arr=is_pc_list[i][mouse][0][:, mask_early],
+        classes_early, stab_early = func.quantify_stability_split(is_pc_arr=is_pc_list[i][mouse][0][:, mask_early],
                                                       spat_dff_arr=spatial_map_list[i][mouse][0][:, mask_early],
                                                       rel_days=rel_dates[mask_early], stab_thresh=stability_thresh)
-        classes_late = func.quantify_stability_split(is_pc_arr=is_pc_list[i][mouse][0][:, mask_late],
+        classes_late, stab_late = func.quantify_stability_split(is_pc_arr=is_pc_list[i][mouse][0][:, mask_late],
                                                      spat_dff_arr=spatial_map_list[i][mouse][0][:, mask_late],
                                                      rel_days=rel_dates[mask_late], stab_thresh=stability_thresh)
 
@@ -62,6 +65,9 @@ def classify_stability(is_pc_list, spatial_map_list, for_prism=True, ignore_lost
 
         df['mouse_id'] = mouse
         df['classes'] = [classes_pre, classes_early, classes_late]
+        df['stab_vals'] = [stab_pre, stab_early, stab_late]
+        df['stab_z_scores'] = [z_score(stab_pre), z_score(stab_early), z_score(stab_late)]
+
         dfs.append(df)
 
     class_df = pd.concat(dfs, ignore_index=True)

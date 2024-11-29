@@ -301,3 +301,19 @@ corr_df = pd.concat(corr_dfs, ignore_index=True)
 corr_df_avg = corr_df.groupby(by=['mouse_id', 'phase'], as_index=False).agg({'r': 'mean'})
 
 corr_df_avg.pivot(index='phase', columns='mouse_id', values='r').loc[['pre', 'early', 'late']].to_clipboard(index=True, header=True)
+
+# Plot random datasets as example scatter plots
+
+idx = np.random.randint(low=corr_df.index[0], high=corr_df.index[-1])
+rng_mouse = corr_df.iloc[idx]['mouse_id']
+rng_day = corr_df.iloc[idx]['day']
+rng_corr, rng_dist = get_flat_halfmatrices(corr[rng_mouse][rng_day]['corr'], dist.loc[rng_mouse, rng_day])
+fig = plt.figure()
+ax = sns.histplot(x=rng_dist, y=rng_corr, cbar=True)
+ax.set_ylim(-1, 1)
+ax.set_title(f'M{rng_mouse}, day {rng_day}')
+savestr = f'euclid_corr_M{rng_mouse}_D{rng_day}.svg'
+fig.savefig(r'C:\Users\hheise.UZH\Desktop\preprint\neuron_neuron_correlation' + f'\\{savestr}')
+
+plt.figure()
+plt.scatter(x=rng_dist, y=rng_corr, alpha=0.01)

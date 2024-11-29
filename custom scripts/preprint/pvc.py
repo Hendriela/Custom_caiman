@@ -429,8 +429,8 @@ useful_metrics = ['max_pvc', 'min_pvc', 'min_slope', 'pvc_rel_dif', 'slope_std',
 data = pd.DataFrame((hheise_pvc.PvcCrossSessionEval() * hheise_pvc.PvcCrossSession & 'circular=0').fetch(as_dict=True))
 # data = pd.DataFrame((hheise_pvc.PvcPrestrokeEval * hheise_pvc.PvcPrestroke & 'circular=0').fetch(as_dict=True))
 
-coarse = (hheise_grouping.BehaviorGrouping & 'grouping_id = 0' & 'cluster = "coarse"').get_groups()
-fine = (hheise_grouping.BehaviorGrouping & 'grouping_id = 0' & 'cluster = "fine"').get_groups()
+coarse = (hheise_grouping.BehaviorGrouping & 'grouping_id = 4' & 'cluster = "coarse"').get_groups()
+fine = (hheise_grouping.BehaviorGrouping & 'grouping_id = 4' & 'cluster = "fine"').get_groups()
 
 data = data.merge(coarse, how='left', on='mouse_id').rename(columns={'group': 'coarse'})
 data = data.merge(fine, how='left', on='mouse_id').rename(columns={'group': 'fine'})
@@ -445,10 +445,25 @@ data['q1_q2_rel_prom'] = data.apply(lambda x:  (x['q2_prominence'] - x['q1_promi
 #%% Plot example curve
 plt.figure()
 plt.plot(np.linspace(0, 400, 80)[:63],
-         data[(data.mouse_id == 121) & (data.day == "2022-08-12") & (data.locations == 'all')]['pvc_curve'].values[0][:63])
+         data[(data.mouse_id == 85) & (data.day == "2022-08-12") & (data.locations == 'all')]['pvc_curve'].values[0][:63])
 plt.ylim(0)
 plt.xlabel('$\Delta$X [cm] (location shift)')
 plt.ylabel('PVC')
+
+
+#%% Plot example curves for supplementary (curvyness)
+plt.figure()
+plt.plot(np.linspace(0, 400, 80)[:63],
+         data[(data.mouse_id == 85) & (data.rel_day == 0) & (data.locations == 'all')]['pvc_curve'].values[0][:63])
+plt.plot(np.linspace(0, 400, 80)[:63],
+         data[(data.mouse_id == 91) & (data.rel_day == 9) & (data.locations == 'all')]['pvc_curve'].values[0][:63])
+plt.ylim(0)
+plt.xlabel('$\Delta$X [cm] (location shift)')
+plt.ylabel('PVC')
+#Prism export
+pd.DataFrame(np.stack((data[(data.mouse_id == 41) & (data.rel_day == -4) & (data.locations == 'all')]['pvc_curve'].values[0],
+          data[(data.mouse_id == 41) & (data.rel_day == 2) & (data.locations == 'all')]['pvc_curve'].values[0]))).T.to_clipboard()
+data['peak_rel_prom'] = (data['q1_rel_prominence'] + data['q2_rel_prominence']) / 2
 
 # Plot example curves for separate locations
 quad_size = 64/3*5
@@ -506,9 +521,11 @@ out['non_rz'].to_clipboard(header=False, index=False)
 
 #%% Metrics for groups over time
 avg = data[data.locations == 'all'].groupby(['mouse_id', 'phase'])[metrics].mean(numeric_only=True)
-avg = avg.join(data[data.locations == 'all'][['mouse_id', 'coarse', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()
+avg = data[data.locations == 'all'].groupby(['mouse_id', 'phase'])[['slope_std', 'q1_rel_prominence', 'q2_rel_prominence']].mean(numeric_only=True)
+avg['peak_rel_prom'] = (avg['q1_rel_prominence'] + avg['q2_rel_prominence']) / 2
+avg = avg.join(data[data.locations == 'all'][['mouse_id', 'fine']].drop_duplicates().set_index('mouse_id'), how='inner').reset_index()
 
-avg_prism = avg.pivot(index='phase', columns='mouse_id', values='avg_rel_prominence').loc[['pre', 'pre_post', 'early', 'late']]
+avg_prism = avg.pivot(index='phase', columns='mouse_id', values='peak_rel_prom').loc[['pre', 'pre_post', 'early', 'late']]
 avg_prism.to_clipboard(header=False, index=False)
 
 # Normalize against prestroke baseline

@@ -192,11 +192,16 @@ def example_tracked_cells():
 def example_lick_histogram():
     ### Example lick histogram
 
-    # Set session paths
-    paths = [r"G:\Batch5\M63\20210214",
-             r"G:\Batch5\M63\20210302",
-             r"G:\Batch5\M63\20210306",
-             r"G:\Batch5\M63\20210317"]
+    # Set session paths (main figure)
+    paths = [r"F:\Batch5\M63\20210214",
+             r"F:\Batch5\M63\20210302",
+             r"F:\Batch5\M63\20210306",
+             r"F:\Batch5\M63\20210317"]
+    # Set session paths (supplementary figure)
+    paths = [r"F:\Batch5\M69\20210216",
+             r"F:\Batch5\M69\20210304",
+             r"F:\Batch5\M69\20210311",
+             r"F:\Batch5\M69\20210323"]
 
     # Create figure
     fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(29.4, 12.8))
@@ -249,7 +254,7 @@ def example_lick_histogram():
         ax.tick_params(width=4)
         ax.set_yticklabels(ax.get_yticks(), weight='bold')
 
-    plt.savefig(os.path.join(folder, 'example_VR_behavior.svg'), transparent=True)
+    plt.savefig(os.path.join(folder, 'example_VR_behavior_supp.svg'), transparent=True)
 
 
 def learning_curves():

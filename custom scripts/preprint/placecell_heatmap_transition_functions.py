@@ -435,6 +435,11 @@ def quantify_stability_split(is_pc_arr, spat_dff_arr, rel_days, day_diff = 3, st
     Args:
         is_pc_arr: is_pc output for one mouse. Already restricted for a certain time period.
         spat_dff_arr: spat_dff output for one mouse.  Already restricted for a certain time period.
+
+    Returns:
+        1D array with length #neurons holding cell classification for each neuron
+        1D array with length #neurons holding average cross-session correlation for each neuron
+        If not provided, return stability threshold of the network
     """
 
     # Filter cells that are place cells at least once
@@ -443,13 +448,15 @@ def quantify_stability_split(is_pc_arr, spat_dff_arr, rel_days, day_diff = 3, st
     filter_idx = np.where(filter_pc)[0]   # Indices of place cells to keep track of their attributes
 
     # Compute stability across all session pairs of all place cells
+    stab_arr = np.zeros(len(is_pc_arr)) * np.nan
     stab = []
-    for cell_data in spat_dff_arr[filter_pc]:
+    for i, cell_data in enumerate(spat_dff_arr[filter_pc]):
         cell_corr = []
         for day_idx, day in enumerate(rel_days):
             next_day_idx = np.where(rel_days == day + day_diff)[0]
             if len(next_day_idx) == 1:
                 cell_corr.append(np.corrcoef(cell_data[day_idx], cell_data[next_day_idx[0]])[0, 1])
+        stab_arr[filter_idx[i]] = np.nanmean(cell_corr)
         stab.append(np.nanmean(cell_corr))
 
     # Some cells did not occur in days with distance day_diff, they have to be excluded as well
@@ -490,9 +497,9 @@ def quantify_stability_split(is_pc_arr, spat_dff_arr, rel_days, day_diff = 3, st
     class_mask[stable_mask] = 3
 
     if return_stab:
-        return class_mask, stab_thresh
+        return class_mask, stab_arr, stab_thresh
     else:
-        return class_mask
+        return class_mask, stab_arr
 
 
 def summarize_quantification(class_mask, period='None'):

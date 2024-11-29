@@ -475,23 +475,23 @@ for mouse in mice:
 
     for sess_key in restrictions:
 
-        # raw_dff, mask_ids = (common_img.Segmentation & sess_key).get_traces('dff', include_id=True)
-        # raw_decon = (common_img.Segmentation & sess_key).get_traces('decon', decon_id=1)
-        #
+        raw_dff, mask_ids = (common_img.Segmentation & sess_key).get_traces('dff', include_id=True)
+        raw_decon = (common_img.Segmentation & sess_key).get_traces('decon', decon_id=1)
+
 
         spat_dff_map = (hheise_placecell.BinnedActivity & sess_key & 'place_cell_id=2').get_trial_avg('dff')
-        spat_decon_map = (hheise_placecell.BinnedActivity & sess_key & 'place_cell_id=2').get_trial_avg('decon')
+        # spat_decon_map = (hheise_placecell.BinnedActivity & sess_key & 'place_cell_id=2').get_trial_avg('decon')
 
         rel_day = (datetime.strptime(sess_key['day'], '%Y-%m-%d').date() - microsphere_date).days
 
-        #
-        # # Only include normal trials
-        # trial_mask = (hheise_placecell.PCAnalysis & sess_key & 'place_cell_id=2').fetch1('trial_mask')
-        # norm_trials = (hheise_behav.VRSession & sess_key).get_normal_trials()
-        # norm_trial_mask = np.isin(trial_mask, norm_trials)
-        # dff_norm = raw_dff[:, norm_trial_mask]
-        # decon_norm = raw_decon[:, norm_trial_mask]
-        #
+
+        # Only include normal trials
+        trial_mask = (hheise_placecell.PCAnalysis & sess_key & 'place_cell_id=2').fetch1('trial_mask')
+        norm_trials = (hheise_behav.VRSession & sess_key).get_normal_trials()
+        norm_trial_mask = np.isin(trial_mask, norm_trials)
+        dff_norm = raw_dff[:, norm_trial_mask]
+        decon_norm = raw_decon[:, norm_trial_mask]
+
         # # Only include running frames
         # running_mask, aligned_frames = (hheise_placecell.Synchronization.VRTrial & sess_key & 'place_cell_id=2' &
         #                                 f'trial_id in {helper.in_query(norm_trials)}').fetch('running_mask', 'aligned_frames')
@@ -499,43 +499,43 @@ for mouse in mice:
         # dff_run = dff_norm[:, running_mask]
         # decon_run = decon_norm[:, running_mask]
 
-        # Behavior data
+        # # Behavior data
         # arr = np.asarray(np.delete((hheise_behav.VRSession & sess_key).get_array(get_frame_avg=True), 4, axis=1), dtype=np.float16)
-
-        # Add running mask to it
+        #
+        # # Add running mask to it
         # arr = np.hstack([arr, np.hstack(running_mask).T[..., np.newaxis]])
         #
         # ser = array_to_series(arr.T, name=rel_day).rename({0: 'trial_id', 1: 'timestamp', 2: 'position', 3: 'lick',
         #                                                    4: 'speed', 5: 'valve', 6: 'running_mask'})
 
-        # # Get place cell identity
-        # pc_masks = (hheise_placecell.PlaceCell.ROI & sess_key & 'place_cell_id=2' & 'is_place_cell=1'
-        #             & 'corridor_type=0').fetch('mask_id')
-        # is_pc_mask = np.zeros(len(mask_ids), dtype=int)
-        # is_pc_mask[np.isin(mask_ids, pc_masks)] = 1
-        #
-        # coms = (common_img.Segmentation.ROI & sess_key & 'accepted=1').fetch('com')
-        #
-        # # sessions_dff_normal.append(array_to_series(dff_norm, name=rel_day))
-        # # sessions_dff_run.append(array_to_series(dff_run, name=rel_day))
-        # # sessions_decon_normal.append(array_to_series(decon_norm, name=rel_day))
-        # # sessions_decon_run.append(array_to_series(decon_run, name=rel_day))
-        # sessions_pc.append(pd.Series(is_pc_mask, name=rel_day))
-        # sessions_com.append(pd.Series(coms, name=rel_day))
+        # Get place cell identity
+        pc_masks = (hheise_placecell.PlaceCell.ROI & sess_key & 'place_cell_id=2' & 'is_place_cell=1'
+                    & 'corridor_type=0').fetch('mask_id')
+        is_pc_mask = np.zeros(len(mask_ids), dtype=int)
+        is_pc_mask[np.isin(mask_ids, pc_masks)] = 1
+
+        coms = (common_img.Segmentation.ROI & sess_key & 'accepted=1').fetch('com')
+
+        sessions_dff_normal.append(array_to_series(dff_norm, name=rel_day))
+        # sessions_dff_run.append(array_to_series(dff_run, name=rel_day))
+        sessions_decon_normal.append(array_to_series(decon_norm, name=rel_day))
+        # sessions_decon_run.append(array_to_series(decon_run, name=rel_day))
+        sessions_pc.append(pd.Series(is_pc_mask, name=rel_day))
+        sessions_com.append(pd.Series(coms, name=rel_day))
 
         # sessions_behav.append(ser)
 
         sessions_spat_dff.append(array_to_series(spat_dff_map, name=rel_day))
-        sessions_spat_decon.append(array_to_series(spat_decon_map, name=rel_day))
+        # sessions_spat_decon.append(array_to_series(spat_decon_map, name=rel_day))
 
-    # dff_normal[mouse] = pd.DataFrame(sessions_dff_normal).T
+    dff_normal[mouse] = pd.DataFrame(sessions_dff_normal).T
     # dff_running[mouse] = pd.DataFrame(sessions_dff_run).T
-    # decon_normal[mouse] = pd.DataFrame(sessions_decon_normal).T
+    decon_normal[mouse] = pd.DataFrame(sessions_decon_normal).T
     # decon_running[mouse] = pd.DataFrame(sessions_decon_run).T
-    # is_pc[mouse] = pd.DataFrame(sessions_pc).T
-    # cell_coords[mouse] = pd.DataFrame(sessions_com).T
+    is_pc[mouse] = pd.DataFrame(sessions_pc).T
+    cell_coords[mouse] = pd.DataFrame(sessions_com).T
 
-    spat_decon[mouse] = pd.DataFrame(sessions_spat_decon).T
+    # spat_decon[mouse] = pd.DataFrame(sessions_spat_decon).T
     spat_dff[mouse] = pd.DataFrame(sessions_spat_dff).T
 
 del behav[112]
